@@ -17,6 +17,7 @@ import {
   sessionUpdateIsReplay,
   syntheticLoadSessionResponseFromInitialize,
   toolCallProgressLength,
+  withTrackedPermissionToolCall,
   type AcpToolCallState,
 } from "./runtimeModel.ts";
 
@@ -430,6 +431,23 @@ describe("AcpRuntimeModel", () => {
         command: "cat package.json",
       },
     });
+  });
+
+  it("keeps an explicit permission request kind over the tracked tool call's kind", () => {
+    const request = withTrackedPermissionToolCall(
+      {
+        sessionId: "session-1",
+        options: [{ optionId: "allow-once", name: "Allow once", kind: "allow_once" }],
+        toolCall: { toolCallId: "tool-1", kind: "read" },
+      },
+      {
+        toolCallId: "tool-1",
+        kind: "execute",
+        data: { toolCallId: "tool-1", title: "git status", rawInput: { command: "git status" } },
+      },
+    );
+
+    expect(parsePermissionRequest(request)).toMatchObject({ kind: "read", detail: "git status" });
   });
 
   it("bounds an oversized cumulative tool_call_update content buffer to a tail window", () => {

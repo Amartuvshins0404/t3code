@@ -1179,6 +1179,28 @@ export function embeddedTerminalIdsFromSessionUpdate(
   return terminalIds.length === 0 ? undefined : { toolCallId: update.toolCallId, terminalIds };
 }
 
+/** ACP lets a permission request name its tool call by ID only; omitted fields come from the tracked call. */
+export function withTrackedPermissionToolCall(
+  params: EffectAcpSchema.RequestPermissionRequest,
+  tracked: AcpToolCallState | undefined,
+): EffectAcpSchema.RequestPermissionRequest {
+  if (tracked === undefined) return params;
+  const title =
+    params.toolCall.title ??
+    (typeof tracked.data.title === "string" ? tracked.data.title : undefined);
+  const kind = params.toolCall.kind ?? tracked.kind;
+  const rawInput = params.toolCall.rawInput ?? tracked.data.rawInput;
+  return {
+    ...params,
+    toolCall: {
+      ...params.toolCall,
+      ...(title === undefined ? {} : { title }),
+      ...(kind === undefined ? {} : { kind }),
+      ...(rawInput === undefined ? {} : { rawInput }),
+    },
+  };
+}
+
 export function parsePermissionRequest(
   params: EffectAcpSchema.RequestPermissionRequest,
 ): AcpPermissionRequest {
