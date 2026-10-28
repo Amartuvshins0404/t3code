@@ -1179,25 +1179,25 @@ export function embeddedTerminalIdsFromSessionUpdate(
   return terminalIds.length === 0 ? undefined : { toolCallId: update.toolCallId, terminalIds };
 }
 
-/** ACP lets a permission request name its tool call by ID only; omitted fields come from the tracked call. */
+/** ACP lets a permission request name its tool call by ID only; omitted (not null) fields come from the tracked call. */
 export function withTrackedPermissionToolCall(
   params: EffectAcpSchema.RequestPermissionRequest,
   tracked: AcpToolCallState | undefined,
 ): EffectAcpSchema.RequestPermissionRequest {
   if (tracked === undefined) return params;
-  const title =
-    params.toolCall.title ??
-    (typeof tracked.data.title === "string" ? tracked.data.title : undefined);
-  // Unrecognised kinds map to command approvals, so only a tracked execute kind may grant execution.
-  const kind = params.toolCall.kind ?? (tracked.kind === "execute" ? "execute" : undefined);
-  const rawInput = params.toolCall.rawInput ?? tracked.data.rawInput;
+  const { title, kind, rawInput } = params.toolCall;
   return {
     ...params,
     toolCall: {
       ...params.toolCall,
-      ...(title === undefined ? {} : { title }),
-      ...(kind === undefined ? {} : { kind }),
-      ...(rawInput === undefined ? {} : { rawInput }),
+      ...(title === undefined && typeof tracked.data.title === "string"
+        ? { title: tracked.data.title }
+        : {}),
+      // Unrecognised kinds map to command approvals, so only a tracked execute kind may grant execution.
+      ...(kind === undefined && tracked.kind === "execute" ? { kind: "execute" as const } : {}),
+      ...(rawInput === undefined && tracked.data.rawInput !== undefined
+        ? { rawInput: tracked.data.rawInput }
+        : {}),
     },
   };
 }
