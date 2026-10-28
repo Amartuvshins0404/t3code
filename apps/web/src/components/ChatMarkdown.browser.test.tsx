@@ -340,7 +340,7 @@ describe("ChatMarkdown inline code selection", () => {
     window.getSelection()?.removeAllRanges();
     const fenced = screen.container.querySelector("pre code")!;
     await userEvent.dblClick(fenced, { position: { x: 4, y: 4 } });
-    expect(window.getSelection()?.toString()).not.toContain("word");
+    expect(window.getSelection()?.toString()).toBe("fenced");
   });
 });
 
