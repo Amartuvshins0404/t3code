@@ -1188,7 +1188,8 @@ export function withTrackedPermissionToolCall(
   const title =
     params.toolCall.title ??
     (typeof tracked.data.title === "string" ? tracked.data.title : undefined);
-  const kind = params.toolCall.kind ?? tracked.kind;
+  // Unrecognised kinds map to command approvals, so only a tracked execute kind may grant execution.
+  const kind = params.toolCall.kind ?? (tracked.kind === "execute" ? "execute" : undefined);
   const rawInput = params.toolCall.rawInput ?? tracked.data.rawInput;
   return {
     ...params,

@@ -3115,7 +3115,18 @@ describe("AcpAdapterV2", () => {
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
-  it.effect("resolves an ID-only permission request from the tracked execute tool call", () =>
+  it.effect.each([
+    {
+      label: "grants an ID-only execute approval its tracked command",
+      kind: "execute",
+      granted: true,
+    },
+    {
+      label: "does not grant execution to an ID-only approval of another tool",
+      kind: "other",
+      granted: false,
+    },
+  ] as const)("$label", ({ kind, granted }) =>
     Effect.gen(function* () {
       const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const path = yield* Path.Path;
@@ -3130,7 +3141,7 @@ describe("AcpAdapterV2", () => {
       const makeRuntime = makeMockRuntime({
         childProcessSpawner,
         mockAgentPath,
-        environment: { T3_ACP_EMIT_EXECUTE_TOOL_CALL_THEN_HANG: "1" },
+        environment: { T3_ACP_EMIT_TRACKED_TOOL_CALL_KIND_THEN_HANG: kind },
         wrapRuntime: (runtime) => ({
           ...runtime,
           handleRequestPermission: (handler) =>
@@ -3194,7 +3205,7 @@ describe("AcpAdapterV2", () => {
         Stream.filter(
           (event) =>
             event.type === "turn_item.updated" &&
-            event.turnItem.nativeItemRef?.nativeId === "execute-tool-call",
+            event.turnItem.nativeItemRef?.nativeId === "tracked-tool-call",
         ),
         Stream.runHead,
       );
@@ -3202,7 +3213,7 @@ describe("AcpAdapterV2", () => {
       const permissionFiber = yield* requestPermission(
         {
           sessionId: "mock-session-1",
-          toolCall: { toolCallId: "execute-tool-call" },
+          toolCall: { toolCallId: "tracked-tool-call" },
           options: [{ optionId: "allow-once", name: "Allow once", kind: "allow_once" }],
         },
         { requestId: "id-only-permission-request", method: "session/request_permission" },
@@ -3245,7 +3256,7 @@ describe("AcpAdapterV2", () => {
       ).pipe(Effect.exit);
       assert.deepEqual(
         { prompt: approval.prompt, terminalCreated: Exit.isSuccess(terminalExit) },
-        { prompt: "git status", terminalCreated: true },
+        { prompt: "git status", terminalCreated: granted },
       );
 
       yield* runtime.interruptTurn({ providerThread, providerTurnId });
