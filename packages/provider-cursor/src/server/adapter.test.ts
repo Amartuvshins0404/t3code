@@ -1035,6 +1035,15 @@ describe("CursorAdapterV2", () => {
         },
         {
           toolCall: {
+            toolCallId: "tool:lints-clean-file",
+            readLintsToolCall: {
+              args: {},
+              result: { success: { fileDiagnostics: [{ path: "src/clean.ts" }] } },
+            },
+          },
+        },
+        {
+          toolCall: {
             toolCallId: "tool:mcp",
             mcpToolCall: {
               args: { providerIdentifier: "docs", toolName: "lookup", args: { query: "ls" } },
@@ -1183,6 +1192,7 @@ describe("CursorAdapterV2", () => {
             pattern: workspace,
             results: [{ fileName: path.join(workspace, "src", "index.ts") }],
           },
+          { status: "completed", pattern: "", results: [] },
           { status: "completed", pattern: "", results: [] },
           {
             status: "completed",
