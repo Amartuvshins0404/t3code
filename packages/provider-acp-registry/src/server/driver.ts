@@ -239,6 +239,7 @@ function baseSnapshot(
         }),
     slashCommands: input.probe?.slashCommands ?? [],
     skills: input.probe?.skills ?? [],
+    ...(input.probe?.usageLimits ? { usageLimits: input.probe.usageLimits } : {}),
   };
 }
 

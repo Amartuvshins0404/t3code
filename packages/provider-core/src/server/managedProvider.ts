@@ -83,7 +83,14 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         return [null, state] as const;
       }
       // Enrichment must not revert usage updates newer than its input snapshot.
-      const merged = withUsageLimits(nextSnapshot, state.snapshot.usageLimits);
+      const published = state.snapshot.usageLimits;
+      const enriched = nextSnapshot.usageLimits;
+      const merged = withUsageLimits(
+        nextSnapshot,
+        enriched && (!published || Date.parse(enriched.checkedAt) > Date.parse(published.checkedAt))
+          ? enriched
+          : published,
+      );
       if (Equal.equals(state.snapshot, merged)) {
         return [null, state] as const;
       }

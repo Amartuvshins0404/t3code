@@ -9,9 +9,11 @@ import {
   type ProviderInstanceId,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import { AcpRegistrySettings } from "../settings.ts";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -25,6 +27,7 @@ import type * as EffectAcpSchema from "effect-acp/compat";
 
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
+import { ACP_USAGE_COMMANDS, parseAcpUsageLimits } from "./acpUsage.ts";
 import {
   findModelConfigOption,
   parseSessionModeState,
@@ -46,6 +49,7 @@ const MAX_COMMAND_LINE_LENGTH = 2_048;
 const PROBE_TIMEOUT_SECONDS = 60;
 const PROBE_TIMEOUT = `${PROBE_TIMEOUT_SECONDS} seconds`;
 const COMMAND_ADVERTISEMENT_GRACE = "500 millis";
+const USAGE_COMMAND_TIMEOUT = "10 seconds";
 
 const boundedText = (value: string, maximumLength: number): string =>
   value.trim().slice(0, maximumLength);
@@ -308,6 +312,7 @@ export interface AcpRegistryConfigurationProbeResult {
   readonly probe: AcpRegistryProbeResult;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
+  readonly usageLimits?: ServerProviderUsageLimits;
 }
 
 export type AcpRegistryConfigurationProbe<Requirements = never> = (
@@ -374,6 +379,7 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
         emptyAcpRegistryAvailableCommands(),
       );
       const commandsAdvertised = yield* Deferred.make<void>();
+      const replyTextRef = yield* Ref.make("");
       yield* runtime.handleElicitation((request) =>
         Effect.gen(function* () {
           if (
@@ -405,6 +411,10 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       );
       yield* runtime.handleSessionUpdate((notification) => {
         const update = notification.update;
+        if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
+          const { text } = update.content;
+          return Ref.update(replyTextRef, (reply) => reply + text);
+        }
         return update.sessionUpdate === "available_commands_update"
           ? Ref.set(commandsRef, normalizeAcpRegistryCommands(update.availableCommands)).pipe(
               Effect.andThen(Deferred.succeed(commandsAdvertised, undefined)),
@@ -424,7 +434,23 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       yield* Deferred.await(commandsAdvertised).pipe(
         Effect.timeoutOption(COMMAND_ADVERTISEMENT_GRACE),
       );
-      return { resolved, started, commands: yield* Ref.get(commandsRef) };
+      const usageCommand = ACP_USAGE_COMMANDS[input.settings.agentId];
+      const usageLimits =
+        usageCommand === undefined
+          ? undefined
+          : yield* runtime.prompt({ prompt: [{ type: "text", text: usageCommand }] }).pipe(
+              Effect.andThen(Effect.all([Ref.get(replyTextRef), DateTime.now])),
+              Effect.map(([text, now]) => parseAcpUsageLimits(text, DateTime.formatIso(now))),
+              Effect.ensuring(
+                started.initializeResult.agentCapabilities?.sessionCapabilities?.delete == null
+                  ? Effect.void
+                  : Effect.ignore(runtime.deleteSession(started.sessionId)),
+              ),
+              Effect.timeoutOption(USAGE_COMMAND_TIMEOUT),
+              Effect.map(Option.getOrUndefined),
+              Effect.orElseSucceed(() => undefined),
+            );
+      return { resolved, started, commands: yield* Ref.get(commandsRef), usageLimits };
     }).pipe(
       Effect.scoped,
       Effect.timeoutOrElse({
@@ -453,6 +479,7 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       ),
       slashCommands: result.commands.slashCommands,
       skills: result.commands.skills,
+      ...(result.usageLimits ? { usageLimits: result.usageLimits } : {}),
     };
   },
 );

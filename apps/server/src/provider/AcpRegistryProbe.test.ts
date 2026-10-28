@@ -1,4 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 
@@ -18,6 +20,7 @@ import {
   logoutAcpRegistry,
   normalizeAcpRegistryAuthMethods,
   normalizeAcpRegistryCommands,
+  probeAcpRegistryConfiguration,
 } from "@t3tools/provider-acp-registry/testing";
 import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRegistrySupport";
 
@@ -372,6 +375,120 @@ describe("ACP Registry probe", () => {
       Effect.provide(NodeServices.layer),
       Effect.scoped,
     );
+  });
+
+  it.live("reads plan limits from Claude /usage and Codex /status replies", () => {
+    const claudeUsage = [
+      "## Usage",
+      "",
+      "> Claude max subscription usage",
+      "",
+      "### Limits",
+      "",
+      "**5-hour limit** — **51%** · Resets Oct 29, 9:10 AM GMT+8",
+      "",
+      "`██████████░░░░░░░░░░`",
+      "",
+      "**Weekly · all models** — **6%** · Resets Oct 31, 10:00 AM GMT+8",
+      "",
+      "**Weekly · Fable** — **0%** · Resets Oct 31, 10:00 AM GMT+8",
+      "",
+      "**Last 24h** · 2100 requests · 24 sessions",
+      "",
+      "- **74%** Start fresh when you switch tasks · run /clear",
+      "",
+      "| t3-code | `█░░░░░░░░░░░░░░░░░░░` 6% |",
+    ].join("\n");
+    const codexStatus = [
+      "**Model:** gpt-6.1-sol[low]  ",
+      "**Account:** ChatGPT plus (user@example.com)  ",
+      "**Context window:** 12% used (30.1K used / 258.4K)  ",
+      "**codex 5h limit:** 64% left (resets 14:03)  ",
+      "**codex Weekly limit:** 58% left (resets 11:39 on Nov 25)",
+    ].join("\n");
+    const cases = [
+      {
+        agentId: "claude-acp",
+        command: "/usage",
+        reply: claudeUsage,
+        windows: [
+          { id: "5_hour_limit", kind: "session", label: "5-hour limit", usedPercent: 51 },
+          { id: "weekly_all_models", kind: "weekly", label: "Weekly · all models", usedPercent: 6 },
+          { id: "weekly_fable", kind: "weekly", label: "Weekly · Fable", usedPercent: 0 },
+        ],
+      },
+      {
+        agentId: "codex-acp",
+        command: "/status",
+        reply: codexStatus,
+        windows: [
+          { id: "codex_5h_limit", kind: "session", label: "codex 5h limit", usedPercent: 36 },
+          {
+            id: "codex_weekly_limit",
+            kind: "weekly",
+            label: "codex Weekly limit",
+            usedPercent: 42,
+          },
+        ],
+      },
+      { agentId: "mock-agent", command: undefined, reply: claudeUsage, windows: undefined },
+    ];
+
+    return Effect.forEach(cases, ({ agentId, command, reply, windows }) =>
+      Effect.gen(function* () {
+        const requestLogPath = NodePath.join(
+          NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "acp-usage-")),
+          "requests.ndjson",
+        );
+        const catalog = AcpRegistrySupport.AcpRegistryCatalog.of({
+          search: () => Effect.die("unused search"),
+          prepare: () => Effect.die("unused prepare"),
+          inspect: () => Effect.die("unused inspect"),
+          uninstallManagedBinary: () => Effect.die("unused uninstall"),
+          resolve: () =>
+            Effect.succeed({
+              agent: {
+                id: agentId,
+                name: agentId,
+                version: "1.0.0",
+                description: "ACP usage test agent",
+                distribution: { npx: { package: `${agentId}@1.0.0` } },
+              },
+              distribution: "npx" as const,
+              spawn: {
+                command: "node",
+                args: [mockAgentPath],
+                env: {
+                  ...process.env,
+                  T3_ACP_V2_MANAGEMENT: "1",
+                  T3_ACP_PROMPT_RESPONSE_TEXT: reply,
+                  T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+                },
+              },
+            }),
+        });
+        const result = yield* probeAcpRegistryConfiguration({
+          instanceId,
+          settings: decodeSettings({ agentId }),
+          cwd: process.cwd(),
+          environment: process.env,
+        }).pipe(Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog));
+
+        const requests = NodeFS.readFileSync(requestLogPath, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        expect(
+          requests
+            .filter((request) => request.method === "session/prompt")
+            .map((request) => request.params.prompt[0].text),
+        ).toEqual(command === undefined ? [] : [command]);
+        expect(requests.some((request) => request.method === "session/delete")).toBe(
+          command !== undefined,
+        );
+        expect(result.usageLimits?.windows).toEqual(windows);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
   });
 
   it("distinguishes authentication failures from generic probe failures", () => {
