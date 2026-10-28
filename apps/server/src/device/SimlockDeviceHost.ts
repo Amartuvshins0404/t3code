@@ -10,6 +10,7 @@ import {
   DeviceHostUnavailableError,
   DeviceOperationError,
   type DevicePlatform,
+  type DevicePlatformAvailability,
   type SimlockDeviceHostConfig,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
@@ -22,7 +23,7 @@ import * as Path from "effect/Path";
 import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/http";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import type { NodeRuntimeUnavailableError } from "@t3tools/shared/nodeRuntime";
 
@@ -114,6 +115,8 @@ export const make = Effect.fn("SimlockDeviceHost.make")(function* (
     readonly at: number;
     readonly devices: ReadonlyArray<DeviceHost.HostDevice>;
   } | null = null;
+  // The last answer from the gateway; empty until it gives one.
+  let platforms: ReadonlyArray<DevicePlatformAvailability> = [];
   let ready: DeviceHost.DeviceHostReady | null = null;
   let cli: { readonly nodePath: string; readonly entryPath: string } | null = null;
 
@@ -197,7 +200,7 @@ export const make = Effect.fn("SimlockDeviceHost.make")(function* (
     return result.stdout;
   });
 
-  const loadCatalog = Effect.gen(function* () {
+  const fetchCatalog = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     if (catalog && now - catalog.at < CATALOG_TTL_MS) return catalog.devices;
     if (!config.agentToken) {
@@ -205,12 +208,19 @@ export const make = Effect.fn("SimlockDeviceHost.make")(function* (
     }
     const decoded = yield* request("GET", "/v1/catalog").pipe(
       Effect.flatMap(decodeCatalog),
-      Effect.mapError((cause) =>
-        unavailable(
-          `Could not reach the Simlock gateway at ${gateway}, or it refused the agent token.`,
+      Effect.mapError((cause) => {
+        const status = HttpClientError.isHttpClientError(cause)
+          ? cause.response?.status
+          : undefined;
+        return unavailable(
+          status === 401 || status === 403
+            ? `The Simlock gateway refused the agent token for ${config.label}. Check it in Settings.`
+            : status !== undefined
+              ? `The Simlock gateway at ${gateway} answered HTTP ${status}.`
+              : `Could not reach the Simlock gateway at ${gateway}.`,
           cause,
-        ),
-      ),
+        );
+      }),
     );
     const devices = decoded.platforms.flatMap((entry) => {
       if (entry.platform !== "ios" && entry.platform !== "android") return [];
@@ -235,6 +245,31 @@ export const make = Effect.fn("SimlockDeviceHost.make")(function* (
     catalog = { at: now, devices };
     return devices;
   });
+
+  const loadCatalog = fetchCatalog.pipe(
+    Effect.tap((devices) =>
+      Effect.sync(() => {
+        platforms = (["ios", "android"] as const).map((platform) =>
+          devices.some((device) => device.platform === platform)
+            ? { platform, available: true }
+            : {
+                platform,
+                available: false,
+                reason: `The pool has no ${platform === "ios" ? "iOS" : "Android"} devices.`,
+              },
+        );
+      }),
+    ),
+    Effect.tapError((error) =>
+      Effect.sync(() => {
+        platforms = (["ios", "android"] as const).map((platform) => ({
+          platform,
+          available: false,
+          reason: error.reason,
+        }));
+      }),
+    ),
+  );
 
   const forget = (lease: Lease) =>
     Effect.suspend(() => {
@@ -515,19 +550,25 @@ export const make = Effect.fn("SimlockDeviceHost.make")(function* (
   yield* Effect.addFinalizer(() => stopAll);
 
   const platformAvailability = (platform: DevicePlatform) =>
-    Effect.succeed({ platform, available: true });
+    loadCatalog.pipe(
+      Effect.ignore,
+      Effect.map(
+        (): DevicePlatformAvailability =>
+          platforms.find((candidate) => candidate.platform === platform) ?? {
+            platform,
+            available: false,
+          },
+      ),
+    );
 
-  const summary: Effect.Effect<DeviceHostSummary> = Effect.succeed({
+  const summary: Effect.Effect<DeviceHostSummary> = Effect.sync(() => ({
     id: hostId,
     label: config.label,
     kind: "simlock" as const,
-    platforms: [
-      { platform: "ios" as const, available: true },
-      { platform: "android" as const, available: true },
-    ],
+    platforms,
     hubInstalled: true,
     agentDeviceInstalled: true,
-  });
+  }));
 
   return DeviceHost.DeviceHost.of({
     id: hostId,

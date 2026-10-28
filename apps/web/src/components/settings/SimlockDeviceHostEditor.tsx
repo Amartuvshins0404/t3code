@@ -142,7 +142,8 @@ export function SimlockDeviceHostEditor(props: {
               ))}
               <p className="text-xs text-muted-foreground">
                 Leases, drives, and streams devices. Create one{several ? " per environment" : ""}{" "}
-                with <code>simlock --gateway token create --role agent</code>.
+                with <code>simlock --gateway token create --role agent</code>
+                {several ? ", or leave an environment blank to add its token later" : ""}.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">

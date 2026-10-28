@@ -66,9 +66,10 @@ const fakePool = (
       Effect.sync(() => {
         const url = new URL(request.url);
         requests.push(`${request.method} ${url.pathname}`);
-        expect(request.headers.authorization).toBe("Bearer agent-token");
         const json = (body: unknown, status = 200) =>
           HttpClientResponse.fromWeb(request, Response.json(body, { status }));
+        if (request.headers.authorization !== "Bearer agent-token")
+          return json({ error: { code: "UNAUTHENTICATED", message: "Unknown bearer token" } }, 401);
         if (url.pathname === "/v1/catalog") return json(CATALOG);
         if (url.pathname.endsWith("/renew")) return json({}, renewStatus);
         if (request.method === "DELETE") return json({}, 202);
@@ -254,6 +255,22 @@ describe("Simlock device host", () => {
       expect(pool.ran("open")).toHaveLength(1);
       yield* Scope.close(scope, Exit.void);
       expect(pool.ran("close")).toHaveLength(1);
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+
+  it.effect("reports its platforms unavailable when the gateway refuses the agent token", () =>
+    Effect.gen(function* () {
+      const pool = yield* fakePool();
+      const scope = yield* Scope.make();
+      const host = yield* makeHost(pool, config({ agentToken: "revoked" }), scope);
+      expect(yield* host.platformAvailability("ios")).toEqual({
+        platform: "ios",
+        available: false,
+        reason:
+          "The Simlock gateway refused the agent token for Device pool. Check it in Settings.",
+      });
+      expect((yield* host.summary).platforms.every((platform) => !platform.available)).toBe(true);
+      yield* Scope.close(scope, Exit.void);
     }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 
