@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { SimlockDeviceHostConfig } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Deferred from "effect/Deferred";
@@ -271,6 +272,37 @@ describe("Simlock device host", () => {
       });
       expect((yield* host.summary).platforms.every((platform) => !platform.available)).toBe(true);
       yield* Scope.close(scope, Exit.void);
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+
+  it.effect("uses this machine's agent-device token only for the gateway it targets", () =>
+    Effect.gen(function* () {
+      const pool = yield* fakePool();
+      const availability = (baseUrl: string) =>
+        Effect.gen(function* () {
+          const scope = yield* Scope.make();
+          const host = yield* makeHost(pool, config({ agentToken: "" }), scope).pipe(
+            Effect.provideService(HostProcess.Environment, {
+              AGENT_DEVICE_DAEMON_BASE_URL: baseUrl,
+              AGENT_DEVICE_DAEMON_AUTH_TOKEN: "agent-token",
+            }),
+          );
+          const result = yield* host.platformAvailability("ios");
+          yield* Scope.close(scope, Exit.void);
+          return result;
+        });
+
+      expect(yield* availability(`${GATEWAY}/v1/agent-device`)).toEqual({
+        platform: "ios",
+        available: true,
+      });
+      const requests = pool.requests.length;
+      expect(yield* availability("https://elsewhere.example:4700/v1/agent-device")).toEqual({
+        platform: "ios",
+        available: false,
+        reason: "Add an agent token for Device pool in Settings.",
+      });
+      expect(pool.requests).toHaveLength(requests);
     }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 
