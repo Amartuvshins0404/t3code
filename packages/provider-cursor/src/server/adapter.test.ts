@@ -1027,6 +1027,21 @@ describe("CursorAdapterV2", () => {
             },
           },
         },
+        {
+          toolCall: {
+            toolCallId: "tool:lints",
+            readLintsToolCall: { args: {}, result: { success: {} } },
+          },
+        },
+        {
+          toolCall: {
+            toolCallId: "tool:mcp",
+            mcpToolCall: {
+              args: { providerIdentifier: "docs", toolName: "lookup", args: { query: "ls" } },
+              result: { success: {} },
+            },
+          },
+        },
       ];
       const adapter = yield* makeCursorAdapterV2({
         instanceId,
@@ -1151,14 +1166,30 @@ describe("CursorAdapterV2", () => {
         .childThreadId;
       assert.isDefined(childThreadId);
       assert.deepEqual(
-        events.flatMap((event) =>
-          event.type === "turn_item.updated" &&
-          event.turnItem.type === "file_search" &&
-          event.turnItem.threadId === childThreadId
-            ? [{ status: event.turnItem.status, results: event.turnItem.results }]
-            : [],
-        ),
-        [{ status: "completed", results: [{ fileName: path.join(workspace, "src", "index.ts") }] }],
+        events.flatMap((event): ReadonlyArray<unknown> => {
+          if (event.type !== "turn_item.updated" || event.turnItem.threadId !== childThreadId) {
+            return [];
+          }
+          const item = event.turnItem;
+          return item.type === "file_search"
+            ? [{ status: item.status, pattern: item.pattern, results: item.results ?? [] }]
+            : item.type === "dynamic_tool"
+              ? [{ status: item.status, toolName: item.toolName, output: item.output }]
+              : [];
+        }),
+        [
+          {
+            status: "completed",
+            pattern: workspace,
+            results: [{ fileName: path.join(workspace, "src", "index.ts") }],
+          },
+          { status: "completed", pattern: "", results: [] },
+          {
+            status: "completed",
+            toolName: "mcp__docs__lookup",
+            output: { content: [], isError: false },
+          },
+        ],
       );
     }).pipe(
       Effect.scoped,
