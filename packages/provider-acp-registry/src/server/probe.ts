@@ -50,6 +50,7 @@ const PROBE_TIMEOUT_SECONDS = 60;
 const PROBE_TIMEOUT = `${PROBE_TIMEOUT_SECONDS} seconds`;
 const COMMAND_ADVERTISEMENT_GRACE = "500 millis";
 const USAGE_COMMAND_TIMEOUT = "10 seconds";
+const DELETE_SESSION_TIMEOUT = "2 seconds";
 
 const boundedText = (value: string, maximumLength: number): string =>
   value.trim().slice(0, maximumLength);
@@ -444,7 +445,13 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
               Effect.ensuring(
                 started.initializeResult.agentCapabilities?.sessionCapabilities?.delete == null
                   ? Effect.void
-                  : Effect.ignore(runtime.deleteSession(started.sessionId)),
+                  : runtime
+                      .deleteSession(started.sessionId)
+                      .pipe(
+                        Effect.interruptible,
+                        Effect.timeoutOption(DELETE_SESSION_TIMEOUT),
+                        Effect.ignore,
+                      ),
               ),
               Effect.timeoutOption(USAGE_COMMAND_TIMEOUT),
               Effect.map(Option.getOrUndefined),

@@ -432,9 +432,12 @@ describe("ACP Registry probe", () => {
         ],
       },
       { agentId: "mock-agent", command: undefined, reply: claudeUsage, windows: undefined },
-    ];
+    ].flatMap((testCase) => [
+      { ...testCase, hangDelete: false },
+      ...(testCase.agentId === "claude-acp" ? [{ ...testCase, hangDelete: true }] : []),
+    ]);
 
-    return Effect.forEach(cases, ({ agentId, command, reply, windows }) =>
+    return Effect.forEach(cases, ({ agentId, command, reply, windows, hangDelete }) =>
       Effect.gen(function* () {
         const requestLogPath = NodePath.join(
           NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "acp-usage-")),
@@ -463,6 +466,7 @@ describe("ACP Registry probe", () => {
                   T3_ACP_V2_MANAGEMENT: "1",
                   T3_ACP_PROMPT_RESPONSE_TEXT: reply,
                   T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+                  ...(hangDelete ? { T3_ACP_HANG_DELETE_SESSION: "1" } : {}),
                 },
               },
             }),
