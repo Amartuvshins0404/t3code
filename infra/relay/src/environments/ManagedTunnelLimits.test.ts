@@ -5,16 +5,17 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Redacted from "effect/Redacted";
 import * as Semaphore from "effect/Semaphore";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { ne } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { DEFAULT_MANAGED_TUNNEL_LIMIT, type RelayT3ChatPlan } from "@t3tools/contracts/relay";
+import { DEFAULT_MANAGED_TUNNEL_LIMIT } from "@t3tools/contracts/relay";
 
+import * as RelayConfiguration from "../Config.ts";
 import * as RelayDb from "../db.ts";
 import { relayManagedEndpointAllocations } from "../persistence/schema.ts";
-import * as T3ChatAccounts from "../t3chat/T3ChatAccounts.ts";
 import * as ManagedTunnelLimits from "./ManagedTunnelLimits.ts";
 
 const BACKFILL_MIGRATION = "20261028062605_backfill_withdrawn_tunnel_allocations";
@@ -82,27 +83,27 @@ function makeFakeDb(input: FakeDbInput) {
   } as unknown as RelayDb.RelayDb["Service"];
 }
 
-const t3ChatLayer = (plan: RelayT3ChatPlan | "lookup-fails", lookups?: Array<string>) =>
-  Layer.mock(T3ChatAccounts.T3ChatAccounts, {
-    available: true,
-    getLink: ({ userId }) => {
-      lookups?.push(userId);
-      return plan === "lookup-fails"
-        ? Effect.fail(
-            new T3ChatAccounts.T3ChatRequestFailed({
-              operation: "get-link",
-              cause: new Error("down"),
-            }),
-          )
-        : Effect.succeed({ email: "theo@example.com", plan });
+const configLayer = (managedTunnelLimit?: number) =>
+  RelayConfiguration.layer({
+    relayIssuer: "https://relay.example.test",
+    apns: null,
+    identity: {
+      issuer: "https://auth.example.test",
+      audience: "t3-relay",
+      jwksUrl: "https://auth.example.test/api/auth/jwks",
     },
+    apnsDeliveryJobSigningSecret: Redacted.make("apns-delivery-secret"),
+    cloudMintPrivateKey: Redacted.make("cloud-mint-private-key"),
+    cloudMintPublicKey: "cloud-mint-public-key",
+    managedEndpointBaseDomain: undefined,
+    managedEndpointNamespace: undefined,
+    ...(managedTunnelLimit === undefined ? {} : { managedTunnelLimit }),
   });
 
 const reserve = (
   input: Omit<FakeDbInput, "otherSlots"> & {
     readonly activeTunnels: number;
-    readonly plan: RelayT3ChatPlan | "lookup-fails";
-    readonly lookups?: Array<string>;
+    readonly configuredLimit?: number;
   },
 ) =>
   Effect.gen(function* () {
@@ -117,7 +118,7 @@ const reserve = (
             makeFakeDb({ ...input, otherSlots: () => input.activeTunnels }),
           ),
         ),
-        Layer.provide(t3ChatLayer(input.plan, input.lookups)),
+        Layer.provide(configLayer(input.configuredLimit)),
       ),
     ),
   );
@@ -138,7 +139,7 @@ const getOverride = (override?: number) =>
             }),
           ),
         ),
-        Layer.provide(t3ChatLayer("free")),
+        Layer.provide(configLayer()),
       ),
     ),
   );
@@ -175,7 +176,7 @@ describe("ManagedTunnelLimits", () => {
           Layer.provide(
             Layer.succeed(RelayDb.RelayDb, makeFakeDb({ otherSlots: () => reserved.length })),
           ),
-          Layer.provide(t3ChatLayer("free")),
+          Layer.provide(configLayer()),
         ),
       ),
     );
@@ -370,56 +371,38 @@ describe("ManagedTunnelLimits", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("does not ask T3 Chat while the account is under its cap", () =>
+  it.effect("uses the configured cap in place of the default", () =>
     Effect.gen(function* () {
-      const lookups: Array<string> = [];
-      yield* reserve({ activeTunnels: 2, plan: "free", lookups });
-      expect(lookups).toEqual([]);
+      yield* reserve({ activeTunnels: 24, configuredLimit: 25 });
+      const error = yield* Effect.flip(reserve({ activeTunnels: 25, configuredLimit: 25 }));
+      expect(error).toMatchObject({ _tag: "ManagedTunnelLimitExceeded", maxTunnels: 25 });
     }),
   );
 
-  it.effect("raises the cap to the linked T3 Chat plan's limit", () =>
+  it.effect("keeps the default cap when none is configured", () =>
     Effect.gen(function* () {
-      for (const [plan, limit] of [
-        ["pro", 10],
-        ["premier", 100],
-      ] as const) {
-        yield* reserve({ activeTunnels: limit - 1, plan });
-        const error = yield* Effect.flip(reserve({ activeTunnels: limit, plan }));
-        expect(error).toMatchObject({ _tag: "ManagedTunnelLimitExceeded", maxTunnels: limit });
-      }
-    }),
-  );
-
-  it.effect("keeps the default cap for free plans and failed lookups", () =>
-    Effect.gen(function* () {
-      for (const plan of ["free", "lookup-fails"] as const) {
-        const error = yield* Effect.flip(reserve({ activeTunnels: 3, plan }));
-        expect(error).toMatchObject({ _tag: "ManagedTunnelLimitExceeded", maxTunnels: 3 });
-      }
+      const error = yield* Effect.flip(reserve({ activeTunnels: DEFAULT_MANAGED_TUNNEL_LIMIT }));
+      expect(error).toMatchObject({
+        _tag: "ManagedTunnelLimitExceeded",
+        maxTunnels: DEFAULT_MANAGED_TUNNEL_LIMIT,
+      });
     }),
   );
 
   it.effect("treats a manual override as the exact cap", () =>
     Effect.gen(function* () {
-      const lookups: Array<string> = [];
       for (const override of [1, 200]) {
         const error = yield* Effect.flip(
-          reserve({ override, activeTunnels: override, plan: "premier", lookups }),
+          reserve({ override, activeTunnels: override, configuredLimit: 25 }),
         );
         expect(error).toMatchObject({ _tag: "ManagedTunnelLimitExceeded", maxTunnels: override });
         expect(yield* getOverride(override)).toBe(override);
       }
       expect(yield* getOverride()).toBeNull();
-      expect(lookups).toEqual([]);
     }),
   );
 
-  it.effect("lets an environment holding a slot relink without asking T3 Chat", () =>
-    Effect.gen(function* () {
-      const lookups: Array<string> = [];
-      yield* reserve({ activeTunnels: 10, plan: "lookup-fails", ownSlot: true, lookups });
-      expect(lookups).toEqual([]);
-    }),
+  it.effect("lets an environment holding a slot relink past the cap", () =>
+    reserve({ activeTunnels: 10, ownSlot: true }),
   );
 });

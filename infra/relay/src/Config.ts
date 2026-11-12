@@ -48,11 +48,24 @@ export interface ApnsCredentials {
   readonly environment: ApnsEnvironment;
 }
 
-export interface T3ChatSettings {
-  readonly baseUrl: string;
-  // Shared with T3 Chat: signs link tokens and authenticates relay calls.
-  readonly linkSecret: Redacted.Redacted<string>;
+export interface IdentitySettings {
+  readonly issuer: string;
+  readonly audience: string;
+  readonly jwksUrl: string;
 }
+
+export const identitySettingsConfig = Config.all({
+  issuer: Config.NonEmptyString("RELAY_AUTH_ISSUER"),
+  audience: Config.NonEmptyString("RELAY_AUTH_AUDIENCE"),
+  jwksUrl: Config.NonEmptyString("RELAY_AUTH_JWKS_URL"),
+});
+
+export const managedTunnelLimitConfig = Config.option(
+  Config.schema(
+    Schema.NumberFromString.pipe(Schema.check(Schema.isInt(), Schema.isGreaterThan(0))),
+    "RELAY_MAX_TUNNELS_PER_USER",
+  ),
+);
 
 export class RelayConfiguration extends Context.Service<
   RelayConfiguration,
@@ -60,9 +73,7 @@ export class RelayConfiguration extends Context.Service<
     readonly relayIssuer: string;
     readonly apns: ApnsCredentials | null;
     readonly fcmServiceAccount?: Redacted.Redacted<string>;
-    readonly clerkSecretKey: Redacted.Redacted<string>;
-    readonly clerkPublishableKey: string;
-    readonly clerkJwtAudience: string;
+    readonly identity: IdentitySettings;
     readonly apnsDeliveryJobSigningSecret: Redacted.Redacted<string>;
     readonly cloudMintPrivateKey: Redacted.Redacted<string>;
     readonly cloudMintPublicKey: string;
@@ -71,7 +82,7 @@ export class RelayConfiguration extends Context.Service<
     readonly managedEndpointCleanupMode?: ManagedEndpointCleanupMode;
     readonly legacyManagedEndpointCleanupMode?: ManagedEndpointCleanupMode;
     readonly legacyTunnelGraceMinutes?: number;
-    readonly t3Chat?: T3ChatSettings;
+    readonly managedTunnelLimit?: number;
   }
 >()("t3code-relay/Config/RelayConfiguration") {}
 

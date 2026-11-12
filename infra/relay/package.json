@@ -4,6 +4,9 @@
   "type": "module",
   "scripts": {
     "deploy": "alchemy deploy",
+    "build": "vp pack",
+    "dev": "node src/node.ts",
+    "start": "node dist/node.mjs",
     "push:android:smoke": "node scripts/android-push-smoke.ts",
     "push:android:watch": "node scripts/android-push-watch.ts",
     "tunnels:census": "node scripts/tunnel-census.ts",
@@ -16,8 +19,8 @@
     "@alchemy.run/cloudflare": "catalog:",
     "@alchemy.run/drizzle": "catalog:",
     "@alchemy.run/planetscale": "catalog:",
-    "@clerk/backend": "catalog:",
     "@distilled.cloud/cloudflare": "catalog:",
+    "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",
     "@effect/sql-sqlite-do": "catalog:",
     "@noble/curves": "catalog:",
@@ -32,7 +35,6 @@
   "devDependencies": {
     "@alchemy.run/test": "catalog:",
     "@cloudflare/workers-types": "^4.20260601.1",
-    "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@electric-sql/pglite": "0.3.15",
     "@types/node": "catalog:",

@@ -43,6 +43,8 @@ import * as EnvironmentLinks from "./environments/EnvironmentLinks.ts";
 import * as ManagedEndpointAllocations from "./environments/ManagedEndpointAllocations.ts";
 import * as LiveActivities from "./agentActivity/LiveActivities.ts";
 import * as RelayDb from "./db.ts";
+import * as RelayDbDeployment from "./dbDeployment.ts";
+import * as CloudflareBindings from "./cloudflareBindings.ts";
 import {
   RelayApnsDeliveryDeadLetterQueue,
   RelayApnsDeliveryQueue,
@@ -59,16 +61,14 @@ import * as RelayConfiguration from "./Config.ts";
 import * as AgentActivityPublisher from "./agentActivity/AgentActivityPublisher.ts";
 import * as ApnsClient from "./agentActivity/ApnsClient.ts";
 import * as ApnsProviderTokens from "./agentActivity/ApnsProviderTokens.ts";
-import * as ApnsDeliveryQueue from "./agentActivity/ApnsDeliveryQueue.ts";
 import * as ApnsDeliveries from "./agentActivity/ApnsDeliveries.ts";
 import * as CloudflareApiPause from "./environments/CloudflareApiPause.ts";
 import * as EnvironmentConnector from "./environments/EnvironmentConnector.ts";
 import * as EnvironmentLinker from "./environments/EnvironmentLinker.ts";
 import * as EnvironmentPublishSignatures from "./environments/EnvironmentPublishSignatures.ts";
-import * as ManagedEndpointProvider from "./environments/ManagedEndpointProvider.ts";
 import * as ManagedEndpointReaper from "./environments/ManagedEndpointReaper.ts";
 import * as ManagedTunnelLimits from "./environments/ManagedTunnelLimits.ts";
-import * as T3ChatAccounts from "./t3chat/T3ChatAccounts.ts";
+import * as Identity from "./auth/identity.ts";
 import * as MobileRegistrations from "./agentActivity/MobileRegistrations.ts";
 import * as HookForwarder from "./hooks/HookForwarder.ts";
 import * as HeldHooks from "./hooks/HeldHooks.ts";
@@ -161,22 +161,13 @@ export const layer = Api.make(
     const apnsDeliveryQueueSender = yield* Cloudflare.Queues.WriteQueue(apnsDeliveryQueue);
     const fcmDeliveryQueueSender = yield* Cloudflare.Queues.WriteQueue(fcmDeliveryQueue);
 
-    const clerkSecretKey = yield* Config.Redacted("CLERK_SECRET_KEY");
-    const clerkPublishableKey = yield* Config.String("CLERK_PUBLISHABLE_KEY");
-    const clerkJwtAudience = yield* Config.String("CLERK_JWT_AUDIENCE");
-    const t3ChatLinkSecret = Option.getOrUndefined(
-      Option.filter(
-        yield* Config.option(Config.Redacted("T3CHAT_LINK_SECRET")),
-        (value) => Redacted.value(value).trim().length > 0,
-      ),
-    );
-    const t3ChatBaseUrl = yield* Config.String("T3CHAT_URL").pipe(
-      Config.withDefault("https://t3.chat"),
-    );
+    const identity = yield* RelayConfiguration.identitySettingsConfig;
 
     const cloudMintPrivateKey = yield* cloudMintKeyPair.privateKey;
     const cloudMintPublicKey = yield* cloudMintKeyPair.publicKey;
-    const hyperdrive = yield* Cloudflare.Hyperdrive.Connect(yield* RelayDb.RelayHyperdrive);
+    const hyperdrive = yield* Cloudflare.Hyperdrive.Connect(
+      yield* RelayDbDeployment.RelayHyperdrive,
+    );
     // Named statements collide behind Hyperdrive transaction pooling (Effect-TS/effect#8320); use unnamed statements.
     const db = yield* Drizzle.Postgres(hyperdrive.connectionString, {
       client: { prepare: false },
@@ -233,9 +224,7 @@ export const layer = Api.make(
         ...(fcmServiceAccount ? { fcmServiceAccount } : {}),
         apns: apnsCredentials,
         apnsDeliveryJobSigningSecret: yield* apnsDeliveryJobSigningSecret,
-        clerkSecretKey,
-        clerkPublishableKey,
-        clerkJwtAudience,
+        identity,
         cloudMintPrivateKey: yield* cloudMintPrivateKey,
         cloudMintPublicKey: yield* cloudMintPublicKey,
         managedEndpointBaseDomain: yield* managedEndpointZoneName,
@@ -243,9 +232,6 @@ export const layer = Api.make(
         managedEndpointCleanupMode,
         legacyManagedEndpointCleanupMode,
         ...(legacyTunnelGraceMinutes === undefined ? {} : { legacyTunnelGraceMinutes }),
-        ...(t3ChatLinkSecret
-          ? { t3Chat: { baseUrl: t3ChatBaseUrl, linkSecret: t3ChatLinkSecret } }
-          : {}),
       });
     });
 
@@ -295,7 +281,7 @@ export const layer = Api.make(
         ),
       ),
       Layer.provideMerge(
-        ManagedEndpointProvider.layerCloudflareBindings(
+        CloudflareBindings.layerManagedEndpointProvider(
           managedEndpointTunnelBinding,
           managedEndpointDnsBinding,
           alchemyRuntimeContext,
@@ -327,7 +313,7 @@ export const layer = Api.make(
       ),
       Layer.provideMerge(ApnsClient.layer.pipe(Layer.provideMerge(ApnsProviderTokens.layer))),
       Layer.provideMerge(
-        ApnsDeliveryQueue.layerCloudflareQueues(apnsDeliveryQueueSender, alchemyRuntimeContext),
+        CloudflareBindings.layerApnsDeliveryQueue(apnsDeliveryQueueSender, alchemyRuntimeContext),
       ),
       Layer.provideMerge(Layer.mergeAll(AgentActivityRows.layer, Devices.layer, layerHookInbox)),
       Layer.provideMerge(EnvironmentCredentials.layer),
@@ -339,8 +325,8 @@ export const layer = Api.make(
           ManagedTunnelLimits.layer,
         ),
       ),
-      Layer.provideMerge(Layer.mergeAll(LiveActivities.layer, T3ChatAccounts.layer)),
-      Layer.provideMerge(DeliveryAttempts.layer),
+      Layer.provideMerge(LiveActivities.layer),
+      Layer.provideMerge(Layer.mergeAll(DeliveryAttempts.layer, Identity.layer)),
       Layer.provideMerge(RelayTokens.layer.pipe(Layer.provideMerge(CloudMintSigner.layer))),
       Layer.provideMerge(
         RelayDb.RelayTransactions.layer.pipe(

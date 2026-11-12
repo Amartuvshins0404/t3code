@@ -16,6 +16,7 @@ import * as CloudflareApiPause from "./CloudflareApiPause.ts";
 import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
 import * as ManagedEndpointProvider from "./ManagedEndpointProvider.ts";
 import * as ManagedTunnelLimits from "./ManagedTunnelLimits.ts";
+import * as CloudflareBindings from "../cloudflareBindings.ts";
 
 const config = RelayConfiguration.RelayConfiguration.of({
   relayIssuer: "https://relay.example.test",
@@ -27,9 +28,11 @@ const config = RelayConfiguration.RelayConfiguration.of({
     bundleId: "com.t3tools.t3code.dev",
   },
   apnsDeliveryJobSigningSecret: Redacted.make("job-secret"),
-  clerkSecretKey: Redacted.make("clerk-secret"),
-  clerkPublishableKey: "pk_test_test",
-  clerkJwtAudience: "t3-code-relay",
+  identity: {
+    issuer: "https://auth.example.test",
+    audience: "t3-relay",
+    jwksUrl: "https://auth.example.test/api/auth/jwks",
+  },
   cloudMintPrivateKey: Redacted.make("cloud-private-key"),
   cloudMintPublicKey: "cloud-public-key",
   managedEndpointBaseDomain: "t3code.test",
@@ -777,7 +780,7 @@ describe("ManagedEndpointProvider", () => {
     return Effect.gen(function* () {
       const readStarted = yield* Deferred.make<void>();
       const releaseRead = yield* Deferred.make<void>();
-      const layer = ManagedEndpointProvider.layerCloudflareBindings(
+      const layer = CloudflareBindings.layerManagedEndpointProvider(
         tunnelClient,
         {} as Cloudflare.DNS.ReadWriteDnsClient,
         {} as Alchemy.BaseRuntimeContext,
@@ -827,7 +830,7 @@ describe("ManagedEndpointProvider", () => {
           }),
         ),
     } as unknown as Cloudflare.Tunnel.ReadWriteTunnelClient;
-    const layer = ManagedEndpointProvider.layerCloudflareBindings(
+    const layer = CloudflareBindings.layerManagedEndpointProvider(
       tunnelClient,
       {} as Cloudflare.DNS.ReadWriteDnsClient,
       {} as Alchemy.BaseRuntimeContext,
