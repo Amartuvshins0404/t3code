@@ -12,7 +12,7 @@ The rules and the reason behind each label are in [merge-lane.cjs](../../.github
 
 - **The base branch judges.** The workflow runs on `pull_request_target`, checks out the base commit, and reads the PR's files and patches from the GitHub API. It never checks out or runs PR code. A PR that edits the rules is judged by the old rules, so a rule change takes effect only after it merges. It also means the workflow first runs on the PR after the one that adds it.
 - **Unknown is red.** A path no rule matches is red, and so is a code file GitHub sends without a patch, since a loosened check cannot be ruled out. When a new top-level directory or config file appears, add a rule for it, or every PR that touches it stays red.
-- **It only reports.** The label is not a required check. Nothing merges, blocks, closes or reverts because of it. The workflow does not run outside `Amartuvshins0404/t3code`.
+- **It only reports.** The label is not a required check. Nothing merges, blocks, closes or reverts because of it, unless the switch in [Locked checks](#locked-checks-and-repairs-lines) is on. The workflow does not run outside `Amartuvshins0404/t3code`.
 - **Suppressions make a change red, except the two the repo requires.** An added `oxlint-disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `@effect-diagnostics` line counts as loosening a gate. Two forms pass: the `t3code/no-unreasoned-state-sync` comment with its reason, and `@effect-diagnostics nodeBuiltinImport:off` alone in a test file or a `scripts/` directory. A reason on any other suppression changes nothing, because whoever wrote the change can always write one.
 
 Judge any commit, range or working tree locally:
@@ -26,6 +26,37 @@ node .github/scripts/merge-lane.cjs --pr 12 --repo Amartuvshins0404/t3code
 
 `--pr` reads the same API data the workflow reads and changes nothing on GitHub.
 
+## Locked checks and Repairs: lines
+
+An agent that writes both the code and its tests proves little when the tests pass. So for amber work, a fresh agent that has seen only the request writes the tests first, the lane bot locks them, and the [Blind Checks](../../.github/workflows/blind-checks.yml) job proves they fail without the code and pass with it.
+
+The contract a pull request follows:
+
+- The body has a `## Request` section: the request and any agreed decisions, with no code plan. The checks are judged against it.
+- The first commit is the checks commit. It changes only test and test-support files and carries a `Blind-checks: <note>` trailer. When the repo's [Verifying](../../AGENTS.md#verifying) rules say no test is needed (a visual fix, copy text, types only, a pure refactor), the first commit is empty and says `Blind-checks: none, <reason>`.
+- A fix, meaning a title that starts with `fix:` or `fix(scope):`, has a `Repairs:` line naming the commits or merged pull requests on `amaraa-mode` it repairs, such as `Repairs: 6fceb557b2, #5`, or `Repairs: none, older than 14 days`. This applies in every lane.
+
+Test and test-support files are the paths the ledger already leaves out as tests (`TEST_SUPPORT` in [merge-lane.cjs](../../.github/scripts/merge-lane.cjs)).
+
+Green pull requests are exempt from the checks rules. A red one gets them only when it has a checks commit, since you read red work anyway. An amber one with no checks commit and no `none` line turns red as "not checked blind". Each broken rule turns the lane red with its own reason. A changed lock also lists each locked test file with its old and new test names.
+
+### What is easy to get wrong
+
+- **The lock is a bot comment.** The first time the lane bot sees a checks commit it saves a fingerprint of it in a comment by `github-actions[bot]`. A comment by anyone else is ignored. The fingerprint covers the trailer and the lines the commit adds and removes, not its SHA, so rebasing onto a newer `amaraa-mode` keeps the lock. Rewriting the commit's content does not.
+- **Revising checks is red on purpose.** A later commit with a `Blind-checks:` trailer is a revision, which is red and yours to judge. A later commit that touches a test file without the trailer is red as tampering. Putting a locked test file back as it was counts too.
+- **The proof job runs pull request code.** It runs on `pull_request` with read-only contents and no secrets, which is why it is separate from the lane bot. It runs the judge script from the base branch, but the workflow file comes from the pull request, so a pull request can still change the job. Doing so makes the lane red.
+- **A test file that cannot load counts as failing only if it loads with the code.** Without the code, an import of a missing module fails the whole file. The judge accepts that only when the same file loads and passes at the head, because the locked tests did not change in between. A file that fails to load both times is a broken setup. A file that cannot load hides whether each test in it would have failed on its own.
+- **`vp test run` skips a path it does not know.** The judge treats a test file with no result as not run, never as passed.
+- **It reports until you switch it on.** The repository variable `BLIND_CHECKS_MODE=required` makes the Merge lane check fail on any checks or `Repairs:` reason, and makes Blind checks fail when the proof does not hold. Any other value only reports. Nothing blocks a merge until both checks are required on `amaraa-mode`.
+
+### What it cannot prove
+
+- That the checks agent was blind. It could read other threads or branches, and the request could carry a code plan.
+- That a check is strong. Failing first only proves that a check tests something that did not exist yet. A weak check still passes.
+- That the markers are honest. An agent with the owner's token can write a `Blind-checks:` trailer, edit the bot's comment, remove a label or loosen the ruleset. Each leaves a trail in the commit, the comment's edit history or the audit log, and none of them can be stopped.
+- That the code is general. The coder can special-case the test inputs, or change code under `src/` that the tests rely on.
+- That the lock came early. A draft pull request opened late lets the lock record checks that were already rewritten.
+
 ## Outcome ledger
 
 The ledger measures which merged changes later needed repair. It reads only git history, and PR labels when you pass `--repo`.
@@ -36,6 +67,8 @@ vp run report:merge-ledger --branch origin/main --since "30 days ago"
 ```
 
 A change escaped when a later commit reverts it, or when a later `fix` commit within `--window` days (default 14) rewrites code it wrote. The ledger runs `git blame -w -M -C` on the fix's parent over the code lines the fix changes or deletes, and links the fix to a change only when that change wrote at least half of those lines. Blank and comment-only lines, tests, docs, lockfiles, generated files and vendored `.repos/` are left out. Escape rates count only changes whose window has passed. Thirty days of upstream history take under two minutes.
+
+A fix with a `Repairs:` line, read from the pull request body with `--repo` or from the commit message, is linked to the changes the line names, and blame is only a cross-check. The report lists each fix where the two disagree. Read a disagreement as a reason to look, not as proof that the line is wrong: blame misses fixes that only add lines. The "By checks" table splits merges into checked blind, none needed, checks revised and no checks. Merges from before the contract have no trailer and count as no checks.
 
 **How far to trust it.** Against 60 upstream fixes labelled by hand and kept out of tuning (2026-11-12), 4 of the ledger's 13 links were right, and it found 4 of the 8 fixes that repaired a change from the previous 14 days. On the 59 fixes the rules were tuned on it did better, 5 of 11 and 5 of 7, which is why the kept-back half is the one to quote. Most of the escapes it lists are wrong, and it counts about 1.6 times as many recent repairs as hand reading. The report also gives the share of fix commits linked to a recent change, the figure to compare with hand reading, where 15 of 120 upstream fixes (12.5%) repaired one. With 8 recent repairs behind the figures, a rate is rough: trust a gap between two lanes or areas only when it is large and both have many mature merges.
 

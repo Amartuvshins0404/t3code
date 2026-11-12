@@ -75,4 +75,4 @@ function render(delta) {
   return lines.join("\n");
 }
 
-module.exports = { MARKER, countTestDelta, render };
+module.exports = { MARKER, TEST_CASE, countTestDelta, render };

@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { judge, type TestResult } from "../.github/scripts/blind-checks.cjs";
 import { readWorkspace } from "../.github/scripts/ci-changes.cjs";
-import { classify, parseGitDiff, type ChangedFile } from "../.github/scripts/merge-lane.cjs";
+import {
+  classify,
+  judgeChecks,
+  judgeRepairs,
+  parseGitDiff,
+  parseRepairs,
+  readLock,
+  renderChanges,
+  renderLockComment,
+  type ApiFile,
+  type ChangedFile,
+  type ChecksLock,
+  type CommitInfo,
+  type Lane,
+  type ResolvedRepair,
+} from "../.github/scripts/merge-lane.cjs";
 
 const packageDirs = readWorkspace().map((pkg) => pkg.dir);
 
@@ -307,5 +323,383 @@ describe("merge lane", () => {
       { filename: "assets/logo.png", binary: true, patch: null },
     ]);
     expect(classify(files, { packageDirs }).lane).toBe("amber");
+  });
+});
+
+const slugTest: ApiFile = {
+  filename: "apps/web/src/lib/slug.test.ts",
+  status: "added",
+  patch: '@@ -0,0 +1,2 @@\n+it("keeps letters", () => {});\n+it("drops spaces", () => {});',
+};
+const editedSlugTest: ApiFile = {
+  ...slugTest,
+  patch: '@@ -0,0 +1,2 @@\n+it("keeps letters", () => {});\n+it("accepts anything", () => {});',
+};
+const slugSource: ApiFile = {
+  filename: "apps/web/src/lib/slug.ts",
+  status: "added",
+  patch: "@@ -0,0 +1,1 @@\n+export const slug = (text: string) => text;",
+};
+const slugHelper: ApiFile = {
+  filename: "apps/web/src/lib/testkit/slugInputs.ts",
+  status: "added",
+  patch: '@@ -0,0 +1,1 @@\n+export const inputs = ["a b"];',
+};
+const commit = (sha: string, message: string): CommitInfo => ({
+  sha: sha.repeat(40),
+  message,
+});
+const checks = commit("c", "test(web): checks for slugs\n\nBlind-checks: written from the request");
+const rebased = commit("e", checks.message);
+const code = commit("d", "feat(web): slugs");
+const revision = commit(
+  "f",
+  "test(web): revise a check\n\nBlind-checks: revised after an objection",
+);
+const noTest = (reason: string) => commit("a", `chore: start\n\nBlind-checks: ${reason}`);
+const request = "## Request\n\nTurn a title into a URL slug.\n\n## Proven\n";
+
+const checked = {
+  lane: "amber" as Lane,
+  body: request,
+  commits: [checks, code],
+  firstFiles: [slugTest],
+  prFiles: [slugTest, slugSource],
+  lock: null as ChecksLock | null,
+};
+const originalLock = judgeChecks(checked).lock;
+
+const checksCases: ReadonlyArray<{
+  readonly name: string;
+  readonly input: Partial<typeof checked>;
+  readonly rules: ReadonlyArray<string>;
+  readonly state: string | null;
+}> = [
+  {
+    name: "an amber change with no checks commit is not checked blind",
+    input: { commits: [code], firstFiles: [], prFiles: [slugSource] },
+    rules: ["checks-missing"],
+    state: "no checks",
+  },
+  {
+    name: "a red change with no checks commit has no checks rules",
+    input: { lane: "red", commits: [code], firstFiles: [], prFiles: [slugSource] },
+    rules: [],
+    state: "no checks",
+  },
+  {
+    name: "a green change is exempt",
+    input: { lane: "green", commits: [code], firstFiles: [] },
+    rules: [],
+    state: null,
+  },
+  {
+    name: "checks first, code after, tests untouched",
+    input: {},
+    rules: [],
+    state: "checked blind",
+  },
+  {
+    name: "a red change with checks gets the checks rules",
+    input: { lane: "red", prFiles: [editedSlugTest, slugSource] },
+    rules: ["checks-touched"],
+    state: "checks revised",
+  },
+  {
+    name: "a checks commit that also writes code",
+    input: { firstFiles: [slugTest, slugSource] },
+    rules: ["checks-not-tests"],
+    state: "checked blind",
+  },
+  {
+    name: "a checks commit with only a test helper",
+    input: { firstFiles: [slugHelper], prFiles: [slugHelper, slugSource] },
+    rules: ["checks-not-tests"],
+    state: "checked blind",
+  },
+  {
+    name: "no test needed, said with a reason in an empty first commit",
+    input: {
+      commits: [noTest("none, copy text only"), code],
+      firstFiles: [],
+      prFiles: [slugSource],
+    },
+    rules: [],
+    state: "none needed",
+  },
+  {
+    name: "no test needed, with no reason",
+    input: { commits: [noTest("none"), code], firstFiles: [], prFiles: [slugSource] },
+    rules: ["checks-none-invalid"],
+    state: "none needed",
+  },
+  {
+    name: "no test needed, in a commit that changes files",
+    input: { commits: [noTest("none, refactor"), code], firstFiles: [slugSource] },
+    rules: ["checks-none-invalid"],
+    state: "none needed",
+  },
+  {
+    name: "the coder edits a locked test",
+    input: { prFiles: [editedSlugTest, slugSource] },
+    rules: ["checks-touched"],
+    state: "checks revised",
+  },
+  {
+    name: "the coder puts a locked test back as it was",
+    input: { prFiles: [slugSource] },
+    rules: ["checks-touched"],
+    state: "checks revised",
+  },
+  {
+    name: "the coder adds a test helper",
+    input: { prFiles: [slugTest, slugHelper, slugSource] },
+    rules: ["checks-touched"],
+    state: "checks revised",
+  },
+  {
+    name: "a later commit marked as checks revises them",
+    input: { commits: [checks, revision, code], prFiles: [editedSlugTest, slugSource] },
+    rules: ["checks-revised"],
+    state: "checks revised",
+  },
+  {
+    name: "a rewritten checks commit no longer matches its lock",
+    input: {
+      commits: [rebased, code],
+      firstFiles: [editedSlugTest],
+      prFiles: [editedSlugTest, slugSource],
+      lock: originalLock,
+    },
+    rules: ["checks-rewritten"],
+    state: "checks revised",
+  },
+  {
+    name: "a rebased checks commit keeps its lock",
+    input: { commits: [rebased, code], lock: originalLock },
+    rules: [],
+    state: "checked blind",
+  },
+  {
+    name: "a locked checks commit that is gone",
+    input: { commits: [code], firstFiles: [], prFiles: [slugSource], lock: originalLock },
+    rules: ["checks-rewritten"],
+    state: "checks revised",
+  },
+  {
+    name: "checks without a ## Request section",
+    input: { body: "## Why\n\nSlugs.\n" },
+    rules: ["request-missing"],
+    state: "checked blind",
+  },
+  {
+    name: "an empty ## Request section",
+    input: { body: "## Request\n\n## Why\n\nSlugs.\n" },
+    rules: ["request-missing"],
+    state: "checked blind",
+  },
+  {
+    name: "a ## Request section written with Windows line ends",
+    input: { body: request.replace(/\n/g, "\r\n") },
+    rules: [],
+    state: "checked blind",
+  },
+];
+
+const older = 1_000;
+const fixTime = 2_000;
+const repairsCases: ReadonlyArray<{
+  readonly name: string;
+  readonly title: string;
+  readonly body: string;
+  readonly resolved: ReadonlyArray<ResolvedRepair>;
+  readonly rules: ReadonlyArray<string>;
+}> = [
+  {
+    name: "a feature needs no Repairs: line",
+    title: "feat(web): slugs",
+    body: "",
+    resolved: [],
+    rules: [],
+  },
+  {
+    name: "a fix with no Repairs: line",
+    title: "fix(web): slugs keep dashes",
+    body: "Slugs dropped dashes.",
+    resolved: [],
+    rules: ["repairs-missing"],
+  },
+  {
+    name: "a fix with an empty Repairs: line",
+    title: "fix(web): slugs keep dashes",
+    body: "Repairs:",
+    resolved: [],
+    rules: ["repairs-missing"],
+  },
+  {
+    name: "fork PR 7's form: two older commits on the base branch",
+    title: "fix(test): the fork's base branch is green again",
+    body: "Repairs: 6fceb557b2, 94e84eee32",
+    resolved: [
+      { ref: "6fceb557b2", onBase: true, time: older },
+      { ref: "94e84eee32", onBase: true, time: older },
+    ],
+    rules: [],
+  },
+  {
+    name: "a merged pull request number",
+    title: "fix(ledger): links",
+    body: "Repairs: #5",
+    resolved: [{ ref: "#5", onBase: true, time: older }],
+    rules: [],
+  },
+  {
+    name: "a target that is not on the base branch",
+    title: "fix(web): slugs keep dashes",
+    body: "Repairs: 0123456789",
+    resolved: [{ ref: "0123456789", onBase: false, time: null }],
+    rules: ["repairs-unknown"],
+  },
+  {
+    name: "a target newer than the fix",
+    title: "fix(web): slugs keep dashes",
+    body: "Repairs: abcdef1234",
+    resolved: [{ ref: "abcdef1234", onBase: true, time: fixTime + 1 }],
+    rules: ["repairs-not-older"],
+  },
+  {
+    name: "a fix of code older than the window",
+    title: "fix!: slugs keep dashes",
+    body: "Repairs: none, older than 14 days",
+    resolved: [],
+    rules: [],
+  },
+];
+
+describe("locked checks", () => {
+  it.each(checksCases)("$name", ({ input, rules, state }) => {
+    const verdict = judgeChecks({ ...checked, ...input });
+    expect(verdict.reasons.map((reason) => reason.rule)).toEqual([...rules]);
+    expect(verdict.state).toBe(state);
+  });
+
+  it("tells the owner in plain words how a locked test changed", () => {
+    const verdict = judgeChecks({ ...checked, prFiles: [editedSlugTest, slugHelper, slugSource] });
+    expect(renderChanges(verdict.changes).split("\n").slice(2)).toEqual([
+      '- `apps/web/src/lib/slug.test.ts`: locked with 2 tests, now 2. Gone: "drops spaces". New: "accepts anything".',
+      "- `apps/web/src/lib/testkit/slugInputs.ts`: a test helper changed after the lock.",
+    ]);
+  });
+
+  it("reads back the lock it wrote, whatever the test names hold", () => {
+    const tricky: ApiFile = {
+      ...slugTest,
+      patch: '@@ -0,0 +1,1 @@\n+it("ends a comment -->", () => {});',
+    };
+    const verdict = judgeChecks({
+      ...checked,
+      firstFiles: [tricky],
+      prFiles: [tricky, slugSource],
+    });
+    const lock = verdict.lock!;
+    expect(lock.files[0]?.tests).toEqual(["ends a comment -->"]);
+    expect(readLock(renderLockComment(lock, verdict))).toEqual(lock);
+  });
+});
+
+describe("Repairs: line", () => {
+  it.each(repairsCases)("$name", ({ title, body, resolved, rules }) => {
+    expect(judgeRepairs({ title, body, resolved, fixTime }).map((reason) => reason.rule)).toEqual([
+      ...rules,
+    ]);
+  });
+
+  it.each([
+    ["Repairs: 6fceb557b2, 94e84eee32, bed3be36c1", ["6fceb557b2", "94e84eee32", "bed3be36c1"]],
+    ["Text.\r\n\r\nRepairs: `12A233D6F9` and #5\r\n", ["12a233d6f9", "and", "#5"]],
+  ])("reads the targets of %j", (text, refs) => {
+    expect(parseRepairs(text)?.targets.map((target) => target.ref)).toEqual(refs);
+  });
+});
+
+const loaded = (name: string, tests: ReadonlyArray<readonly [string, string]>): TestResult => ({
+  name,
+  assertionResults: tests.map(([title, status]) => ({ title, status })),
+});
+const notLoaded = (name: string): TestResult => ({
+  name,
+  message: "Cannot find module './slug.ts'",
+  assertionResults: [],
+});
+const newFile = { file: slugTest.filename, added: true, tests: ["keeps letters"] };
+const changedFile = {
+  file: "apps/web/src/lib/title.test.ts",
+  added: false,
+  tests: ["slugs $title"],
+};
+const proofCases: ReadonlyArray<{
+  readonly name: string;
+  readonly file: typeof newFile;
+  readonly before: TestResult | null;
+  readonly after: TestResult | null;
+  readonly ok: boolean;
+}> = [
+  {
+    name: "a new file that cannot load without the code and passes with it",
+    file: newFile,
+    before: notLoaded(newFile.file),
+    after: loaded(newFile.file, [["keeps letters", "passed"]]),
+    ok: true,
+  },
+  {
+    name: "a new file that cannot load with the code either",
+    file: newFile,
+    before: notLoaded(newFile.file),
+    after: notLoaded(newFile.file),
+    ok: false,
+  },
+  {
+    name: "a new test that passes before the code exists",
+    file: newFile,
+    before: loaded(newFile.file, [["keeps letters", "passed"]]),
+    after: loaded(newFile.file, [["keeps letters", "passed"]]),
+    ok: false,
+  },
+  {
+    name: "a changed file whose old tests pass and whose new test fails without the code",
+    file: changedFile,
+    before: loaded(changedFile.file, [
+      ["keeps the title", "passed"],
+      ["slugs My Title", "failed"],
+    ]),
+    after: loaded(changedFile.file, [
+      ["keeps the title", "passed"],
+      ["slugs My Title", "passed"],
+    ]),
+    ok: true,
+  },
+  {
+    name: "a test that still fails with the code",
+    file: changedFile,
+    before: loaded(changedFile.file, [["slugs My Title", "failed"]]),
+    after: loaded(changedFile.file, [["slugs My Title", "failed"]]),
+    ok: false,
+  },
+  {
+    name: "a file that did not run with the code",
+    file: newFile,
+    before: notLoaded(newFile.file),
+    after: null,
+    ok: false,
+  },
+];
+
+describe("blind checks proof", () => {
+  it.each(proofCases)("$name", ({ file, before, after, ok }) => {
+    const report = (result: TestResult | null) =>
+      new Map(result ? [[file.file, result] as const] : []);
+    expect(judge({ commit: "c".repeat(40), files: [file] }, report(before), report(after)).ok).toBe(
+      ok,
+    );
   });
 });

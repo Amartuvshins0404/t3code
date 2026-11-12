@@ -38,7 +38,12 @@ function makeRepo() {
     run(["commit", "-q", "-m", message], START + day * DAY);
     return run(["rev-parse", "HEAD"]);
   };
-  return { dir, commit, cleanup: () => NodeFS.rmSync(dir, { recursive: true, force: true }) };
+  return {
+    dir,
+    run,
+    commit,
+    cleanup: () => NodeFS.rmSync(dir, { recursive: true, force: true }),
+  };
 }
 
 const lines = (...values: ReadonlyArray<string>) => `${values.join("\n")}\n`;
@@ -132,6 +137,33 @@ describe("merge ledger", () => {
           ...pad("2").map((line) => line.replace("Math.floor", "Math.trunc")),
         ),
       });
+      const slug = repo.commit("feat: slugs (#20)", 37, {
+        "src/slug.ts": lines("export function slug(text) {", "  return text.toLowerCase();", "}"),
+      });
+      const guardFix = repo.commit(
+        `fix: slugs of empty titles (#21)\n\nRepairs: ${slug.slice(0, 10)}`,
+        38,
+        {
+          "src/slug.ts": lines(
+            "export function slug(text) {",
+            "  if (!text) return '';",
+            "  return text.toLowerCase();",
+            "}",
+          ),
+        },
+      );
+      const oldSlugFix = repo.commit(
+        "fix: slugs keep dashes (#22)\n\nRepairs: none, older than 14 days",
+        39,
+        {
+          "src/slug.ts": lines(
+            "export function slug(text) {",
+            "  if (!text) return '';",
+            "  return text.toLowerCase().replace(/ /g, '-');",
+            "}",
+          ),
+        },
+      );
 
       const ledger = await buildLedger({
         cwd: repo.dir,
@@ -162,9 +194,29 @@ describe("merge ledger", () => {
       expect(
         ledger.links.filter((link) => link.change === formatter).map((link) => link.by),
       ).toEqual(expect.arrayContaining([padFix, secondPadFix]));
-      for (const sha of [configFix, notesFix]) {
+      for (const sha of [configFix, notesFix, oldSlugFix]) {
         expect(ledger.links.some((link) => link.by === sha)).toBe(false);
       }
+      expect(bySha.get(slug)?.escape).toMatchObject({ kind: "fix", by: guardFix, days: 1 });
+      expect(ledger.links.filter((link) => link.by === guardFix)).toMatchObject([
+        { change: slug, source: "repairs" },
+      ]);
+      expect(ledger.disagreements).toEqual([
+        {
+          fix: guardFix,
+          subject: "fix: slugs of empty titles (#21)",
+          declared: [slug],
+          notListed: [],
+          blamed: [],
+        },
+        {
+          fix: oldSlugFix,
+          subject: "fix: slugs keep dashes (#22)",
+          declared: [],
+          notListed: [],
+          blamed: [slug],
+        },
+      ]);
 
       expect(
         scoreLedger(ledger, [
@@ -195,7 +247,85 @@ describe("merge ledger", () => {
         area: "src",
         size: 3,
       });
-      expect(ledger.totals).toMatchObject({ merges: 20, matureMerges: 20, matureEscapes: 4 });
+      expect(ledger.totals).toMatchObject({ merges: 23, matureMerges: 23, matureEscapes: 5 });
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  it("records whether each merged pull request was checked blind", async () => {
+    const repo = makeRepo();
+    try {
+      repo.commit("feat: base (#1)", 0, { "src/base.ts": lines("export const base = 1;") });
+      const merge = (branch: string, number: number, day: number, work: () => void) => {
+        repo.run(["switch", "-q", "-c", branch, "main"]);
+        work();
+        repo.run(["switch", "-q", "main"]);
+        repo.run(
+          [
+            "merge",
+            "-q",
+            "--no-ff",
+            "-m",
+            `Merge pull request #${number} from dev/${branch}\n\nfeat: ${branch}`,
+            branch,
+          ],
+          START + day * DAY,
+        );
+        return repo.run(["rev-parse", "HEAD"]);
+      };
+      const checks = (name: string, day: number) =>
+        repo.commit(`test: checks for ${name}\n\nBlind-checks: written from the request`, day, {
+          [`src/${name}.test.ts`]: lines(`it("${name} works", () => {});`),
+        });
+      const blind = merge("blind", 2, 2, () => {
+        checks("blind", 1);
+        repo.commit("feat: blind", 1, { "src/blind.ts": lines("export const blind = 1;") });
+      });
+      const revised = merge("revised", 3, 3, () => {
+        checks("revised", 2);
+        repo.commit("feat: revised", 2, { "src/revised.ts": lines("export const revised = 1;") });
+        repo.commit("feat: make it pass", 2, {
+          "src/revised.test.ts": lines('it("passes", () => {});'),
+        });
+      });
+      const none = merge("none", 4, 4, () => {
+        repo.run(
+          [
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "chore: start\n\nBlind-checks: none, copy text only",
+          ],
+          START + 3 * DAY,
+        );
+        repo.commit("feat: copy", 3, { "src/copy.ts": lines("export const copy = 'Hi';") });
+      });
+      const unchecked = merge("unchecked", 5, 5, () => {
+        repo.commit("feat: unchecked", 4, { "src/unchecked.ts": lines("export const u = 1;") });
+      });
+
+      const ledger = await buildLedger({
+        cwd: repo.dir,
+        branch: "main",
+        since: "2025-12-01",
+        until: "2026-03-01",
+        packageDirs: [],
+      });
+      const checksOf = new Map(ledger.changes.map((change) => [change.sha, change.checks]));
+      expect([blind, revised, none, unchecked].map((sha) => checksOf.get(sha))).toEqual([
+        "checked blind",
+        "checks revised",
+        "none needed",
+        "no checks",
+      ]);
+      expect(ledger.byChecks.map((row) => row.key).sort()).toEqual([
+        "checked blind",
+        "checks revised",
+        "no checks",
+        "none needed",
+      ]);
     } finally {
       repo.cleanup();
     }

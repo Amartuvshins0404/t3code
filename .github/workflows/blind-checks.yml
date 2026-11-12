@@ -1,0 +1,106 @@
+name: Blind Checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [amaraa-mode]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blind-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: Blind checks
+    if: github.repository == 'Amartuvshins0404/t3code'
+    runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    timeout-minutes: 15
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BLIND_CHECKS_MODE: ${{ vars.BLIND_CHECKS_MODE }}
+    steps:
+      - name: Fetch the pull request commits and the judge from the base branch
+        id: fetch
+        shell: bash
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch -q --no-tags --filter=blob:none --shallow-exclude="$BASE_REF" origin "$HEAD_SHA"
+          first="$(git rev-list --reverse --first-parent "$HEAD_SHA" | sed -n 1p)"
+          parent="$(git cat-file -p "$first" | sed -n 's/^parent //p' | sed -n 1p)"
+          git fetch -q --no-tags --filter=blob:none --depth=1 origin "$parent" "$BASE_SHA"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          mkdir -p "$RUNNER_TEMP/judge" "$RUNNER_TEMP/proof"
+          git archive "$BASE_SHA" .github/scripts | tar -x -C "$RUNNER_TEMP/judge"
+          echo "first=$first" >> "$GITHUB_OUTPUT"
+
+      - name: Find the checks commit
+        id: plan
+        shell: bash
+        env:
+          FIRST_SHA: ${{ steps.fetch.outputs.first }}
+        run: |
+          set -euo pipefail
+          judge="$RUNNER_TEMP/judge/.github/scripts/blind-checks.cjs"
+          if [[ ! -f "$judge" ]]; then
+            printf '### Blind checks: skipped\n\nThe base branch has no blind-checks judge yet.\n' >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node "$judge" plan --commit "$FIRST_SHA" --dir "$RUNNER_TEMP/proof"
+
+      - name: Check out the checks commit
+        if: steps.plan.outputs.run == 'true'
+        env:
+          CHECKS_SHA: ${{ steps.plan.outputs.checks }}
+        run: git checkout -q --detach "$CHECKS_SHA"
+
+      - name: Setup Vite+
+        if: steps.plan.outputs.run == 'true'
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          save-pnpm-store: "false"
+
+      - name: Install Chromium for browser tests
+        if: steps.plan.outputs.run == 'true' && steps.plan.outputs.browser == 'true'
+        run: |
+          node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+          node apps/web/node_modules/playwright/cli.js install-deps chromium
+
+      - name: Ensure Electron runtime is installed
+        if: steps.plan.outputs.run == 'true' && steps.plan.outputs.desktop == 'true'
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Run the checks without the code
+        if: steps.plan.outputs.run == 'true'
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          mapfile -t files < "$RUNNER_TEMP/proof/files.txt"
+          vp test run --reporter=json --outputFile="$RUNNER_TEMP/proof/before.json" "${files[@]}" || true
+
+      - name: Check out the pull request head
+        if: steps.plan.outputs.run == 'true'
+        run: |
+          git checkout -q --detach "$HEAD_SHA"
+          vp install
+
+      - name: Run the checks with the code
+        if: steps.plan.outputs.run == 'true'
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          mapfile -t files < "$RUNNER_TEMP/proof/files.txt"
+          vp test run --reporter=json --outputFile="$RUNNER_TEMP/proof/after.json" "${files[@]}" || true
+
+      - name: Judge
+        if: steps.plan.outputs.run == 'true'
+        run: node "$RUNNER_TEMP/judge/.github/scripts/blind-checks.cjs" judge --dir "$RUNNER_TEMP/proof"
