@@ -86,7 +86,7 @@ vp run --filter t3code-relay deploy
 The stack provisions the Cloudflare Worker and queues, managed endpoint resources, database
 connectivity, and relay tracing resources. Copy [`infra/relay/.env.example`](./.env.example) to
 `infra/relay/.env` and fill in the deployment-specific values before deploying. Alchemy loads that
-file from the relay directory. Runtime secrets include Clerk, APNs, and optional FCM credentials. Set
+file from the relay directory. Runtime settings include the identity issuer, APNs, and optional FCM credentials. Set
 `APNS_ENABLED=false` for an Android-only development deployment without Apple credentials. Production adopts
 the configured API and tunnel DNS zones as retained Cloudflare resources. Personal stages reference
 the production-owned zones.
@@ -114,6 +114,23 @@ The stack's `PublishClientConfig` action ([`src/clientConfig.ts`](./src/clientCo
 deployed relay URL and tracing configuration into the repository-root `.env`, so subsequent source
 builds point at the relay that was just deployed without copying values manually. It runs only when
 one of those outputs changed, and `T3CODE_RELAY_CLIENT_CONFIG_ENV` redirects it to another file.
+
+### Self-hosted Node relay
+
+[`src/node.ts`](./src/node.ts) runs the same API as a plain Node server against `DATABASE_URL`
+and applies migrations on start. [`Dockerfile`](./Dockerfile) builds it from the repository root:
+
+```sh
+docker build -f infra/relay/Dockerfile -t t3-relay .
+```
+
+It serves `/health` on `PORT` (8787). It drives managed tunnels through the Cloudflare API with
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_ZONE_ID`. The token needs only
+account Cloudflare Tunnel edit and zone DNS edit. Endpoints are one label under
+`RELAY_TUNNEL_ZONE_NAME`, `<RELAY_TUNNEL_NAMESPACE>-<digest>`, so the zone's universal certificate
+covers them. `RELAY_SIGNING_PRIVATE_KEY` is an Ed25519 PKCS#8 PEM that must stay stable across
+restarts. Push, held webhooks, and mobile telemetry are off on this runtime. It trusts
+`X-Forwarded-*` from private addresses, so publish its port only to the local proxy.
 
 ### Deployment CI
 
@@ -147,9 +164,9 @@ The `production` GitHub environment must define these Actions variables:
   creates no monitors or health dashboard. See
   [Relay alerts](../../docs/operations/relay-observability.md#alerts).
 - `RELAY_WARNING_NOTIFIER_ID`, optional, the Axiom notifier for relay warnings
-- `CLERK_PUBLISHABLE_KEY`
-- `CLERK_JWT_AUDIENCE`
-- `CLERK_JWT_TEMPLATE`
+- `RELAY_AUTH_ISSUER`
+- `RELAY_AUTH_JWKS_URL`
+- `RELAY_AUTH_AUDIENCE`
 - `APNS_ENVIRONMENT`
 - `APNS_TEAM_ID`
 - `APNS_KEY_ID`
@@ -157,12 +174,8 @@ The `production` GitHub environment must define these Actions variables:
 
 The `production` GitHub environment must define these Actions secrets:
 
-- `CLERK_SECRET_KEY`
 - `APNS_PRIVATE_KEY`
 - `FCM_SERVICE_ACCOUNT` when Android push is enabled
-- `T3CHAT_LINK_SECRET`, optional, shared with T3 Chat's `T3CODE_LINK_SECRET`. Without it the
-  T3 Chat account link is off. Local and preview stages can set `T3CHAT_URL` to point
-  at another T3 Chat deployment; production uses `https://t3.chat`.
 
 The account-scoped repository credentials are consumed by Alchemy while provisioning relay stages; they
 are not bound into the relay Worker. The production deployment uses an Axiom personal access token,

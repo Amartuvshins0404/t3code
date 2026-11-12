@@ -8,6 +8,7 @@ import * as Redacted from "effect/Redacted";
 
 import * as RelayConfiguration from "../Config.ts";
 import * as ApnsDeliveryQueue from "./ApnsDeliveryQueue.ts";
+import * as CloudflareBindings from "../cloudflareBindings.ts";
 
 const config: RelayConfiguration.RelayConfiguration["Service"] = {
   relayIssuer: "https://relay.example.com",
@@ -18,9 +19,11 @@ const config: RelayConfiguration.RelayConfiguration["Service"] = {
     bundleId: "com.t3tools.test",
     environment: "sandbox",
   },
-  clerkSecretKey: Redacted.make("clerk-secret"),
-  clerkPublishableKey: "pk_test_test",
-  clerkJwtAudience: "t3-code-relay",
+  identity: {
+    issuer: "https://auth.example.test",
+    audience: "t3-relay",
+    jwksUrl: "https://auth.example.test/api/auth/jwks",
+  },
   apnsDeliveryJobSigningSecret: Redacted.make("apns-job-secret"),
   cloudMintPrivateKey: Redacted.make("cloud-private-key"),
   cloudMintPublicKey: "cloud-public-key",
@@ -40,7 +43,7 @@ describe("ApnsDeliveryQueue", () => {
       sendBatch: () => Effect.die("batch queue binding is not used"),
     };
     const runtimeContext = {} as Alchemy.BaseRuntimeContext;
-    const layer = ApnsDeliveryQueue.layerCloudflareQueues(sender, runtimeContext).pipe(
+    const layer = CloudflareBindings.layerApnsDeliveryQueue(sender, runtimeContext).pipe(
       Layer.provide(NodeCryptoLayer.layer),
       Layer.provide(RelayConfiguration.layer(config)),
     );
