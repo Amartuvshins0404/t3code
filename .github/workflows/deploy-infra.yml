@@ -6,6 +6,7 @@ on:
       - amaraa-mode
     paths:
       - infra/auth/**
+      - infra/relay/**
       - infra/deploy/**
       - .github/workflows/deploy-infra.yml
   workflow_dispatch:
@@ -18,15 +19,17 @@ concurrency:
   group: t3-infra-deploy
   cancel-in-progress: false
 
-env:
-  AUTH_IMAGE: ghcr.io/amartuvshins0404/t3-auth
-
 jobs:
   build:
-    name: Build auth image
+    name: Build ${{ matrix.service }} image
     if: github.repository == 'Amartuvshins0404/t3code'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      matrix:
+        service: [auth, relay]
+    env:
+      IMAGE: ghcr.io/amartuvshins0404/t3-${{ matrix.service }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -46,12 +49,12 @@ jobs:
           docker buildx create --use
           docker buildx build \
             --platform linux/amd64 \
-            --file infra/auth/Dockerfile \
+            --file infra/${{ matrix.service }}/Dockerfile \
             --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
             --label org.opencontainers.image.revision=${{ github.sha }} \
-            --cache-from type=registry,ref=$AUTH_IMAGE:buildcache \
-            --cache-to type=registry,ref=$AUTH_IMAGE:buildcache,mode=max \
-            --tag $AUTH_IMAGE:${{ github.sha }} \
+            --cache-from "type=registry,ref=$IMAGE:buildcache" \
+            --cache-to "type=registry,ref=$IMAGE:buildcache,mode=max" \
+            --tag "$IMAGE:${{ github.sha }}" \
             --push \
             .
 
@@ -100,6 +103,9 @@ jobs:
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           GH_OAUTH_CLIENT_ID: ${{ vars.GH_OAUTH_CLIENT_ID }}
           GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
+          RELAY_TAG: ${{ github.sha }}
+          RELAY_SIGNING_PRIVATE_KEY: ${{ secrets.RELAY_SIGNING_PRIVATE_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           printf '%s\n' \
             "AUTH_TAG=$AUTH_TAG" \
@@ -107,6 +113,9 @@ jobs:
             "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET" \
             "GH_OAUTH_CLIENT_ID=$GH_OAUTH_CLIENT_ID" \
             "GH_OAUTH_CLIENT_SECRET=$GH_OAUTH_CLIENT_SECRET" \
+            "RELAY_TAG=$RELAY_TAG" \
+            "RELAY_SIGNING_PRIVATE_KEY=${RELAY_SIGNING_PRIVATE_KEY//$'\n'/\\n}" \
+            "CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN" \
             | ssh deploy-target 'umask 077 && cat > /opt/t3-infra/.env.next && mv /opt/t3-infra/.env.next /opt/t3-infra/.env && chmod 600 /opt/t3-infra/.env'
 
       - name: Pull and start services
@@ -134,4 +143,13 @@ jobs:
             sleep 4
           done
           echo "auth.amartuvshin.com did not answer /api/auth/ok and /api/auth/jwks" >&2
+          exit 1
+
+      - name: Check relay health
+        run: |
+          for _ in $(seq 1 30); do
+            curl -fsS https://relay.amartuvshin.com/health | grep -q '"ok":true' && exit 0
+            sleep 4
+          done
+          echo "relay.amartuvshin.com did not answer /health" >&2
           exit 1

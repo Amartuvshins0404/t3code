@@ -38,5 +38,28 @@ services:
       - 127.0.0.1:3100:3000
     logging: *logging
 
+  relay:
+    image: ghcr.io/amartuvshins0404/t3-relay:${RELAY_TAG:?}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/relay
+      RELAY_PUBLIC_URL: https://relay.amartuvshin.com
+      RELAY_AUTH_ISSUER: https://auth.amartuvshin.com
+      RELAY_AUTH_JWKS_URL: https://auth.amartuvshin.com/api/auth/jwks
+      RELAY_AUTH_AUDIENCE: t3-relay
+      RELAY_SIGNING_PRIVATE_KEY: ${RELAY_SIGNING_PRIVATE_KEY:?}
+      RELAY_MAX_TUNNELS_PER_USER: "25"
+      RELAY_TUNNEL_ZONE_NAME: amartuvshin.com
+      RELAY_TUNNEL_NAMESPACE: t3
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?}
+      CLOUDFLARE_ACCOUNT_ID: 402eb63f8e50395d0a10622f78f46a9c
+      CLOUDFLARE_ZONE_ID: c9cd43a8941738516ebe384e7efafcf9
+    ports:
+      - 127.0.0.1:3200:8787
+    logging: *logging
+
 volumes:
   postgres-data:
