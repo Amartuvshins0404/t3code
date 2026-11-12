@@ -6,6 +6,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { judge, type TestResult } from "../.github/scripts/blind-checks.cjs";
 import { readWorkspace } from "../.github/scripts/ci-changes.cjs";
 import {
+  LANES,
+  checkOutcome,
   classify,
   judgeChecks,
   judgeRepairs,
@@ -17,13 +19,17 @@ import {
   renderChanges,
   renderLockComment,
   runForPullRequest,
+  summarize,
   type ApiFile,
   type ChangedFile,
   type ChecksLock,
   type CommitInfo,
   type Lane,
+  type LaneReason,
+  type LaneResult,
   type ResolvedRepair,
 } from "../.github/scripts/merge-lane.cjs";
+import { strengthReasons, type StrengthVerdict } from "../.github/scripts/test-strength.cjs";
 
 const packageDirs = readWorkspace().map((pkg) => pkg.dir);
 
@@ -563,8 +569,6 @@ const checksCases: ReadonlyArray<{
   },
 ];
 
-const older = 1_000;
-const fixTime = 2_000;
 const repairsCases: ReadonlyArray<{
   readonly name: string;
   readonly title: string;
@@ -598,8 +602,8 @@ const repairsCases: ReadonlyArray<{
     title: "fix(test): the fork's base branch is green again",
     body: "Repairs: 6fceb557b2, 94e84eee32",
     resolved: [
-      { ref: "6fceb557b2", onBase: true, time: older },
-      { ref: "94e84eee32", onBase: true, time: older },
+      { ref: "6fceb557b2", onBase: true, inHistory: true },
+      { ref: "94e84eee32", onBase: true, inHistory: true },
     ],
     rules: [],
   },
@@ -607,21 +611,21 @@ const repairsCases: ReadonlyArray<{
     name: "a merged pull request number",
     title: "fix(ledger): links",
     body: "Repairs: #5",
-    resolved: [{ ref: "#5", onBase: true, time: older }],
+    resolved: [{ ref: "#5", onBase: true, inHistory: true }],
     rules: [],
   },
   {
     name: "a target that is not on the base branch",
     title: "fix(web): slugs keep dashes",
     body: "Repairs: 0123456789",
-    resolved: [{ ref: "0123456789", onBase: false, time: null }],
+    resolved: [{ ref: "0123456789", onBase: false, inHistory: false }],
     rules: ["repairs-unknown"],
   },
   {
-    name: "a target newer than the fix",
+    name: "a target outside the fix's history",
     title: "fix(web): slugs keep dashes",
     body: "Repairs: abcdef1234",
-    resolved: [{ ref: "abcdef1234", onBase: true, time: fixTime + 1 }],
+    resolved: [{ ref: "abcdef1234", onBase: true, inHistory: false }],
     rules: ["repairs-not-older"],
   },
   {
@@ -856,7 +860,7 @@ describe("which pull request a finished Blind Checks run writes to", () => {
 
 describe("Repairs: line", () => {
   it.each(repairsCases)("$name", ({ title, body, resolved, rules }) => {
-    expect(judgeRepairs({ title, body, resolved, fixTime }).map((reason) => reason.rule)).toEqual([
+    expect(judgeRepairs({ title, body, resolved }).map((reason) => reason.rule)).toEqual([
       ...rules,
     ]);
   });
@@ -865,10 +869,7 @@ describe("Repairs: line", () => {
     "$name turns the lane red for every reason",
     ({ title, body, resolved, rules }) => {
       expect(
-        judgeRepairs({ title, body, resolved, fixTime }).map((reason) => [
-          reason.rule,
-          reason.lane,
-        ]),
+        judgeRepairs({ title, body, resolved }).map((reason) => [reason.rule, reason.lane]),
       ).toEqual(rules.map((rule) => [rule, "red"]));
     },
   );
@@ -879,6 +880,295 @@ describe("Repairs: line", () => {
   ])("reads the targets of %j", (text, refs) => {
     expect(parseRepairs(text)?.targets.map((target) => target.ref)).toEqual(refs);
   });
+
+  it("accepts a Repairs: target already in the history the fix was built on, whatever the commit times", () => {
+    const resolved: ReadonlyArray<ResolvedRepair> = [
+      { ref: "6fceb557b2", onBase: true, inHistory: true },
+      { ref: "#5", onBase: true, inHistory: true },
+    ];
+    expect(
+      judgeRepairs({
+        title: "fix(web): slugs keep dashes",
+        body: "Repairs: 6fceb557b2, #5",
+        resolved,
+      }),
+    ).toEqual([]);
+  });
+
+  effectIt.prop(
+    "judges each Repairs: target by the base branch and the history the fix was built on alone",
+    {
+      title: Schema.Literals(["fix(web): slugs keep dashes", "fix!: slugs", "feat(web): slugs"]),
+      targets: Schema.NonEmptyArray(
+        Schema.Struct({ onBase: Schema.Boolean, inHistory: Schema.Boolean }),
+      ),
+    },
+    ({ title, targets }) => {
+      const resolved: ReadonlyArray<ResolvedRepair> = targets.map((target, index) => ({
+        ref: `abcdef${String(index).padStart(4, "0")}`,
+        onBase: target.onBase,
+        inHistory: target.inHistory,
+      }));
+      const body = `Repairs: ${resolved.map((target) => target.ref).join(", ")}`;
+      const refsWhere = (keep: (target: ResolvedRepair) => boolean) =>
+        resolved.filter(keep).map((target) => target.ref);
+      const unknown = refsWhere((target) => !target.onBase);
+      const notOlder = refsWhere((target) => target.onBase && !target.inHistory);
+      const expected = title.startsWith("fix")
+        ? {
+            ...(unknown.length > 0 ? { "repairs-unknown": unknown } : {}),
+            ...(notOlder.length > 0 ? { "repairs-not-older": notOlder } : {}),
+          }
+        : {};
+      const reasons = judgeRepairs({ title, body, resolved });
+      expect(Object.fromEntries(reasons.map((entry) => [entry.rule, entry.files]))).toEqual(
+        expected,
+      );
+      expect(reasons.every((entry) => entry.lane === "red")).toBe(true);
+    },
+    { arbitrary: { seed: 42 } },
+  );
+});
+
+const sourceNames = ["path", "content", "checks", "repairs", "strength", "amber", "green"] as const;
+type SourceName = (typeof sourceNames)[number];
+const laneEvents = ["pull_request_target", "workflow_run"] as const;
+type LaneEvent = (typeof laneEvents)[number];
+const weakStrength: StrengthVerdict = {
+  result: "weak",
+  tried: 3,
+  missed: 1,
+  missedLines: 1,
+  uncovered: 0,
+  examples: [],
+};
+const reasonsFrom: Record<SourceName, ReadonlyArray<LaneReason>> = {
+  path: classify(
+    parseGitDiff(
+      added(
+        "apps/server/src/persistence/Migrations/065_ThreadIndexes.ts",
+        "@@ -0,0 +1,1 @@\n+export {};",
+      ),
+    ),
+    { packageDirs },
+  ).reasons,
+  content: classify(
+    parseGitDiff(
+      modified(
+        "apps/web/src/lib/paths.ts",
+        '@@ -0,0 +1,2 @@\n+// @effect-diagnostics nodeBuiltinImport:off\n+import * as NodePath from "node:path";',
+      ),
+    ),
+    { packageDirs },
+  ).reasons,
+  checks: judgeChecks({ ...checked, prFiles: [editedSlugTest, slugSource] }).reasons,
+  repairs: judgeRepairs({
+    title: "fix(web): slugs keep dashes",
+    body: "Slugs dropped dashes.",
+    resolved: [],
+  }),
+  strength: strengthReasons(weakStrength, { required: true }),
+  amber: classify(parseGitDiff(webFixSource), { packageDirs }).reasons,
+  green: classify(parseGitDiff(modified("docs/user/slugs.md", "@@ -1,1 +1,1 @@\n-Old\n+New")), {
+    packageDirs,
+  }).reasons,
+};
+const laneFrom = (sources: ReadonlyArray<SourceName>): LaneResult => {
+  const reasons = [...new Set(sources)].flatMap((source) => reasonsFrom[source]);
+  const lane = LANES.reduce<Lane>(
+    (top, next) => (reasons.some((entry) => entry.lane === next) ? next : top),
+    "green",
+  );
+  return { lane, reasons };
+};
+const blockingRules = (result: LaneResult, required: boolean, event: LaneEvent) =>
+  required && event === "pull_request_target"
+    ? result.reasons
+        .filter((entry) => entry.lane === "red" && entry.rule !== "test-strength")
+        .map((entry) => entry.rule)
+    : [];
+const everyRed: ReadonlyArray<SourceName> = ["path", "content", "checks", "repairs", "strength"];
+const outcomeCases: ReadonlyArray<{
+  readonly name: string;
+  readonly sources: ReadonlyArray<SourceName>;
+  readonly required: boolean;
+  readonly event: LaneEvent;
+  readonly blocks: ReadonlyArray<string>;
+}> = [
+  {
+    name: "a red path, switch on, own run",
+    sources: ["path"],
+    required: true,
+    event: "pull_request_target",
+    blocks: ["migrations"],
+  },
+  {
+    name: "a red content line, switch on, own run",
+    sources: ["content"],
+    required: true,
+    event: "pull_request_target",
+    blocks: ["suppression"],
+  },
+  {
+    name: "red checks, switch on, own run",
+    sources: ["checks"],
+    required: true,
+    event: "pull_request_target",
+    blocks: ["checks-touched"],
+  },
+  {
+    name: "a red Repairs: line, switch on, own run",
+    sources: ["repairs"],
+    required: true,
+    event: "pull_request_target",
+    blocks: ["repairs-missing"],
+  },
+  {
+    name: "green, switch on, own run",
+    sources: ["green"],
+    required: true,
+    event: "pull_request_target",
+    blocks: [],
+  },
+  {
+    name: "amber, switch on, own run",
+    sources: ["amber"],
+    required: true,
+    event: "pull_request_target",
+    blocks: [],
+  },
+  {
+    name: "red strength only, switch on, own run",
+    sources: ["amber", "strength"],
+    required: true,
+    event: "pull_request_target",
+    blocks: [],
+  },
+  {
+    name: "red strength + path, switch on, own run",
+    sources: ["path", "strength"],
+    required: true,
+    event: "pull_request_target",
+    blocks: ["migrations"],
+  },
+  {
+    name: "all red, switch off, own run",
+    sources: everyRed,
+    required: false,
+    event: "pull_request_target",
+    blocks: [],
+  },
+  {
+    name: "all red, switch on, after Blind Checks",
+    sources: everyRed,
+    required: true,
+    event: "workflow_run",
+    blocks: [],
+  },
+  {
+    name: "all red, switch off, after Blind Checks",
+    sources: everyRed,
+    required: false,
+    event: "workflow_run",
+    blocks: [],
+  },
+];
+const summaryCases: ReadonlyArray<{
+  readonly name: string;
+  readonly sources: ReadonlyArray<SourceName>;
+  readonly event: LaneEvent;
+  readonly fails: boolean;
+}> = [
+  {
+    name: "a red path, own run",
+    sources: ["path"],
+    event: "pull_request_target",
+    fails: true,
+  },
+  {
+    name: "a red content line, own run",
+    sources: ["content"],
+    event: "pull_request_target",
+    fails: true,
+  },
+  {
+    name: "red checks, after Blind Checks",
+    sources: ["checks"],
+    event: "workflow_run",
+    fails: false,
+  },
+  {
+    name: "a red Repairs: line, after Blind Checks",
+    sources: ["repairs"],
+    event: "workflow_run",
+    fails: false,
+  },
+];
+const laneInputs = {
+  sources: Schema.Array(Schema.Literals(sourceNames)),
+  required: Schema.Boolean,
+  event: Schema.Literals(laneEvents),
+};
+const saysItFails = (text: string) => text.includes("this check fails");
+
+describe("the Merge lane check fails only for a red lane on the pull request's own run", () => {
+  it.each(outcomeCases)("the lane check with $name", ({ sources, required, event, blocks }) => {
+    const outcome = checkOutcome({ result: laneFrom(sources), required, event });
+    expect(outcome.fails).toBe(blocks.length > 0);
+    expect(outcome.reasons.map((entry) => entry.rule)).toHaveLength(blocks.length);
+    expect(outcome.reasons.map((entry) => entry.rule)).toEqual(expect.arrayContaining([...blocks]));
+    expect(outcome.reasons.every((entry) => entry.lane === "red")).toBe(true);
+  });
+
+  effectIt.prop(
+    "fails exactly for the red reasons other than test strength, with the switch on, on the pull request's own run",
+    laneInputs,
+    ({ sources, required, event }) => {
+      const result = laneFrom(sources);
+      const expected = blockingRules(result, required, event);
+      const outcome = checkOutcome({ result, required, event });
+      expect(outcome.fails).toBe(expected.length > 0);
+      expect(outcome.reasons.map((entry) => entry.rule).sort()).toEqual([...expected].sort());
+    },
+    { arbitrary: { seed: 42 } },
+  );
+
+  it.each(summaryCases)("the summary for $name says this check fails: $fails", (row) => {
+    const text = summarize(laneFrom(row.sources), { required: true, event: row.event });
+    expect(saysItFails(text)).toBe(row.fails);
+  });
+
+  it("the summary says this check fails exactly when the check fails, over every lane, switch and event", () => {
+    const lanes: ReadonlyArray<ReadonlyArray<SourceName>> = [
+      ...sourceNames.map((source) => [source]),
+      ["amber", "strength"],
+      ["path", "strength"],
+      everyRed,
+      [],
+    ];
+    for (const sources of lanes) {
+      for (const required of [true, false]) {
+        for (const event of laneEvents) {
+          const result = laneFrom(sources);
+          expect(saysItFails(summarize(result, { required, event }))).toBe(
+            blockingRules(result, required, event).length > 0,
+          );
+        }
+      }
+    }
+  });
+
+  effectIt.prop(
+    "the summary says this check fails exactly when checkOutcome says it fails",
+    laneInputs,
+    ({ sources, required, event }) => {
+      const result = laneFrom(sources);
+      expect(saysItFails(summarize(result, { maxFiles: 10, required, event }))).toBe(
+        checkOutcome({ result, required, event }).fails,
+      );
+    },
+    { arbitrary: { seed: 42 } },
+  );
 });
 
 const loaded = (name: string, tests: ReadonlyArray<readonly [string, string]>): TestResult => ({
