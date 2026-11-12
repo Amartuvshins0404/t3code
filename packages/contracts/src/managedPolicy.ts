@@ -141,11 +141,11 @@ export const ManagedPolicySummary = Schema.Struct({
 });
 export type ManagedPolicySummary = typeof ManagedPolicySummary.Type;
 
-/** The message every surface shows when the policy stops an update. */
-export const FORK_UPDATES_ENABLED = false;
-export const FORK_UPDATES_OFF_MESSAGE =
-  "Updates are off in this build. Pull the upstream changes and rebuild to update.";
+export const FORK_UPDATE_REPOSITORY = "Amartuvshins0404/t3code";
+export const FORK_SELF_UPDATE_ENABLED = false;
+export const FORK_SELF_UPDATE_OFF_MESSAGE = `This build updates only through its desktop app, from github.com/${FORK_UPDATE_REPOSITORY}.`;
 
+/** The message every surface shows when the policy stops an update. */
 export function managedUpdatesMessage(organization: string): string {
   return `${organization} manages T3 Code updates.`;
 }

@@ -6,8 +6,7 @@
  * @module DesktopUpdatePolicy
  */
 import {
-  FORK_UPDATES_ENABLED,
-  FORK_UPDATES_OFF_MESSAGE,
+  FORK_UPDATE_REPOSITORY,
   managedUpdatesMessage,
   type ManagedPolicyDocument,
   type ManagedUpdatesMode,
@@ -85,16 +84,24 @@ const make = Effect.gen(function* () {
   );
 });
 
-const forkUpdatePolicy: UpdatePolicy = {
-  mode: "off",
-  feedUrl: undefined,
-  allowNightly: false,
-  message: FORK_UPDATES_OFF_MESSAGE,
-};
+const FORK_UPDATE_FEED_URL = `https://github.com/${FORK_UPDATE_REPOSITORY}/releases/latest/download`;
+const FORK_UPDATE_FEED_MESSAGE = `This build updates only from github.com/${FORK_UPDATE_REPOSITORY}.`;
 
-export const layer = FORK_UPDATES_ENABLED
-  ? Layer.effect(DesktopUpdatePolicy, make)
-  : Layer.succeed(DesktopUpdatePolicy, forkUpdatePolicy);
+export function resolveForkUpdatePolicy(policy: UpdatePolicy): UpdatePolicy {
+  return policy.feedUrl === undefined
+    ? {
+        ...policy,
+        feedUrl: FORK_UPDATE_FEED_URL,
+        allowNightly: false,
+        message: policy.message ?? FORK_UPDATE_FEED_MESSAGE,
+      }
+    : { mode: "off", feedUrl: undefined, allowNightly: false, message: FORK_UPDATE_FEED_MESSAGE };
+}
+
+export const layer = Layer.effect(
+  DesktopUpdatePolicy,
+  make.pipe(Effect.map(resolveForkUpdatePolicy)),
+);
 
 export const layerTest = (policy: UpdatePolicy = unmanagedUpdatePolicy) =>
   Layer.succeed(DesktopUpdatePolicy, policy);
