@@ -173,8 +173,9 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 ## Connect a CLIProxyAPI hub
 
-To see pooled accounts, choose **Set up** next to CLI Proxy on the Welcome page, or open
-**Settings → Providers → Usage providers → Add hub**.
+To see pooled accounts, open **Settings → Providers → Add provider**, choose **CLI Proxy**, and
+choose **Add**, or choose **Set up** next to CLI Proxy on the Welcome page. T3 connects one proxy
+at a time; connecting another replaces it.
 
 - On a Mac with Homebrew, choose **Install and connect**. T3 installs and starts CLIProxyAPI and
   connects it for you. A new install only accepts connections from the same computer.
@@ -195,7 +196,11 @@ This connection supplies usage information. To send agent requests through a pro
 computer, open **Add provider**, choose **CLI Proxy**, keep **Claude**, **Codex** or both checked,
 and choose **Add**. T3 connects the proxy first if needed, adds its own key to the proxy, and adds
 **Claude (CLI Proxy)** and **Codex (CLI Proxy)**. Your usual Claude and Codex sign-ins stay as they
-are. Remove the hub from the same settings section when you no longer need it.
+are.
+
+Once connected, **CLI Proxy** appears in the Settings providers list with **Copy key**, **Open
+panel** and **Disconnect**. Disconnect forgets the proxy and removes **Claude (CLI Proxy)** and
+**Codex (CLI Proxy)**; the proxy itself keeps running with its key and accounts.
 
 ## Subscription usage widget
 

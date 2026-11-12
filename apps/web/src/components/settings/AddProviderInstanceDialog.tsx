@@ -904,7 +904,6 @@ export function AddProviderInstanceDialog({
           onOpenChange={setConnectingCliproxy}
           environmentId={environmentId}
           environmentLabel={environmentLabel}
-          sources={settings.usageLimitSources}
           onConnected={() => {
             setConnectingCliproxy(false);
             void addThroughCliproxy();

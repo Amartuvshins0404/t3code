@@ -46,3 +46,9 @@ export const cliproxyLocalRevealKey = createEnvironmentRpcCommand(connectionAtom
   label: "environment-data:cliproxy:local-reveal-key",
   tag: WS_METHODS.cliproxyLocalRevealKey,
 });
+
+export const cliproxyDisconnect = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:disconnect",
+  tag: WS_METHODS.cliproxyDisconnect,
+  concurrency: singleFlight,
+});

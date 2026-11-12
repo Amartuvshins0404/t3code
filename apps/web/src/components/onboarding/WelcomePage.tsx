@@ -382,7 +382,6 @@ function CliProxyRow({
   readonly environmentId: EnvironmentId;
   readonly label: string;
 }) {
-  const sources = useEnvironmentSettings(environmentId, (settings) => settings.usageLimitSources);
   const canSetUp = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const [open, setOpen] = useState(false);
   return (
@@ -420,7 +419,6 @@ function CliProxyRow({
           onOpenChange={setOpen}
           environmentId={environmentId}
           environmentLabel={label}
-          sources={sources}
         />
       ) : null}
     </div>

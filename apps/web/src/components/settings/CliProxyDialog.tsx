@@ -6,20 +6,28 @@ import {
   type CliproxyLocalStatus,
   type EnvironmentId,
   type SecretReference,
-  type UnifiedSettings,
+  type UsageLimitSourceConfig,
   type UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { usageLimitSourceIdFromUrl } from "@t3tools/shared/serverSettings";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
-import { CheckIcon, CircleIcon, CopyIcon, ExternalLinkIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  CircleIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  WaypointsIcon,
+  XIcon,
+} from "lucide-react";
 import { useContext, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import {
+  cliproxyDisconnect,
   cliproxyLocalConnect,
   cliproxyLocalInstall,
   cliproxyLocalRevealKey,
@@ -52,6 +60,7 @@ import { Label } from "../ui/label";
 import { Spinner } from "../ui/spinner";
 import { SecretInput } from "./SecretInput";
 import { SecretSourceInput, useSecretSources } from "./SecretSourceInput";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 const isLocalError = Schema.is(CliproxyLocalError);
 
@@ -60,6 +69,36 @@ type CheckState = "done" | "running" | "failed" | "waiting";
 
 const statusAtom = (environmentId: EnvironmentId) =>
   cliproxyLocalStatus({ environmentId, input: {} });
+
+function proxyPanelUrl(url: string): string | null {
+  try {
+    return new URL("management.html", `${url.includes("://") ? url : `http://${url}`}/`).toString();
+  } catch {
+    return null;
+  }
+}
+
+function useCopyProxyKey(environmentId: EnvironmentId) {
+  const canCopyKey = useAtomValue(cliproxyLocalRevealKey.permissionAtom(environmentId));
+  const revealKey = useAtomCommand(cliproxyLocalRevealKey, { reportFailure: false });
+  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "management key" });
+  const [copyFailed, setCopyFailed] = useState(false);
+  const copyKey = async (sourceId: UsageLimitSourceId) => {
+    setCopyFailed(false);
+    const result = await revealKey({ environmentId, input: { sourceId } });
+    if (result._tag === "Success") copyToClipboard(result.value, undefined);
+    else setCopyFailed(true);
+  };
+  return { canCopyKey, copyKey, isCopied, copyFailed };
+}
+
+function CopyFailedNote() {
+  return (
+    <p className="text-sm text-destructive" role="alert">
+      Couldn't read the key. Try again.
+    </p>
+  );
+}
 
 export function cliproxyFailureMessage(
   reason: CliproxyLocalFailureReason | null,
@@ -137,14 +176,12 @@ export function CliProxyDialog({
   onOpenChange,
   environmentId,
   environmentLabel,
-  sources,
   onConnected,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
-  readonly sources: UnifiedSettings["usageLimitSources"];
   readonly onConnected?: () => void;
 }) {
   const supported =
@@ -183,7 +220,6 @@ export function CliProxyDialog({
         ) : (
           <RemoteHubForm
             environmentId={environmentId}
-            sources={sources}
             {...(supported ? { onUseLocal: () => setRemote(false) } : {})}
             onClose={close}
           />
@@ -212,10 +248,7 @@ function LocalSetup({
   const install = useAtomCommand(cliproxyLocalInstall, { reportFailure: false });
   const connect = useAtomCommand(cliproxyLocalConnect, { reportFailure: false });
   const setNewKey = useAtomCommand(cliproxyLocalSetNewKey, { reportFailure: false });
-  const canCopyKey = useAtomValue(cliproxyLocalRevealKey.permissionAtom(environmentId));
-  const revealKey = useAtomCommand(cliproxyLocalRevealKey, { reportFailure: false });
-  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "management key" });
-  const [copyFailed, setCopyFailed] = useState(false);
+  const { canCopyKey, copyKey, isCopied, copyFailed } = useCopyProxyKey(environmentId);
   const [managementKey, setManagementKey] = useState("");
   const [busy, setBusy] = useState<Busy>(null);
   const [failure, setFailure] = useState<{ reason: CliproxyLocalFailureReason | null } | null>(
@@ -241,13 +274,6 @@ function LocalSetup({
     }
     const error = Cause.squash(result.cause);
     setFailure({ reason: isLocalError(error) ? error.reason : null });
-  };
-
-  const copyKey = async (sourceId: UsageLimitSourceId) => {
-    setCopyFailed(false);
-    const result = await revealKey({ environmentId, input: { sourceId } });
-    if (result._tag === "Success") copyToClipboard(result.value, undefined);
-    else setCopyFailed(true);
   };
 
   if (status === null) {
@@ -398,11 +424,7 @@ function LocalSetup({
                 : "Add Claude or Codex accounts in the proxy's panel. Sign in there with the management key."}
             </p>
           ) : null}
-          {copyFailed ? (
-            <p className="text-sm text-destructive" role="alert">
-              Couldn't read the key. Try again.
-            </p>
-          ) : null}
+          {copyFailed ? <CopyFailedNote /> : null}
           {error}
           {connected ? null : permissionNote}
           {connected ? null : remoteLink}
@@ -422,7 +444,7 @@ function LocalSetup({
           <Button
             render={
               <a
-                href={new URL("management.html", `${status.url}/`).toString()}
+                href={proxyPanelUrl(status.url) ?? undefined}
                 target="_blank"
                 rel="noreferrer noopener"
               />
@@ -457,12 +479,10 @@ function LocalSetup({
 
 function RemoteHubForm({
   environmentId,
-  sources,
   onUseLocal,
   onClose,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly sources: UnifiedSettings["usageLimitSources"];
   readonly onUseLocal?: () => void;
   readonly onClose: () => void;
 }) {
@@ -479,7 +499,7 @@ function RemoteHubForm({
     if (!canSave) return;
     updateSettings({
       usageLimitSources: {
-        [usageLimitSourceIdFromUrl(trimmedUrl, sources)]: {
+        [usageLimitSourceIdFromUrl(trimmedUrl)]: {
           kind: "cliproxy",
           url: trimmedUrl,
           managementKey,
@@ -540,9 +560,126 @@ function RemoteHubForm({
           Cancel
         </Button>
         <Button onClick={save} disabled={!canSave}>
-          Add hub
+          Connect
         </Button>
       </DialogFooter>
     </>
+  );
+}
+
+export function CliProxyProviderRow({
+  source,
+  selected,
+  onSelect,
+}: {
+  readonly source: UsageLimitSourceConfig;
+  readonly selected: boolean;
+  readonly onSelect: () => void;
+}) {
+  return (
+    <div
+      data-slot="settings-row"
+      className={cn(
+        "group flex min-h-18 items-center gap-3 px-3 py-3 transition-colors sm:px-4",
+        selected ? "bg-foreground/[0.06]" : "hover:bg-muted/25",
+      )}
+    >
+      <div className="pointer-events-none relative flex min-w-0 flex-1 items-start gap-3 rounded-md text-left">
+        <button
+          type="button"
+          className="pointer-events-auto absolute inset-0 cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          onClick={onSelect}
+          aria-label="Select CLI Proxy"
+          aria-pressed={selected}
+        />
+        <WaypointsIcon className="size-5 shrink-0" aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-foreground">CLI Proxy</span>
+          <span className="mt-0.5 block truncate text-xs leading-normal text-muted-foreground/80">
+            Connected · {source.url}
+          </span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export function CliProxyDetails({
+  environmentId,
+  sourceId,
+  source,
+  providerNames,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly sourceId: UsageLimitSourceId;
+  readonly source: UsageLimitSourceConfig;
+  readonly providerNames: ReadonlyArray<string>;
+}) {
+  const registry = useContext(RegistryContext);
+  const { canCopyKey, copyKey, isCopied, copyFailed } = useCopyProxyKey(environmentId);
+  const canDisconnect = useAtomValue(cliproxyDisconnect.permissionAtom(environmentId));
+  const disconnect = useAtomCommand(cliproxyDisconnect);
+  const [confirming, setConfirming] = useState(false);
+  const panelUrl = proxyPanelUrl(source.url);
+
+  return (
+    <SettingsSection title="CLI Proxy" icon={<WaypointsIcon className="size-5" aria-hidden />}>
+      <SettingsRow
+        title="Connected"
+        description={<span className="break-all">{source.url}</span>}
+        status={copyFailed ? <CopyFailedNote /> : undefined}
+        control={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {canCopyKey ? (
+              <Button size="xs" variant="outline" onClick={() => void copyKey(sourceId)}>
+                <CopyIcon className="size-3.5" aria-hidden />
+                {isCopied ? "Copied" : "Copy key"}
+              </Button>
+            ) : null}
+            {panelUrl ? (
+              <Button
+                size="xs"
+                variant="outline"
+                render={<a href={panelUrl} target="_blank" rel="noreferrer noopener" />}
+              >
+                Open panel
+                <ExternalLinkIcon className="size-3.5" aria-hidden />
+              </Button>
+            ) : null}
+            {canDisconnect ? (
+              <Button size="xs" variant="destructive-outline" onClick={() => setConfirming(true)}>
+                Disconnect
+              </Button>
+            ) : null}
+          </div>
+        }
+      />
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect CLI Proxy?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {providerNames.length > 0
+                ? `This also removes ${providerNames.join(" and ")}. The proxy itself keeps running.`
+                : "Its accounts leave Limits. The proxy itself keeps running."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirming(false);
+                void disconnect({ environmentId, input: {} }).then(() =>
+                  registry.refresh(statusAtom(environmentId)),
+                );
+              }}
+            >
+              Disconnect
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+    </SettingsSection>
   );
 }

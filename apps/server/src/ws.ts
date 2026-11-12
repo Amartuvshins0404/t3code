@@ -2668,6 +2668,7 @@ export const layerWsRpc = (
           usageLimitSources.addLocalProviders(input),
         [WS_METHODS.cliproxyLocalRevealKey]: (input) =>
           usageLimitSources.revealManagementKey(input.sourceId),
+        [WS_METHODS.cliproxyDisconnect]: (_input) => usageLimitSources.disconnect,
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
           Stream.callback<RelayClientInstallProgressEvent, RelayClientInstallFailedError>((queue) =>

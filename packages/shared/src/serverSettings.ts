@@ -49,12 +49,7 @@ const decodeOwnerNameJson = Schema.decodeUnknownOption(
   fromLenientJson(Schema.Struct({ ownerName: ServerSettings.fields.ownerName })),
 );
 
-export function usageLimitSourceIdFromUrl(
-  url: string,
-  sources: Readonly<Record<string, { readonly url: string }>>,
-): UsageLimitSourceId {
-  const saved = Object.entries(sources).find(([, source]) => source.url === url);
-  if (saved) return UsageLimitSourceId.make(saved[0]);
+export function usageLimitSourceIdFromUrl(url: string): UsageLimitSourceId {
   let host = url;
   try {
     host = new URL(url).host;
@@ -63,13 +58,7 @@ export function usageLimitSourceIdFromUrl(
     .toLowerCase()
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  // Settings merge by ID, so adding a different hub must not replace an existing entry.
-  const base = `cliproxy-${slug || "hub"}`;
-  let id = base;
-  for (let suffix = 2; id in sources; suffix += 1) {
-    id = `${base}-${suffix}`;
-  }
-  return UsageLimitSourceId.make(id);
+  return UsageLimitSourceId.make(`cliproxy-${slug || "hub"}`);
 }
 
 export function parsePersistedOwnerName(raw: string): string {
@@ -274,6 +263,15 @@ function mergeSettingsEntries<Value>(
     }
   }
   return Object.fromEntries(next);
+}
+
+function mergeUsageLimitSources<Value>(
+  current: Readonly<Record<string, Value>>,
+  patch: Readonly<Record<string, Value | null>>,
+): Record<string, Value> {
+  const next = Object.entries(mergeSettingsEntries(current, patch));
+  const kept = Object.keys(patch).findLast((id) => patch[id] !== null) ?? next.at(-1)?.[0];
+  return Object.fromEntries(next.filter(([id]) => id === kept));
 }
 
 // Secret persistence keys tokens by trimmed, lowercased host, so merge on the same key.
@@ -640,7 +638,7 @@ export function applyServerSettingsPatch(
       : {}),
     ...(usageLimitSourcesPatch !== undefined
       ? {
-          usageLimitSources: mergeSettingsEntries(
+          usageLimitSources: mergeUsageLimitSources(
             current.usageLimitSources,
             usageLimitSourcesPatch,
           ),

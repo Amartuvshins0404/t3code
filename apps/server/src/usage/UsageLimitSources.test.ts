@@ -1,7 +1,15 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { SecretProviderId, ServerConfigStreamEvent, UsageLimitSourceId } from "@t3tools/contracts";
+import {
+  CLIPROXY_CLAUDE_INSTANCE_ID,
+  CLIPROXY_CODEX_INSTANCE_ID,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  SecretProviderId,
+  ServerConfigStreamEvent,
+  UsageLimitSourceId,
+} from "@t3tools/contracts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -163,3 +171,49 @@ it.effect("reads a management key from its secret provider", () => {
     Effect.scoped,
   );
 });
+
+it.effect("disconnecting forgets the proxy and its providers, nothing else", () =>
+  Effect.gen(function* () {
+    const sources = yield* UsageLimitSources.make;
+    yield* sources.disconnect;
+    const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings;
+    expect(settings.usageLimitSources).toEqual({});
+    expect(Object.keys(settings.providerInstances)).toEqual(["claudeAgent_work"]);
+  }).pipe(
+    Effect.provide([
+      ServerSettings.layerTest({
+        usageLimitSources: {
+          [UsageLimitSourceId.make("cliproxy-127.0.0.1-8317")]: {
+            kind: "cliproxy",
+            url: "http://127.0.0.1:8317",
+            managementKey: "",
+            enabled: true,
+          },
+        },
+        providerInstances: {
+          [CLIPROXY_CLAUDE_INSTANCE_ID]: { driver: ProviderDriverKind.make("claudeAgent") },
+          [CLIPROXY_CODEX_INSTANCE_ID]: { driver: ProviderDriverKind.make("codex") },
+          [ProviderInstanceId.make("claudeAgent_work")]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+          },
+        },
+      }),
+      Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+        shouldRunScopeWork: () => Effect.succeed(false),
+      }),
+      Layer.succeed(SecretResolver.SecretResolver, {
+        label: (provider) => Effect.succeed(provider),
+        read: (references) => Effect.succeed(references.map(() => undefined)),
+        invalidate: () => Effect.void,
+      }),
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.die("Unexpected network request")),
+      ),
+      NodeCrypto.layer,
+      NodeServices.layer,
+      Layer.mock(ProcessRunner.ProcessRunner)({}),
+    ]),
+    Effect.scoped,
+  ),
+);

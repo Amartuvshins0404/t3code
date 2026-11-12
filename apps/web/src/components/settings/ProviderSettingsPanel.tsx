@@ -15,6 +15,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  CLIPROXY_CLAUDE_INSTANCE_ID,
+  CLIPROXY_CODEX_INSTANCE_ID,
   defaultInstanceIdForDriver,
   type EnvironmentId,
   type AcpRegistryUrlAuthAction,
@@ -27,6 +29,7 @@ import {
   resolveEnvironmentMachineKind,
   resolveProjectProviderInstanceEnabled,
   resolveProviderInstanceEnabled,
+  UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 import {
@@ -98,7 +101,7 @@ import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { useSecretSources } from "./SecretSourceInput";
 import { TextGeneratorsSettings } from "./TextGeneratorsSettings";
 import { CodeSearchSettings } from "./CodeSearchSettings";
-import { UsageProviderSettings } from "./UsageProviderSettings";
+import { CliProxyDetails, CliProxyProviderRow } from "./CliProxyDialog";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
@@ -357,8 +360,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
   {
     if (
       !target.scoped &&
-      (searchTargetId === searchableSetting("provider-health-check-interval").id ||
-        searchTargetId === searchableSetting("usage-providers").id) &&
+      searchTargetId === searchableSetting("provider-health-check-interval").id &&
       !selectedEnvironmentCanRenderSettings &&
       searchableEnvironmentId !== undefined
     ) {
@@ -530,6 +532,7 @@ function AccessGatedProviderSettings({
   );
 }
 
+const CLIPROXY_ROW = ":cliproxy";
 const NO_PROJECT_IDS: readonly ProjectId[] = [];
 const NO_FAVORITES: UnifiedSettings["favorites"] = [];
 
@@ -580,9 +583,9 @@ export function EnvironmentProviderSettings({
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
-  const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(
-    targetInstanceId ?? null,
-  );
+  const [selectedInstanceId, setSelectedInstanceId] = useState<
+    ProviderInstanceId | typeof CLIPROXY_ROW | null
+  >(targetInstanceId ?? null);
   const [updatingProviderInstanceIds, setUpdatingProviderInstanceIds] = useState<
     ReadonlySet<ProviderInstanceId>
   >(() => new Set());
@@ -780,9 +783,18 @@ export function EnvironmentProviderSettings({
     targetInstanceId !== undefined &&
     selectedInstanceId === targetInstanceId &&
     !rows.some((row) => row.instanceId === targetInstanceId);
-  const selectedRow =
-    rows.find((row) => row.instanceId === selectedInstanceId) ??
-    (targetInstanceMissing ? null : (rows[0] ?? null));
+  const cliproxy = Object.entries(settings.usageLimitSources).at(-1);
+  const cliproxySelected = cliproxy !== undefined && selectedInstanceId === CLIPROXY_ROW;
+  const cliproxyProviderNames = [CLIPROXY_CLAUDE_INSTANCE_ID, CLIPROXY_CODEX_INSTANCE_ID].flatMap(
+    (instanceId) => {
+      const instance = settings.providerInstances[instanceId];
+      return instance ? [providerInstanceName(instance)] : [];
+    },
+  );
+  const selectedRow = cliproxySelected
+    ? null
+    : (rows.find((row) => row.instanceId === selectedInstanceId) ??
+      (targetInstanceMissing ? null : (rows[0] ?? null)));
 
   const persistInstance = async (
     instanceId: ProviderInstanceId,
@@ -1053,6 +1065,13 @@ export function EnvironmentProviderSettings({
             >
               <div className="divide-y divide-border/50">
                 {rows.map((row) => renderProviderInstance(row, "list"))}
+                {cliproxy ? (
+                  <CliProxyProviderRow
+                    source={cliproxy[1]}
+                    selected={cliproxySelected}
+                    onSelect={() => setSelectedInstanceId(CLIPROXY_ROW)}
+                  />
+                ) : null}
                 {canAddProvider ? (
                   <button
                     type="button"
@@ -1068,7 +1087,16 @@ export function EnvironmentProviderSettings({
           </div>
 
           <div data-provider-detail className="min-w-0 @min-[48rem]/providers:min-h-0">
-            {selectedRow ? (
+            {cliproxySelected ? (
+              <div className="py-4">
+                <CliProxyDetails
+                  environmentId={environmentId}
+                  sourceId={UsageLimitSourceId.make(cliproxy[0])}
+                  source={cliproxy[1]}
+                  providerNames={cliproxyProviderNames}
+                />
+              </div>
+            ) : selectedRow ? (
               <ScrollArea scrollFade chainVerticalScroll className="@min-[48rem]/providers:h-full">
                 {/* Flat sections run dividers edge to edge and inset text like the list beside them. */}
                 <div className="space-y-6 py-4">
@@ -1085,14 +1113,6 @@ export function EnvironmentProviderSettings({
           </div>
         </SettingsGroup>
       </SettingsSection>
-
-      <UsageProviderSettings
-        key={environmentId}
-        environmentId={environmentId}
-        environmentLabel={environmentLabel}
-        sources={settings.usageLimitSources}
-        readOnly={readOnly}
-      />
 
       {/* The server drops text generators under a provider allow-list. */}
       {managedPolicy?.limits?.providers?.allowedDrivers === undefined ? (

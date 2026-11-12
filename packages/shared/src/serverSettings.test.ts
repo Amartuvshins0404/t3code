@@ -622,26 +622,32 @@ describe("serverSettings helpers", () => {
     });
   });
 
-  it("upserts and removes usageLimitSources per entry so concurrent edits cannot clobber", () => {
+  it("keeps one usageLimitSources entry, dropping older ones on the next write", () => {
     const hubA = UsageLimitSourceId.make("cliproxy-a");
     const hubB = UsageLimitSourceId.make("cliproxy-b");
+    const hubC = UsageLimitSourceId.make("cliproxy-c");
     const source = (url: string) => ({
       kind: "cliproxy" as const,
       url,
       managementKey: "secret",
       enabled: true,
     });
-    const current = {
+    const legacy = {
       ...DEFAULT_SERVER_SETTINGS,
-      usageLimitSources: { [hubA]: source("http://a:8318") },
+      usageLimitSources: { [hubA]: source("http://a:8318"), [hubB]: source("http://b:8318") },
     };
 
-    const added = applyServerSettingsPatch(current, {
-      usageLimitSources: { [hubB]: source("http://b:8318") },
+    const added = applyServerSettingsPatch(legacy, {
+      usageLimitSources: { [hubC]: source("http://c:8318") },
     });
-    expect(Object.keys(added.usageLimitSources)).toEqual([hubA, hubB]);
+    expect(Object.keys(added.usageLimitSources)).toEqual([hubC]);
 
-    const removed = applyServerSettingsPatch(added, { usageLimitSources: { [hubA]: null } });
+    const rewritten = applyServerSettingsPatch(legacy, {
+      usageLimitSources: { [hubA]: source("http://a:8319") },
+    });
+    expect(Object.keys(rewritten.usageLimitSources)).toEqual([hubA]);
+
+    const removed = applyServerSettingsPatch(legacy, { usageLimitSources: { [hubA]: null } });
     expect(Object.keys(removed.usageLimitSources)).toEqual([hubB]);
   });
 
@@ -1065,7 +1071,7 @@ describe("adding usage limit sources", () => {
   it.each([
     ["http://proxy.test:8318/hub-a", "http://proxy.test:8318/hub-b"],
     ["localhost:8318", "localhost:9318"],
-  ])("retains saved configurations for %s and %s", (firstUrl, secondUrl) => {
+  ])("keeps only the last connected proxy for %s and %s", (firstUrl, secondUrl) => {
     let settings: ServerSettings = DEFAULT_SERVER_SETTINGS;
     const sources = [
       [firstUrl, "First hub", "first-key"],
@@ -1073,22 +1079,27 @@ describe("adding usage limit sources", () => {
       [`${secondUrl}/extra`, "Third hub", "third-key"],
     ] as const;
     for (const [url, label, managementKey] of sources) {
-      const id = usageLimitSourceIdFromUrl(url, settings.usageLimitSources);
       settings = applyServerSettingsPatch(settings, {
         usageLimitSources: {
-          [id]: { kind: "cliproxy", url, label, managementKey, enabled: true },
+          [usageLimitSourceIdFromUrl(url)]: {
+            kind: "cliproxy",
+            url,
+            label,
+            managementKey,
+            enabled: true,
+          },
         },
       });
     }
-    expect(Object.values(settings.usageLimitSources)).toEqual(
-      sources.map(([url, label, managementKey]) => ({
+    expect(Object.values(settings.usageLimitSources)).toEqual([
+      {
         kind: "cliproxy",
-        url,
-        label,
-        managementKey,
+        url: `${secondUrl}/extra`,
+        label: "Third hub",
+        managementKey: "third-key",
         enabled: true,
-      })),
-    );
+      },
+    ]);
   });
 
   it("updates a saved hub when its URL is added again", () => {
@@ -1097,7 +1108,7 @@ describe("adding usage limit sources", () => {
       const url = "http://proxy.test:8318/hub-a";
       settings = applyServerSettingsPatch(settings, {
         usageLimitSources: {
-          [usageLimitSourceIdFromUrl(url, settings.usageLimitSources)]: {
+          [usageLimitSourceIdFromUrl(url)]: {
             kind: "cliproxy",
             url,
             managementKey,

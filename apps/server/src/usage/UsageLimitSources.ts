@@ -1,4 +1,6 @@
 import {
+  CLIPROXY_CLAUDE_INSTANCE_ID,
+  CLIPROXY_CODEX_INSTANCE_ID,
   type CliproxyAddProvidersInput,
   type CliproxyAddProvidersResult,
   CliproxyLocalError,
@@ -7,7 +9,6 @@ import {
   DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL,
   ProviderDriverKind,
   type ProviderInstanceConfig,
-  ProviderInstanceId,
   UsageLimitSourceError,
   type UsageLimitSourceConsumeResetCreditInput,
   type ProviderConsumeResetCreditResult,
@@ -60,6 +61,7 @@ export class UsageLimitSources extends Context.Service<
     readonly addLocalProviders: (
       input: CliproxyAddProvidersInput,
     ) => Effect.Effect<CliproxyAddProvidersResult, CliproxyLocalError>;
+    readonly disconnect: Effect.Effect<void, CliproxyLocalError>;
     readonly revealManagementKey: (
       sourceId: UsageLimitSourceId,
     ) => Effect.Effect<string, UsageLimitSourceError>;
@@ -104,7 +106,7 @@ function proxyInstances(url: string, clientKey: string, input: CliproxyAddProvid
     ...(input.claude
       ? [
           {
-            instanceId: ProviderInstanceId.make("claudeAgent_cliproxy"),
+            instanceId: CLIPROXY_CLAUDE_INSTANCE_ID,
             driver: ProviderDriverKind.make("claudeAgent"),
             displayName: "Claude (CLI Proxy)",
             environment: [
@@ -118,7 +120,7 @@ function proxyInstances(url: string, clientKey: string, input: CliproxyAddProvid
     ...(input.codex
       ? [
           {
-            instanceId: ProviderInstanceId.make("codex_cliproxy"),
+            instanceId: CLIPROXY_CODEX_INSTANCE_ID,
             driver: ProviderDriverKind.make("codex"),
             displayName: "Codex (CLI Proxy)",
             environment: [{ name: CODEX_CLIENT_KEY_VARIABLE, value: clientKey, sensitive: true }],
@@ -336,9 +338,7 @@ export const make = Effect.gen(function* () {
       const saved = Object.entries(settings.usageLimitSources).find(([, config]) =>
         isLocalHub(config.url, url),
       );
-      const id = saved
-        ? UsageLimitSourceId.make(saved[0])
-        : usageLimitSourceIdFromUrl(url, settings.usageLimitSources);
+      const id = saved ? UsageLimitSourceId.make(saved[0]) : usageLimitSourceIdFromUrl(url);
       const clientKey = saved?.[1].clientKey;
       yield* settingsService.updateSettings({
         usageLimitSources: {
@@ -448,6 +448,23 @@ export const make = Effect.gen(function* () {
     } satisfies CliproxyAddProvidersResult;
   }, localLock.withPermits(1));
 
+  const disconnect = Effect.gen(function* () {
+    const settings = yield* settingsService.getSettings;
+    for (const instanceId of [CLIPROXY_CLAUDE_INSTANCE_ID, CLIPROXY_CODEX_INSTANCE_ID]) {
+      if (settings.providerInstances[instanceId] === undefined) continue;
+      yield* settingsService.updateProviderInstance({ operation: "remove", instanceId });
+    }
+    yield* settingsService.updateSettings({
+      usageLimitSources: Object.fromEntries(
+        Object.keys(settings.usageLimitSources).map((id) => [id, null]),
+      ),
+    });
+  }).pipe(
+    Effect.mapError(() => localFailure("saveFailed")),
+    localLock.withPermits(1),
+    Effect.withSpan("UsageLimitSources.disconnect"),
+  );
+
   yield* settingsService.streamChanges.pipe(
     Stream.map((settings) => settings.usageLimitSources),
     Stream.changes,
@@ -486,6 +503,7 @@ export const make = Effect.gen(function* () {
     connectLocal,
     setNewLocalKey,
     addLocalProviders,
+    disconnect,
     revealManagementKey,
     get streamChanges() {
       return Stream.unwrap(

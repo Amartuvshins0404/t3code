@@ -142,6 +142,9 @@ export const CliproxyAddProvidersInput = Schema.Struct({
 });
 export type CliproxyAddProvidersInput = typeof CliproxyAddProvidersInput.Type;
 
+export const CLIPROXY_CLAUDE_INSTANCE_ID = ProviderInstanceId.make("claudeAgent_cliproxy");
+export const CLIPROXY_CODEX_INSTANCE_ID = ProviderInstanceId.make("codex_cliproxy");
+
 export const CliproxyAddProvidersResult = Schema.Struct({
   instances: Schema.Array(
     Schema.Struct({ instanceId: ProviderInstanceId, driver: ProviderDriverKind }),

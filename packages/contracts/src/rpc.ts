@@ -583,6 +583,7 @@ export const WS_METHODS = {
   cliproxyLocalSetNewKey: "cliproxy.local.setNewKey",
   cliproxyLocalRevealKey: "cliproxy.local.revealKey",
   cliproxyLocalAddProviders: "cliproxy.local.addProviders",
+  cliproxyDisconnect: "cliproxy.disconnect",
 
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -1094,6 +1095,11 @@ const WsCliproxyLocalRevealKeyRpc = Rpc.make(WS_METHODS.cliproxyLocalRevealKey, 
 const WsCliproxyLocalAddProvidersRpc = Rpc.make(WS_METHODS.cliproxyLocalAddProviders, {
   payload: CliproxyAddProvidersInput,
   success: CliproxyAddProvidersResult,
+  error: CliproxyLocalRpcError,
+});
+
+const WsCliproxyDisconnectRpc = Rpc.make(WS_METHODS.cliproxyDisconnect, {
+  payload: Schema.Struct({}),
   error: CliproxyLocalRpcError,
 });
 
@@ -2216,6 +2222,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsCliproxyLocalSetNewKeyRpc,
   WsCliproxyLocalRevealKeyRpc,
   WsCliproxyLocalAddProvidersRpc,
+  WsCliproxyDisconnectRpc,
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsFilterOptionsRpc,
