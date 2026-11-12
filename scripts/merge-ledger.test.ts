@@ -384,7 +384,7 @@ const linkOf = (by: string, change: string): Link => ({
 const disagreementOf = (fix: string): Disagreement => ({
   fix,
   subject: `fix: ${fix[0]}`,
-  declared: [LATER_SHAS[0]],
+  declared: [LATER[0].sha],
   notListed: [],
   blamed: LATER_SHAS.filter((sha) => sha < fix),
 });
