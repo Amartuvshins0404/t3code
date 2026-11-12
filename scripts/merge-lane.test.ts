@@ -131,6 +131,61 @@ const cases: ReadonlyArray<{
     rules: ["suppression"],
   },
   {
+    name: "the reasoned effect comment AGENTS.md asks for",
+    diff: modified(
+      "apps/web/src/speech/useDictationShortcut.ts",
+      `@@ -67,0 +68,2 @@
++  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the window keyboard listeners
++  useEffect(() => subscribe(), []);`,
+    ),
+    lane: "amber",
+    rules: ["app-code"],
+  },
+  {
+    name: "the same effect comment without a reason",
+    diff: modified(
+      "apps/web/src/speech/useDictationShortcut.ts",
+      `@@ -67,0 +68,2 @@
++  // oxlint-disable-next-line t3code/no-unreasoned-state-sync
++  useEffect(() => subscribe(), []);`,
+    ),
+    lane: "red",
+    rules: ["suppression"],
+  },
+  {
+    name: "the Node import switch in a test file",
+    diff: modified(
+      "apps/web/src/lib/paths.test.ts",
+      `@@ -0,0 +1,2 @@
++// @effect-diagnostics nodeBuiltinImport:off
++import * as NodePath from "node:path";`,
+    ),
+    lane: "amber",
+    rules: ["app-code"],
+  },
+  {
+    name: "the Node import switch in app source",
+    diff: modified(
+      "apps/web/src/lib/paths.ts",
+      `@@ -0,0 +1,2 @@
++// @effect-diagnostics nodeBuiltinImport:off
++import * as NodePath from "node:path";`,
+    ),
+    lane: "red",
+    rules: ["suppression"],
+  },
+  {
+    name: "the Node import switch with a second check switched off",
+    diff: modified(
+      "apps/web/src/lib/paths.test.ts",
+      `@@ -0,0 +1,2 @@
++// @effect-diagnostics nodeBuiltinImport:off globalConsole:off
++import * as NodePath from "node:path";`,
+    ),
+    lane: "red",
+    rules: ["suppression"],
+  },
+  {
     name: "a removed test case with no replacement",
     diff: modified(
       "apps/server/src/git/GitWorkflowService.test.ts",

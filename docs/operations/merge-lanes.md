@@ -13,7 +13,7 @@ The rules and the reason behind each label are in [merge-lane.cjs](../../.github
 - **The base branch judges.** The workflow runs on `pull_request_target`, checks out the base commit, and reads the PR's files and patches from the GitHub API. It never checks out or runs PR code. A PR that edits the rules is judged by the old rules, so a rule change takes effect only after it merges. It also means the workflow first runs on the PR after the one that adds it.
 - **Unknown is red.** A path no rule matches is red, and so is a code file GitHub sends without a patch, since a loosened check cannot be ruled out. When a new top-level directory or config file appears, add a rule for it, or every PR that touches it stays red.
 - **It only reports.** The label is not a required check. Nothing merges, blocks, closes or reverts because of it. The workflow does not run outside `Amartuvshins0404/t3code`.
-- **Suppressions make a change red.** An added `oxlint-disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `@effect-diagnostics` line counts as loosening a gate, including the reasoned `t3code/no-unreasoned-state-sync` comments AGENTS.md asks for.
+- **Suppressions make a change red, except the two the repo requires.** An added `oxlint-disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `@effect-diagnostics` line counts as loosening a gate. Two forms pass: the `t3code/no-unreasoned-state-sync` comment with its reason, and `@effect-diagnostics nodeBuiltinImport:off` alone in a test file or a `scripts/` directory. A reason on any other suppression changes nothing, because whoever wrote the change can always write one.
 
 Judge any commit, range or working tree locally:
 

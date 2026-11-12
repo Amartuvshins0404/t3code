@@ -195,6 +195,14 @@ const CONTENT_RULES = {
 };
 
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const SCRIPT_FILE = /(?:^|\/)scripts\//;
+const REQUIRED_SUPPRESSIONS = [
+  { line: /^\s*\/\/ oxlint-disable-next-line t3code\/no-unreasoned-state-sync -- \S/ },
+  {
+    line: /^\s*\/\/ @effect-diagnostics nodeBuiltinImport:off\s*$/,
+    files: [TEST_FILE, SCRIPT_FILE],
+  },
+];
 const PROSE = /\.(?:mdx?|txt)$/;
 const BINARY =
   /\.(?:png|jpe?g|gif|webp|ico|icns|bmp|tiff?|ttf|otf|woff2?|eot|mp[34]|mov|webm|wav|ogg|m4a|pdf|zip|t?gz|tar|jar|keystore|p12|node|wasm|dylib|so|dll|exe|car|riv|lottie)$/i;
@@ -224,6 +232,14 @@ function addedLines(patch) {
     .split("\n")
     .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
     .map((line) => line.slice(1));
+}
+
+function isRequiredSuppression(line, name) {
+  return REQUIRED_SUPPRESSIONS.some(
+    (allowed) =>
+      allowed.line.test(line) &&
+      (allowed.files === undefined || allowed.files.some((pattern) => pattern.test(name))),
+  );
 }
 
 function testCaseDelta(file) {
@@ -272,10 +288,11 @@ function classify(files, { packageDirs = [], fileListComplete = true } = {}) {
     if (PROSE.test(name)) continue;
 
     const added = addedLines(file.patch);
-    for (const id of ["suppression", "test-skip"]) {
-      if (added.some((line) => CONTENT_RULES[id].added.test(line)))
-        hit(CONTENT_RULES[id], id, name);
-    }
+    const silences = (line) =>
+      CONTENT_RULES.suppression.added.test(line) && !isRequiredSuppression(line, name);
+    if (added.some(silences)) hit(CONTENT_RULES.suppression, "suppression", name);
+    if (added.some((line) => CONTENT_RULES["test-skip"].added.test(line)))
+      hit(CONTENT_RULES["test-skip"], "test-skip", name);
     if (TEST_FILE.test(name) || wasTest) {
       const delta = testCaseDelta(file);
       testNet += delta;
