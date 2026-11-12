@@ -32,6 +32,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.cliproxyLocalConnect]: AuthSettingsWriteScope,
   [WS_METHODS.cliproxyLocalSetNewKey]: AuthSettingsWriteScope,
   [WS_METHODS.cliproxyLocalRevealKey]: AuthSettingsWriteScope,
+  [WS_METHODS.cliproxyLocalAddProviders]: AuthProvidersManageScope,
   [WS_METHODS.serverRefreshProviders]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsUpdate]: AuthSourceControlWriteScope,

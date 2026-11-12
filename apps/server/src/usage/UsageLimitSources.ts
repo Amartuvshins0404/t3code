@@ -1,8 +1,13 @@
 import {
+  type CliproxyAddProvidersInput,
+  type CliproxyAddProvidersResult,
   CliproxyLocalError,
   type CliproxyConnectLocalInput,
   type CliproxyLocalStatus,
   DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL,
+  ProviderDriverKind,
+  type ProviderInstanceConfig,
+  ProviderInstanceId,
   UsageLimitSourceError,
   type UsageLimitSourceConsumeResetCreditInput,
   type ProviderConsumeResetCreditResult,
@@ -52,6 +57,9 @@ export class UsageLimitSources extends Context.Service<
       input: CliproxyConnectLocalInput,
     ) => Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
     readonly setNewLocalKey: Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
+    readonly addLocalProviders: (
+      input: CliproxyAddProvidersInput,
+    ) => Effect.Effect<CliproxyAddProvidersResult, CliproxyLocalError>;
     readonly revealManagementKey: (
       sourceId: UsageLimitSourceId,
     ) => Effect.Effect<string, UsageLimitSourceError>;
@@ -79,6 +87,78 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
   }
 }
 
+const CODEX_CLIENT_KEY_VARIABLE = "CLIPROXY_API_KEY";
+
+const codexProxyLaunchArgs = (url: string) =>
+  [
+    "model_provider=cliproxy",
+    "model_providers.cliproxy.name=CLIProxyAPI",
+    `model_providers.cliproxy.base_url=${new URL("v1", `${url}/`).toString()}`,
+    `model_providers.cliproxy.env_key=${CODEX_CLIENT_KEY_VARIABLE}`,
+  ]
+    .map((override) => `-c ${override}`)
+    .join(" ");
+
+function proxyInstances(url: string, clientKey: string, input: CliproxyAddProvidersInput) {
+  return [
+    ...(input.claude
+      ? [
+          {
+            instanceId: ProviderInstanceId.make("claudeAgent_cliproxy"),
+            driver: ProviderDriverKind.make("claudeAgent"),
+            displayName: "Claude (CLI Proxy)",
+            environment: [
+              { name: "ANTHROPIC_BASE_URL", value: url, sensitive: false },
+              { name: "ANTHROPIC_AUTH_TOKEN", value: clientKey, sensitive: true },
+            ],
+            config: {},
+          },
+        ]
+      : []),
+    ...(input.codex
+      ? [
+          {
+            instanceId: ProviderInstanceId.make("codex_cliproxy"),
+            driver: ProviderDriverKind.make("codex"),
+            displayName: "Codex (CLI Proxy)",
+            environment: [{ name: CODEX_CLIENT_KEY_VARIABLE, value: clientKey, sensitive: true }],
+            config: { setupMode: "existing", launchArgs: codexProxyLaunchArgs(url) },
+          },
+        ]
+      : []),
+  ];
+}
+
+function withProxyRoute(
+  existing: ProviderInstanceConfig | undefined,
+  route: ReturnType<typeof proxyInstances>[number],
+): ProviderInstanceConfig {
+  const fresh = {
+    driver: route.driver,
+    displayName: route.displayName,
+    enabled: true,
+    environment: route.environment,
+    ...(Object.keys(route.config).length > 0 ? { config: route.config } : {}),
+  } satisfies ProviderInstanceConfig;
+  if (existing?.driver !== route.driver) return fresh;
+  const replaced = new Set(route.environment.map((variable) => variable.name));
+  const config =
+    existing.config !== null &&
+    typeof existing.config === "object" &&
+    !Array.isArray(existing.config)
+      ? existing.config
+      : {};
+  return {
+    ...existing,
+    enabled: true,
+    environment: [
+      ...(existing.environment ?? []).filter((variable) => !replaced.has(variable.name)),
+      ...route.environment,
+    ],
+    config: { ...config, ...route.config },
+  };
+}
+
 function missingManagementKey(config: UsageLimitSourceConfig): string {
   return typeof config.managementKey === "string"
     ? "No management key configured."
@@ -91,12 +171,17 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* Settings.ServerSettingsService;
   const secrets = yield* SecretResolver.SecretResolver;
   const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
-  const readManagementKey = Effect.fn("UsageLimitSources.readManagementKey")(function* (
+  const readHubKeys = Effect.fn("UsageLimitSources.readHubKeys")(function* (
     config: UsageLimitSourceConfig,
   ) {
     const resolved = yield* resolveSettingsSecrets(secrets, UsageLimitSourceConfig, config);
-    return settingsSecretLiteral(resolved.managementKey);
+    return {
+      managementKey: settingsSecretLiteral(resolved.managementKey),
+      clientKey: settingsSecretLiteral(resolved.clientKey),
+    };
   });
+  const readManagementKey = (config: UsageLimitSourceConfig) =>
+    readHubKeys(config).pipe(Effect.map((keys) => keys.managementKey));
   const stateRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
   const changes = yield* Effect.acquireRelease(
     PubSub.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>(),
@@ -217,7 +302,7 @@ export const make = Effect.gen(function* () {
     return yield* statusOf(yield* local.detect());
   }).pipe(Effect.withSpan("UsageLimitSources.localStatus"));
 
-  const newManagementKey = random.randomBytes(32).pipe(Effect.map(Hex.encode), Effect.orDie);
+  const newKey = random.randomBytes(32).pipe(Effect.map(Hex.encode), Effect.orDie);
 
   const waitUntilRunning = Effect.fn("UsageLimitSources.waitUntilRunning")(function* (url: string) {
     yield* api.isRunning(url).pipe(
@@ -254,8 +339,17 @@ export const make = Effect.gen(function* () {
       const id = saved
         ? UsageLimitSourceId.make(saved[0])
         : usageLimitSourceIdFromUrl(url, settings.usageLimitSources);
+      const clientKey = saved?.[1].clientKey;
       yield* settingsService.updateSettings({
-        usageLimitSources: { [id]: { kind: "cliproxy", url, managementKey, enabled: true } },
+        usageLimitSources: {
+          [id]: {
+            kind: "cliproxy",
+            url,
+            managementKey,
+            enabled: true,
+            ...(clientKey === undefined ? {} : { clientKey }),
+          },
+        },
       });
     },
     Effect.mapError(() => localFailure("saveFailed")),
@@ -267,7 +361,7 @@ export const make = Effect.gen(function* () {
     url: string,
     localOnly: boolean,
   ) {
-    const managementKey = yield* newManagementKey;
+    const managementKey = yield* newKey;
     yield* local.writeSecretKey(configPath, managementKey, localOnly);
     yield* local.startService(brew);
     yield* waitUntilRunning(url);
@@ -315,6 +409,45 @@ export const make = Effect.gen(function* () {
     return yield* statusOf(machine);
   }).pipe(localLock.withPermits(1), Effect.withSpan("UsageLimitSources.setNewLocalKey"));
 
+  const addLocalProviders = Effect.fn("UsageLimitSources.addLocalProviders")(function* (
+    input: CliproxyAddProvidersInput,
+  ) {
+    const machine = yield* local.detect();
+    if (!(yield* api.isRunning(machine.url))) return yield* localFailure("notRunning");
+    const settings = yield* settingsService.getSettings.pipe(
+      Effect.mapError(() => localFailure("saveFailed")),
+    );
+    const saved = Object.entries(settings.usageLimitSources).find(
+      ([, config]) => config.enabled && isLocalHub(config.url, machine.url),
+    );
+    if (saved === undefined) return yield* localFailure("notConnected");
+    const [id, config] = saved;
+    const keys = yield* readHubKeys(config);
+    if (keys.managementKey.length === 0) return yield* localFailure("notConnected");
+    const clientKey = keys.clientKey || (yield* newKey);
+    if (clientKey !== keys.clientKey) {
+      yield* settingsService
+        .updateSettings({ usageLimitSources: { [id]: { ...config, clientKey } } })
+        .pipe(Effect.mapError(() => localFailure("saveFailed")));
+    }
+    yield* api
+      .addClientKey({ url: machine.url, managementKey: keys.managementKey }, clientKey)
+      .pipe(Effect.mapError(() => localFailure("clientKeyFailed")));
+    const routes = proxyInstances(machine.url, clientKey, input);
+    for (const route of routes) {
+      yield* settingsService
+        .updateProviderInstance({
+          operation: "upsert",
+          instanceId: route.instanceId,
+          instance: withProxyRoute(settings.providerInstances[route.instanceId], route),
+        })
+        .pipe(Effect.mapError(() => localFailure("saveFailed")));
+    }
+    return {
+      instances: routes.map(({ instanceId, driver }) => ({ instanceId, driver })),
+    } satisfies CliproxyAddProvidersResult;
+  }, localLock.withPermits(1));
+
   yield* settingsService.streamChanges.pipe(
     Stream.map((settings) => settings.usageLimitSources),
     Stream.changes,
@@ -352,6 +485,7 @@ export const make = Effect.gen(function* () {
     installLocal,
     connectLocal,
     setNewLocalKey,
+    addLocalProviders,
     revealManagementKey,
     get streamChanges() {
       return Stream.unwrap(

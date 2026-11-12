@@ -191,9 +191,11 @@ The hub's Codex, Claude, xAI (shown as Grok) and Antigravity accounts appear und
 accounts for other providers are not read. Codex accounts show banked reset credits; select an
 account and choose **Use reset** to redeem one. No hub plugin is required.
 
-This connection supplies usage information; configure
-the provider separately to send agent requests through the hub. Remove the hub from the same
-settings section when you no longer need it.
+This connection supplies usage information. To send agent requests through a proxy on the same
+computer, open **Add provider**, choose **CLI Proxy**, keep **Claude**, **Codex** or both checked,
+and choose **Add**. T3 connects the proxy first if needed, adds its own key to the proxy, and adds
+**Claude (CLI Proxy)** and **Codex (CLI Proxy)**. Your usual Claude and Codex sign-ins stay as they
+are. Remove the hub from the same settings section when you no longer need it.
 
 ## Subscription usage widget
 

@@ -920,6 +920,7 @@ export const UsageLimitSourceConfig = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("")),
     secretSetting,
   ),
+  clientKey: Schema.optionalKey(Schema.String.pipe(secretSetting)),
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;

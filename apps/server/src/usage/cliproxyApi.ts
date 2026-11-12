@@ -423,10 +423,15 @@ export const makeCliproxyApi = Effect.gen(function* () {
     hub: CliproxyHub,
     path: string,
     body?: unknown,
+    method: "POST" | "PATCH" = "POST",
   ) {
     const url = yield* managementUrl(hub.url, path);
     const request = (
-      body === undefined ? HttpClientRequest.get(url) : HttpClientRequest.post(url)
+      body === undefined
+        ? HttpClientRequest.get(url)
+        : method === "PATCH"
+          ? HttpClientRequest.patch(url)
+          : HttpClientRequest.post(url)
     ).pipe(HttpClientRequest.setHeader("Authorization", `Bearer ${hub.managementKey}`));
     const response = yield* client
       .execute(body === undefined ? request : request.pipe(HttpClientRequest.bodyJsonUnsafe(body)))
@@ -603,5 +608,12 @@ export const makeCliproxyApi = Effect.gen(function* () {
     return status === 401 || status === 404 ? ("rejected" as const) : ("unreachable" as const);
   });
 
-  return { readAccounts, consume, isRunning, checkKey };
+  const addClientKey = Effect.fn("CliproxyApi.addClientKey")(function* (
+    hub: CliproxyHub,
+    clientKey: string,
+  ) {
+    yield* management(hub, "api-keys", { old: clientKey, new: clientKey }, "PATCH");
+  });
+
+  return { readAccounts, consume, isRunning, checkKey, addClientKey };
 });

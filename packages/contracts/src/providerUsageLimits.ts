@@ -136,6 +136,19 @@ export type CliproxyConnectLocalInput = typeof CliproxyConnectLocalInput.Type;
 export const CliproxyRevealKeyInput = Schema.Struct({ sourceId: UsageLimitSourceId });
 export type CliproxyRevealKeyInput = typeof CliproxyRevealKeyInput.Type;
 
+export const CliproxyAddProvidersInput = Schema.Struct({
+  claude: Schema.Boolean,
+  codex: Schema.Boolean,
+});
+export type CliproxyAddProvidersInput = typeof CliproxyAddProvidersInput.Type;
+
+export const CliproxyAddProvidersResult = Schema.Struct({
+  instances: Schema.Array(
+    Schema.Struct({ instanceId: ProviderInstanceId, driver: ProviderDriverKind }),
+  ),
+});
+export type CliproxyAddProvidersResult = typeof CliproxyAddProvidersResult.Type;
+
 export const CliproxyLocalFailureReason = Schema.Literals([
   "noHomebrew",
   "installFailed",
@@ -145,6 +158,8 @@ export const CliproxyLocalFailureReason = Schema.Literals([
   "keyRejected",
   "lockedOut",
   "saveFailed",
+  "notConnected",
+  "clientKeyFailed",
 ]);
 export type CliproxyLocalFailureReason = typeof CliproxyLocalFailureReason.Type;
 

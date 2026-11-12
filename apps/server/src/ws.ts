@@ -2664,6 +2664,8 @@ export const layerWsRpc = (
         [WS_METHODS.cliproxyLocalInstall]: (_input) => usageLimitSources.installLocal,
         [WS_METHODS.cliproxyLocalConnect]: (input) => usageLimitSources.connectLocal(input),
         [WS_METHODS.cliproxyLocalSetNewKey]: (_input) => usageLimitSources.setNewLocalKey,
+        [WS_METHODS.cliproxyLocalAddProviders]: (input) =>
+          usageLimitSources.addLocalProviders(input),
         [WS_METHODS.cliproxyLocalRevealKey]: (input) =>
           usageLimitSources.revealManagementKey(input.sourceId),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,

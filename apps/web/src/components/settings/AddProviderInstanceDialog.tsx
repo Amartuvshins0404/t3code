@@ -1,8 +1,10 @@
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 
+import { useAtomValue } from "@effect/atom-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
-import { CheckIcon, ChevronDownIcon } from "lucide-react";
-import { useState } from "react";
+import * as Schema from "effect/Schema";
+import { CheckIcon, ChevronDownIcon, WaypointsIcon } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import {
   deriveAvailableInstanceId,
   deriveInstanceId,
@@ -12,6 +14,8 @@ import type { ProviderClientDefinition } from "@t3tools/provider-core/client";
 import {
   type AcpRegistrySearchAgent,
   AuthProvidersManageScope,
+  CliproxyLocalError,
+  type CliproxyLocalFailureReason,
   ProviderInstanceId,
   ProviderDriverKind,
   type EnvironmentId,
@@ -27,9 +31,14 @@ import {
 
 import { cn } from "../../lib/utils";
 import { normalizeProviderAccentColor } from "../../providerInstances";
+import { cliproxyLocalAddProviders } from "../../state/cliproxy";
 import { managedInstanceLocks, useManagedPolicy } from "../../state/managedPolicy";
+import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
+import { CliProxyDialog, cliproxyFailureMessage } from "./CliProxyDialog";
 import { ChatGptConnectionButton } from "./ChatGptConnectionButton";
 import { Dialog } from "../ui/dialog";
 import { Badge } from "../ui/badge";
@@ -65,6 +74,12 @@ import { useSecretSources } from "./SecretSourceInput";
 const INSTANCE_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 const ACP_REGISTRY_DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
+const CLIPROXY_CHOICE = ProviderDriverKind.make("cliproxy");
+const CLIPROXY_ROUTES = [
+  { key: "claude", label: "Claude", driver: ProviderDriverKind.make("claudeAgent") },
+  { key: "codex", label: "Codex", driver: ProviderDriverKind.make("codex") },
+] as const;
+const isCliproxyLocalError = Schema.is(CliproxyLocalError);
 const DEFAULT_DRIVER_OPTION = providerClients.definitions[0]!;
 const DRIVER_OPTIONS = providerClients.definitions.filter(
   (option) => option.driverKind !== ACP_REGISTRY_DRIVER_KIND,
@@ -82,17 +97,52 @@ function validateInstanceId(id: string, existing: ReadonlySet<string>): string |
   return null;
 }
 
+function ProviderOptionCard({
+  value,
+  icon,
+  label,
+  badgeLabel,
+}: {
+  readonly value: string;
+  readonly icon: ReactNode;
+  readonly label: string;
+  readonly badgeLabel?: string | undefined;
+}) {
+  return (
+    <RadioPrimitive.Root
+      value={value}
+      className="relative flex cursor-pointer items-center gap-3 rounded-lg bg-card px-3 py-3 text-left text-muted-foreground outline-none ring-1 ring-black/5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-checked:bg-primary/8 data-checked:text-foreground data-checked:ring-2 data-checked:ring-inset data-checked:ring-primary data-checked:hover:bg-primary/8 dark:bg-white/3 dark:ring-white/5 dark:hover:bg-white/5 dark:data-checked:bg-primary/15 dark:data-checked:ring-primary dark:data-checked:hover:bg-primary/15"
+    >
+      {icon}
+      <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{label}</span>
+      <RadioPrimitive.Indicator
+        className="grid size-5 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"
+        aria-hidden
+      >
+        <CheckIcon className="size-3.5 shrink-0" />
+      </RadioPrimitive.Indicator>
+      {badgeLabel ? (
+        <Badge variant="warning" size="sm">
+          {badgeLabel}
+        </Badge>
+      ) : null}
+    </RadioPrimitive.Root>
+  );
+}
+
 function ProviderOptionGrid({
   options,
   value,
   disabled,
   onValueChange,
+  children,
   ...labelProps
 }: {
   readonly options: ReadonlyArray<ProviderClientDefinition>;
   readonly value: ProviderDriverKind;
   readonly disabled: boolean;
   readonly onValueChange: (value: string) => void;
+  readonly children?: ReactNode;
   readonly "aria-label"?: string;
   readonly "aria-labelledby"?: string;
 }) {
@@ -105,32 +155,21 @@ function ProviderOptionGrid({
       className="grid grid-cols-1 sm:grid-cols-2"
     >
       {options.map((option) => (
-        <RadioPrimitive.Root
+        <ProviderOptionCard
           key={option.driverKind}
           value={option.driverKind}
-          className="relative flex cursor-pointer items-center gap-3 rounded-lg bg-card px-3 py-3 text-left text-muted-foreground outline-none ring-1 ring-black/5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-checked:bg-primary/8 data-checked:text-foreground data-checked:ring-2 data-checked:ring-inset data-checked:ring-primary data-checked:hover:bg-primary/8 dark:bg-white/3 dark:ring-white/5 dark:hover:bg-white/5 dark:data-checked:bg-primary/15 dark:data-checked:ring-primary dark:data-checked:hover:bg-primary/15"
-        >
-          <ProviderInstanceIcon
-            driverKind={option.driverKind}
-            displayName={option.label}
-            iconClassName="size-4"
-          />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-            {option.label}
-          </span>
-          <RadioPrimitive.Indicator
-            className="grid size-5 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"
-            aria-hidden
-          >
-            <CheckIcon className="size-3.5 shrink-0" />
-          </RadioPrimitive.Indicator>
-          {option.badgeLabel ? (
-            <Badge variant="warning" size="sm">
-              {option.badgeLabel}
-            </Badge>
-          ) : null}
-        </RadioPrimitive.Root>
+          icon={
+            <ProviderInstanceIcon
+              driverKind={option.driverKind}
+              displayName={option.label}
+              iconClassName="size-4"
+            />
+          }
+          label={option.label}
+          badgeLabel={option.badgeLabel}
+        />
       ))}
+      {children}
     </RadioGroup>
   );
 }
@@ -169,6 +208,19 @@ export function AddProviderInstanceDialog({
     isManagedDriverAllowed(managedPolicy, option.driverKind),
   );
   const acpRegistryAllowed = isManagedDriverAllowed(managedPolicy, ACP_REGISTRY_DRIVER_KIND);
+  const cliproxyRoutes = CLIPROXY_ROUTES.filter((route) =>
+    isManagedDriverAllowed(managedPolicy, route.driver),
+  );
+  const cliproxySupported =
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.environment.capabilities
+      .cliproxyLocalSetup === true;
+  const cliproxyAvailable = cliproxySupported && cliproxyRoutes.length > 0;
+  const addCliproxyProviders = useAtomCommand(cliproxyLocalAddProviders, { reportFailure: false });
+  const [cliproxyChoice, setCliproxyChoice] = useState({ claude: true, codex: true });
+  const [connectingCliproxy, setConnectingCliproxy] = useState(false);
+  const [cliproxyFailure, setCliproxyFailure] = useState<{
+    readonly reason: CliproxyLocalFailureReason | null;
+  } | null>(null);
   const [driver, setDriver] = useState<ProviderDriverKind>(
     () =>
       (featuredDriverOptions[0] ?? moreDriverOptions[0])?.driverKind ??
@@ -423,6 +475,41 @@ export function AddProviderInstanceDialog({
     onOpenChange(false);
   };
 
+  const isCliproxy = driver === CLIPROXY_CHOICE;
+  const chosenCliproxyRoutes = cliproxyRoutes.filter((route) => cliproxyChoice[route.key]);
+
+  const addThroughCliproxy = async () => {
+    if (!readEnvironmentScope(environmentId, AuthProvidersManageScope)) return;
+    if (isSaving || chosenCliproxyRoutes.length === 0) return;
+    setIsSaving(true);
+    setCliproxyFailure(null);
+    const result = await addCliproxyProviders({
+      environmentId,
+      input: {
+        claude: chosenCliproxyRoutes.some((route) => route.key === "claude"),
+        codex: chosenCliproxyRoutes.some((route) => route.key === "codex"),
+      },
+    });
+    setIsSaving(false);
+    if (result._tag === "Success") {
+      for (const created of result.value.instances) onCreated?.(created.instanceId, created.driver);
+      toastManager.add({
+        type: "success",
+        title: "Provider instance added",
+        description: `${chosenCliproxyRoutes.map((route) => `${route.label} (CLI Proxy)`).join(" and ")} ${chosenCliproxyRoutes.length > 1 ? "were" : "was"} added.`,
+      });
+      onOpenChange(false);
+      return;
+    }
+    const error = squashAtomCommandFailure(result);
+    const reason = isCliproxyLocalError(error) ? error.reason : null;
+    if (reason === "notConnected" || reason === "notRunning") {
+      setConnectingCliproxy(true);
+      return;
+    }
+    setCliproxyFailure({ reason });
+  };
+
   if (addingChatGptAccount) {
     return (
       <AddManagedCodexAccountDialog
@@ -440,7 +527,7 @@ export function AddProviderInstanceDialog({
           title="Add provider"
           description={<>Add an account or configure a provider on {environmentLabel}.</>}
         >
-          {isAcpRegistry ? (
+          {isCliproxy ? null : isAcpRegistry ? (
             <AddProviderInstanceWizardSteps
               currentStep={wizardStep}
               summaries={wizardStepSummaries}
@@ -482,8 +569,48 @@ export function AddProviderInstanceDialog({
                   disabled={isPreparingRegistryAgent}
                   onValueChange={selectDriver}
                   aria-labelledby="add-instance-driver-label"
-                />
+                >
+                  {cliproxyAvailable ? (
+                    <ProviderOptionCard
+                      value={CLIPROXY_CHOICE}
+                      icon={<WaypointsIcon className="size-4" aria-hidden />}
+                      label="CLI Proxy"
+                    />
+                  ) : null}
+                </ProviderOptionGrid>
                 <MultipleAccountsNote environmentId={environmentId} driver={driver} />
+                {isCliproxy ? (
+                  <div className="grid gap-3 pt-2">
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                      {cliproxyRoutes.map((route) => (
+                        <label
+                          key={route.key}
+                          className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
+                        >
+                          <Checkbox
+                            checked={cliproxyChoice[route.key]}
+                            disabled={isSaving}
+                            onCheckedChange={(checked) =>
+                              setCliproxyChoice((choice) => ({
+                                ...choice,
+                                [route.key]: checked === true,
+                              }))
+                            }
+                          />
+                          {route.label}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Pooling can get accounts banned, so use it at your own risk.
+                    </p>
+                    {cliproxyFailure ? (
+                      <p className="text-sm text-destructive" role="alert">
+                        {cliproxyFailureMessage(cliproxyFailure.reason, environmentLabel)}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
               {wizardStep === 0 && (moreDriverOptions.length > 0 || acpRegistryAllowed) ? (
@@ -726,7 +853,15 @@ export function AddProviderInstanceDialog({
               >
                 {wizardStep === 0 ? "Cancel" : "Back"}
               </Button>
-              {wizardStep === 0 && driver === "codex" ? (
+              {wizardStep === 0 && isCliproxy ? (
+                <Button
+                  size="sm"
+                  disabled={isSaving || !canManageProviders || chosenCliproxyRoutes.length === 0}
+                  onClick={() => void addThroughCliproxy()}
+                >
+                  {isSaving ? "Adding..." : "Add"}
+                </Button>
+              ) : wizardStep === 0 && driver === "codex" ? (
                 <>
                   <Button variant="outline" size="sm" onClick={() => navigateToStep(1)}>
                     Configure manually
@@ -763,6 +898,19 @@ export function AddProviderInstanceDialog({
           </>
         )}
       </WizardPopup>
+      {connectingCliproxy ? (
+        <CliProxyDialog
+          open
+          onOpenChange={setConnectingCliproxy}
+          environmentId={environmentId}
+          environmentLabel={environmentLabel}
+          sources={settings.usageLimitSources}
+          onConnected={() => {
+            setConnectingCliproxy(false);
+            void addThroughCliproxy();
+          }}
+        />
+      ) : null}
     </Dialog>
   );
 }

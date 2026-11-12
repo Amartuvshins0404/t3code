@@ -113,6 +113,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.cliproxyLocalConnect]: "usage",
   [WS_METHODS.cliproxyLocalSetNewKey]: "usage",
   [WS_METHODS.cliproxyLocalRevealKey]: "usage",
+  [WS_METHODS.cliproxyLocalAddProviders]: "usage",
   [WS_METHODS.pullRequestsList]: "pull-requests",
   [WS_METHODS.pullRequestsListStats]: "pull-requests",
   [WS_METHODS.pullRequestsFilterOptions]: "pull-requests",

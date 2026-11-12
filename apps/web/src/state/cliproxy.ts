@@ -36,6 +36,12 @@ export const cliproxyLocalSetNewKey = createEnvironmentRpcCommand(connectionAtom
   concurrency: singleFlight,
 });
 
+export const cliproxyLocalAddProviders = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:local-add-providers",
+  tag: WS_METHODS.cliproxyLocalAddProviders,
+  concurrency: singleFlight,
+});
+
 export const cliproxyLocalRevealKey = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "environment-data:cliproxy:local-reveal-key",
   tag: WS_METHODS.cliproxyLocalRevealKey,

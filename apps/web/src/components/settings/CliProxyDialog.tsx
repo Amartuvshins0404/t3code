@@ -61,7 +61,10 @@ type CheckState = "done" | "running" | "failed" | "waiting";
 const statusAtom = (environmentId: EnvironmentId) =>
   cliproxyLocalStatus({ environmentId, input: {} });
 
-function failureMessage(reason: CliproxyLocalFailureReason | null, machine: string): string {
+export function cliproxyFailureMessage(
+  reason: CliproxyLocalFailureReason | null,
+  machine: string,
+): string {
   switch (reason) {
     case "noHomebrew":
       return `Homebrew isn't on ${machine}. Install it from brew.sh, or install CLIProxyAPI yourself.`;
@@ -79,6 +82,10 @@ function failureMessage(reason: CliproxyLocalFailureReason | null, machine: stri
       return "Too many wrong keys. The proxy blocks new tries for 30 minutes, or until it restarts.";
     case "saveFailed":
       return "The key works, but saving the hub failed. Try again.";
+    case "notConnected":
+      return "Connect CLIProxyAPI on this computer first, then try again.";
+    case "clientKeyFailed":
+      return "The proxy didn't accept a key for the app. Check that it's running, then try again.";
     case null:
       return "Couldn't finish. Try again.";
   }
@@ -131,12 +138,14 @@ export function CliProxyDialog({
   environmentId,
   environmentLabel,
   sources,
+  onConnected,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly sources: UnifiedSettings["usageLimitSources"];
+  readonly onConnected?: () => void;
 }) {
   const supported =
     useAtomValue(serverEnvironment.configValueAtom(environmentId))?.environment.capabilities
@@ -169,6 +178,7 @@ export function CliProxyDialog({
             environmentLabel={environmentLabel}
             onUseRemote={() => setRemote(true)}
             onClose={close}
+            {...(onConnected ? { onConnected } : {})}
           />
         ) : (
           <RemoteHubForm
@@ -188,11 +198,13 @@ function LocalSetup({
   environmentLabel,
   onUseRemote,
   onClose,
+  onConnected,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly onUseRemote: () => void;
   readonly onClose: () => void;
+  readonly onConnected?: () => void;
 }) {
   const registry = useContext(RegistryContext);
   const status = AsyncResult.getOrElse(useAtomValue(statusAtom(environmentId)), () => null);
@@ -224,6 +236,7 @@ function LocalSetup({
     setBusy(null);
     if (result._tag === "Success") {
       setManagementKey("");
+      if (result.value.sourceId !== undefined) onConnected?.();
       return;
     }
     const error = Cause.squash(result.cause);
@@ -255,7 +268,7 @@ function LocalSetup({
   const error =
     failure === null ? null : (
       <p className="text-sm text-destructive" role="alert">
-        {failureMessage(failure.reason, environmentLabel)}
+        {cliproxyFailureMessage(failure.reason, environmentLabel)}
       </p>
     );
   const remoteLink = (
