@@ -7,19 +7,22 @@ import {
   type EnvironmentId,
   type SecretReference,
   type UnifiedSettings,
+  type UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { usageLimitSourceIdFromUrl } from "@t3tools/shared/serverSettings";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
-import { CheckIcon, CircleIcon, ExternalLinkIcon, XIcon } from "lucide-react";
+import { CheckIcon, CircleIcon, CopyIcon, ExternalLinkIcon, XIcon } from "lucide-react";
 import { useContext, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import {
   cliproxyLocalConnect,
   cliproxyLocalInstall,
+  cliproxyLocalRevealKey,
   cliproxyLocalSetNewKey,
   cliproxyLocalStatus,
 } from "../../state/cliproxy";
@@ -197,6 +200,10 @@ function LocalSetup({
   const install = useAtomCommand(cliproxyLocalInstall, { reportFailure: false });
   const connect = useAtomCommand(cliproxyLocalConnect, { reportFailure: false });
   const setNewKey = useAtomCommand(cliproxyLocalSetNewKey, { reportFailure: false });
+  const canCopyKey = useAtomValue(cliproxyLocalRevealKey.permissionAtom(environmentId));
+  const revealKey = useAtomCommand(cliproxyLocalRevealKey, { reportFailure: false });
+  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "management key" });
+  const [copyFailed, setCopyFailed] = useState(false);
   const [managementKey, setManagementKey] = useState("");
   const [busy, setBusy] = useState<Busy>(null);
   const [failure, setFailure] = useState<{ reason: CliproxyLocalFailureReason | null } | null>(
@@ -223,6 +230,13 @@ function LocalSetup({
     setFailure({ reason: isLocalError(error) ? error.reason : null });
   };
 
+  const copyKey = async (sourceId: UsageLimitSourceId) => {
+    setCopyFailed(false);
+    const result = await revealKey({ environmentId, input: { sourceId } });
+    if (result._tag === "Success") copyToClipboard(result.value, undefined);
+    else setCopyFailed(true);
+  };
+
   if (status === null) {
     return (
       <DialogPanel>
@@ -234,7 +248,8 @@ function LocalSetup({
     );
   }
 
-  const connected = status.running && status.sourceId !== undefined;
+  const sourceId = status.running ? status.sourceId : undefined;
+  const connected = sourceId !== undefined;
   const found = status.running && !connected;
   const checks = checkStates(status, busy === "install" ? busy : null, failure !== null);
   const error =
@@ -365,8 +380,14 @@ function LocalSetup({
           )}
           {connected ? (
             <p className="text-sm text-muted-foreground">
-              Add Claude or Codex accounts in the proxy's panel. Sign in there with the management
-              key.
+              {canCopyKey
+                ? "Add Claude or Codex accounts in the proxy's panel. Sign in with the management key: use Copy key."
+                : "Add Claude or Codex accounts in the proxy's panel. Sign in there with the management key."}
+            </p>
+          ) : null}
+          {copyFailed ? (
+            <p className="text-sm text-destructive" role="alert">
+              Couldn't read the key. Try again.
             </p>
           ) : null}
           {error}
@@ -378,6 +399,12 @@ function LocalSetup({
         <Button variant="outline" onClick={onClose}>
           {connected ? "Close" : "Cancel"}
         </Button>
+        {sourceId !== undefined && canCopyKey ? (
+          <Button variant="outline" onClick={() => void copyKey(sourceId)}>
+            <CopyIcon className="size-3.5" aria-hidden />
+            {isCopied ? "Copied" : "Copy key"}
+          </Button>
+        ) : null}
         {connected ? (
           <Button
             render={

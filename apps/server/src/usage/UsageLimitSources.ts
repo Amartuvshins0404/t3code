@@ -52,6 +52,9 @@ export class UsageLimitSources extends Context.Service<
       input: CliproxyConnectLocalInput,
     ) => Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
     readonly setNewLocalKey: Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
+    readonly revealManagementKey: (
+      sourceId: UsageLimitSourceId,
+    ) => Effect.Effect<string, UsageLimitSourceError>;
   }
 >()("t3/usage/UsageLimitSources") {}
 
@@ -146,14 +149,13 @@ export const make = Effect.gen(function* () {
     yield* publish(snapshots);
   }).pipe(refreshLock.withPermits(1), Effect.ignoreCause({ log: true }));
 
-  // Shares the refresh lock so a stale in-flight read cannot overwrite a redemption.
-  const consumeResetCredit = Effect.fn("UsageLimitSources.consumeResetCredit")(function* (
-    input: UsageLimitSourceConsumeResetCreditInput,
+  const readEnabledSource = Effect.fn("UsageLimitSources.readEnabledSource")(function* (
+    sourceId: UsageLimitSourceId,
   ) {
     const settings = yield* settingsService.getSettings.pipe(
       Effect.mapError(() => new UsageLimitSourceError({ detail: "Could not read hub settings." })),
     );
-    const config = settings.usageLimitSources[input.sourceId];
+    const config = settings.usageLimitSources[sourceId];
     if (!config?.enabled) {
       return yield* new UsageLimitSourceError({
         detail: "The usage limit source is missing or disabled.",
@@ -163,6 +165,20 @@ export const make = Effect.gen(function* () {
     if (managementKey.length === 0) {
       return yield* new UsageLimitSourceError({ detail: missingManagementKey(config) });
     }
+    return { config, managementKey };
+  });
+
+  const revealManagementKey = Effect.fn("UsageLimitSources.revealManagementKey")(function* (
+    sourceId: UsageLimitSourceId,
+  ) {
+    return (yield* readEnabledSource(sourceId)).managementKey;
+  });
+
+  // Shares the refresh lock so a stale in-flight read cannot overwrite a redemption.
+  const consumeResetCredit = Effect.fn("UsageLimitSources.consumeResetCredit")(function* (
+    input: UsageLimitSourceConsumeResetCreditInput,
+  ) {
+    const { config, managementKey } = yield* readEnabledSource(input.sourceId);
     const result = yield* api.consume(
       { url: config.url, managementKey },
       input.accountId,
@@ -336,6 +352,7 @@ export const make = Effect.gen(function* () {
     installLocal,
     connectLocal,
     setNewLocalKey,
+    revealManagementKey,
     get streamChanges() {
       return Stream.unwrap(
         Effect.gen(function* () {

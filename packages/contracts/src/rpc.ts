@@ -359,6 +359,7 @@ import {
   CliproxyConnectLocalInput,
   CliproxyLocalError,
   CliproxyLocalStatus,
+  CliproxyRevealKeyInput,
   UsageLimitSourceError,
   ProviderConsumeResetCreditInput,
   ProviderConsumeResetCreditResult,
@@ -578,6 +579,7 @@ export const WS_METHODS = {
   cliproxyLocalInstall: "cliproxy.local.install",
   cliproxyLocalConnect: "cliproxy.local.connect",
   cliproxyLocalSetNewKey: "cliproxy.local.setNewKey",
+  cliproxyLocalRevealKey: "cliproxy.local.revealKey",
 
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -1078,6 +1080,12 @@ const WsCliproxyLocalSetNewKeyRpc = Rpc.make(WS_METHODS.cliproxyLocalSetNewKey, 
   payload: Schema.Struct({}),
   success: CliproxyLocalStatus,
   error: CliproxyLocalRpcError,
+});
+
+const WsCliproxyLocalRevealKeyRpc = Rpc.make(WS_METHODS.cliproxyLocalRevealKey, {
+  payload: CliproxyRevealKeyInput,
+  success: Schema.String,
+  error: Schema.Union([UsageLimitSourceError, EnvironmentAuthorizationError]),
 });
 
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
@@ -2197,6 +2205,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsCliproxyLocalInstallRpc,
   WsCliproxyLocalConnectRpc,
   WsCliproxyLocalSetNewKeyRpc,
+  WsCliproxyLocalRevealKeyRpc,
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsFilterOptionsRpc,

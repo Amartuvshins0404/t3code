@@ -133,6 +133,9 @@ export const CliproxyConnectLocalInput = Schema.Struct({
 });
 export type CliproxyConnectLocalInput = typeof CliproxyConnectLocalInput.Type;
 
+export const CliproxyRevealKeyInput = Schema.Struct({ sourceId: UsageLimitSourceId });
+export type CliproxyRevealKeyInput = typeof CliproxyRevealKeyInput.Type;
+
 export const CliproxyLocalFailureReason = Schema.Literals([
   "noHomebrew",
   "installFailed",

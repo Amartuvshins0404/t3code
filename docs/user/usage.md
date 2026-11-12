@@ -180,6 +180,8 @@ To see pooled accounts, choose **Set up** next to CLI Proxy on the Welcome page,
   connects it for you. A new install only accepts connections from the same computer.
 - If a proxy is already running, enter its management key. If you lost it, choose
   **Set a new key**; tools that use the old key stop working until you update them.
+- Once connected, choose **Copy key**, then **Open panel to add accounts** and sign in with that
+  key to add accounts.
 - For a hub on another computer, choose **Use a proxy on another machine** and enter its URL and
   management key.
 
