@@ -12,7 +12,7 @@ The rules and the reason behind each label are in [merge-lane.cjs](../../.github
 
 - **The base branch judges.** The workflow runs on `pull_request_target`, and again from `amaraa-mode` when Blind Checks finishes. It checks out base branch code and reads the PR's files and patches from the GitHub API. It never checks out or runs PR code. A PR that edits the rules is judged by the old rules, so a rule change takes effect only after it merges. It also means the workflow first runs on the PR after the one that adds it.
 - **Unknown is red.** A path no rule matches is red, and so is a code file GitHub sends without a patch, since a loosened check cannot be ruled out. When a new top-level directory or config file appears, add a rule for it, or every PR that touches it stays red.
-- **It only reports.** The label is not a required check. Nothing merges, blocks, closes or reverts because of it, unless the switch in [Locked checks](#locked-checks-and-repairs-lines) is on. The workflow does not run outside `Amartuvshins0404/t3code`.
+- **It only reports until you switch it on.** Nothing merges, closes or reverts because of the label. With the switch in [Locked checks](#locked-checks-and-repairs-lines) on, the Merge lane check fails on a red lane. The workflow does not run outside `Amartuvshins0404/t3code`.
 - **Suppressions make a change red, except the two the repo requires.** An added `oxlint-disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `@effect-diagnostics` line counts as loosening a gate. Two forms pass: the `t3code/no-unreasoned-state-sync` comment with its reason, and `@effect-diagnostics nodeBuiltinImport:off` alone in a test file or a `scripts/` directory. A reason on any other suppression changes nothing, because whoever wrote the change can always write one.
 
 Judge any commit, range or working tree locally:
@@ -34,7 +34,7 @@ The contract a pull request follows:
 
 - The body has a `## Request` section: the request and any agreed decisions, with no code plan. The checks are judged against it.
 - The first commit is the checks commit. It changes only test and test-support files and carries a `Blind-checks: <note>` trailer. When the repo's [Verifying](../../AGENTS.md#verifying) rules say no test is needed (a visual fix, copy text, types only, a pure refactor), the first commit is empty and says `Blind-checks: none, <reason>`.
-- A fix, meaning a title that starts with `fix:` or `fix(scope):`, has a `Repairs:` line naming the commits or merged pull requests on `amaraa-mode` it repairs, such as `Repairs: 6fceb557b2, #5`, or `Repairs: none, older than 14 days`. This applies in every lane.
+- A fix, meaning a title that starts with `fix:` or `fix(scope):`, has a `Repairs:` line naming the commits or merged pull requests on `amaraa-mode` it repairs, such as `Repairs: 6fceb557b2, #5`, or `Repairs: none, older than 14 days`. Each target must already be in the history the fix was built on. Commit times do not count. This applies in every lane.
 
 Test and test-support files are the paths the ledger already leaves out as tests (`TEST_SUPPORT` in [merge-lane.cjs](../../.github/scripts/merge-lane.cjs)).
 
@@ -47,7 +47,7 @@ Green pull requests are exempt from the checks rules. A red one gets them only w
 - **The proof job runs pull request code.** It runs on `pull_request` with read-only contents and no secrets, which is why it is separate from the lane bot. It runs the judge script from the base branch, but the workflow file comes from the pull request, so a pull request can still change the job. Doing so makes the lane red.
 - **A test file that cannot load counts as failing only if it loads with the code.** Without the code, an import of a missing module fails the whole file. The judge accepts that only when the same file loads and passes at the head, because both runs use the test files as they are at the head. A file that fails to load both times is a broken setup. A file that cannot load hides whether each test in it would have failed on its own.
 - **`vp test run` skips a path it does not know.** The judge treats a test file with no result as not run, never as passed.
-- **It reports until you switch it on.** The repository variable `BLIND_CHECKS_MODE=required` makes the Merge lane check fail on any checks or `Repairs:` reason, and makes Blind checks fail when the proof does not hold. Any other value only reports. Nothing blocks a merge until both checks are required on `amaraa-mode`.
+- **It reports until you switch it on.** The repository variable `BLIND_CHECKS_MODE=required` makes the Merge lane check fail when the lane is red for any reason except test strength, and makes Blind checks fail when the proof does not hold. Only the pull request's own run can fail. The run after Blind Checks finishes never fails. Any other value only reports. Nothing blocks a merge until both checks are required on `amaraa-mode`.
 
 ### What it cannot prove
 
@@ -67,7 +67,7 @@ When Blind Checks finishes, the lane bot reads the measurement as data, judges i
 - `strength:weak`: the tests missed at least one. The section gives the counts and up to 3 examples in fixed wording.
 - `strength:unmeasured`: not measured, with the reason: no checks commit, no test needed, no JavaScript or TypeScript changed, only browser tests, the tests failed, no counted break could be made, it ran out of time, or Blind Checks has not finished or left no measurement.
 
-It reports until the repository variable `TEST_STRENGTH_MODE` is `required`. Then weak, and not measured on a pull request that has tests, turn the lane red. `BLIND_CHECKS_MODE` does not change it.
+It reports until the repository variable `TEST_STRENGTH_MODE` is `required`. Then weak, and not measured on a pull request that has tests, turn the lane red. A lane that is red only for test strength never fails the Merge lane check, whatever `BLIND_CHECKS_MODE` says.
 
 Measure a change locally from a clean tree, with a checks commit first:
 

@@ -555,13 +555,13 @@ function judgeChecks({ lane, body, commits, firstFiles, prFiles, lock }) {
   };
 }
 
-function judgeRepairs({ title, body, resolved, fixTime }) {
+function judgeRepairs({ title, body, resolved }) {
   if (!FIX_TITLE.test(title ?? "")) return [];
   const parsed = parseRepairs(body);
   if (!parsed || (!parsed.none && parsed.targets.length === 0)) return [reason("repairs-missing")];
   const unknown = resolved.filter((target) => !target.onBase).map((target) => target.ref);
   const newer = resolved
-    .filter((target) => target.onBase && !(target.time < fixTime))
+    .filter((target) => target.onBase && !target.inHistory)
     .map((target) => target.ref);
   return [
     ...(unknown.length > 0 ? [reason("repairs-unknown", unknown)] : []),
@@ -677,7 +677,15 @@ function isRequired(env = process.env) {
   return env.BLIND_CHECKS_MODE === "required";
 }
 
-function summarize(result, { maxFiles = 5, required = false, changes = [] } = {}) {
+function checkOutcome({ result, required, event }) {
+  const reasons =
+    required && event === "pull_request_target"
+      ? result.reasons.filter((entry) => entry.lane === "red" && entry.rule !== "test-strength")
+      : [];
+  return { fails: reasons.length > 0, reasons };
+}
+
+function summarize(result, { maxFiles = 5, required = false, event, changes = [] } = {}) {
   const lines = [
     `### Lane: ${LANE_ICON[result.lane]} ${result.lane} (${LANE_MEANING[result.lane]})`,
     "",
@@ -694,11 +702,10 @@ function summarize(result, { maxFiles = 5, required = false, changes = [] } = {}
   lines.push("Why:", ...deciding.map(describe));
   if (others.length > 0) lines.push("", "Also in this change:", ...others.map(describe));
   if (changes.length > 0) lines.push("", renderChanges(changes));
-  const broken = result.reasons.some((entry) => entry.rule in CHECKS_RULES);
   lines.push(
     "",
-    required && broken
-      ? "The checks and Repairs: rules are switched on, so this check fails until the reasons above are fixed. The rules come from the base branch, so this pull request cannot change its own lane."
+    checkOutcome({ result, required, event }).fails
+      ? "The lane rules are switched on, so this check fails until the red reasons above, other than test strength, are fixed. The rules come from the base branch, so this pull request cannot change its own lane."
       : "This lane is a report only. Nothing was merged, blocked or closed. The rules come from the base branch, so this pull request cannot change its own lane.",
   );
   return lines.join("\n");
@@ -840,6 +847,13 @@ async function resolveRepairs(api, repoPath, pr) {
     if (error.status === 404 || error.status === 422) return null;
     throw error;
   };
+  const contains = async (sha, head) => {
+    if (!sha) return false;
+    const compared = await api
+      .get(`${repoPath}/compare/${sha}...${head}`, { per_page: 1 })
+      .catch(missing);
+    return compared?.status === "ahead" || compared?.status === "identical";
+  };
   return Promise.all(
     parsed.targets.map(async (target) => {
       if (target.kind === "pr") {
@@ -848,17 +862,17 @@ async function resolveRepairs(api, repoPath, pr) {
         return {
           ref: target.ref,
           onBase,
-          time: onBase ? Date.parse(found.merged_at) / 1000 : null,
+          inHistory: onBase && (await contains(found.merge_commit_sha, pr.head.sha)),
         };
       }
-      if (target.kind !== "commit") return { ref: target.ref, onBase: false, time: null };
+      if (target.kind !== "commit") return { ref: target.ref, onBase: false, inHistory: false };
       const found = await api.get(`${repoPath}/commits/${target.ref}`).catch(missing);
-      if (!found) return { ref: target.ref, onBase: false, time: null };
-      const compared = await api
-        .get(`${repoPath}/compare/${found.sha}...${pr.base.sha}`, { per_page: 1 })
-        .catch(missing);
-      const onBase = compared?.status === "ahead" || compared?.status === "identical";
-      return { ref: target.ref, onBase, time: Date.parse(found.commit.committer.date) / 1000 };
+      if (!found) return { ref: target.ref, onBase: false, inHistory: false };
+      const [onBase, inHistory] = await Promise.all([
+        contains(found.sha, pr.base.sha),
+        contains(found.sha, pr.head.sha),
+      ]);
+      return { ref: target.ref, onBase, inHistory };
     }),
   );
 }
@@ -871,7 +885,6 @@ async function judgePullRequest(api, repoPath, pr, listed) {
   const commits = (await api.all(`${repoPath}/pulls/${pr.number}/commits`)).map((entry) => ({
     sha: entry.sha,
     message: entry.commit.message,
-    time: Date.parse(entry.commit.committer.date) / 1000,
   }));
   let checks = empty;
   let lockComment = null;
@@ -898,7 +911,6 @@ async function judgePullRequest(api, repoPath, pr, listed) {
         title: pr.title,
         body: pr.body,
         resolved: await resolveRepairs(api, repoPath, pr),
-        fixTime: Math.min(...commits.map((commit) => commit.time)),
       })
     : [];
   return { result: withReasons(base, [...checks.reasons, ...repairs]), checks, lockComment };
@@ -1131,13 +1143,14 @@ async function syncPullRequest({ github, context, core }) {
     `PR #${pr.number}: ${wanted}, strength ${strength.result} (${result.reasons.map((reason) => reason.rule).join(", ")})`,
   );
   const required = isRequired();
+  const event = context.eventName;
   await core.summary
-    .addRaw(summarize(result, { maxFiles: 10, required, changes: checks.changes }))
+    .addRaw(summarize(result, { maxFiles: 10, required, event, changes: checks.changes }))
     .addRaw(`\n\n${strengthText}\n`)
     .write();
-  const broken = result.reasons.filter((entry) => entry.rule in CHECKS_RULES);
-  if (required && broken.length > 0) {
-    core.setFailed(broken.map((entry) => entry.why).join("; "));
+  const outcome = checkOutcome({ result, required, event });
+  if (outcome.fails) {
+    core.setFailed(outcome.reasons.map((entry) => entry.why).join("; "));
   }
   return result;
 }
@@ -1184,7 +1197,11 @@ async function main() {
   console.log(
     args.includes("--json")
       ? JSON.stringify(result, null, 2)
-      : summarize(result, { required: isRequired(), changes }),
+      : summarize(result, {
+          required: isRequired(),
+          event: process.env.GITHUB_EVENT_NAME,
+          changes,
+        }),
   );
 }
 
@@ -1198,6 +1215,7 @@ module.exports = {
   TEST_SUPPORT,
   FIX_TITLE,
   classify,
+  checkOutcome,
   summarize,
   parseGitDiff,
   gitFiles,

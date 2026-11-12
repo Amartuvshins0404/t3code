@@ -47,7 +47,6 @@ export interface RepairsLine {
 export interface CommitInfo {
   readonly sha: string;
   readonly message: string;
-  readonly time?: number;
 }
 
 export interface LockedFile {
@@ -81,7 +80,7 @@ export interface ChecksVerdict {
 export interface ResolvedRepair {
   readonly ref: string;
   readonly onBase: boolean;
-  readonly time: number | null;
+  readonly inHistory: boolean;
 }
 
 export interface ApiFile extends ChangedFile {
@@ -98,11 +97,18 @@ export function classify(
   options?: { readonly packageDirs?: ReadonlyArray<string>; readonly fileListComplete?: boolean },
 ): LaneResult;
 
+export function checkOutcome(input: {
+  readonly result: LaneResult;
+  readonly required: boolean;
+  readonly event: string;
+}): { readonly fails: boolean; readonly reasons: Array<LaneReason> };
+
 export function summarize(
   result: LaneResult,
   options?: {
     readonly maxFiles?: number;
     readonly required?: boolean;
+    readonly event?: string;
     readonly changes?: ReadonlyArray<TestChange>;
   },
 ): string;
@@ -125,7 +131,6 @@ export function judgeRepairs(input: {
   readonly title: string;
   readonly body: string | null;
   readonly resolved: ReadonlyArray<ResolvedRepair>;
-  readonly fixTime: number;
 }): Array<LaneReason>;
 
 export function renderChanges(changes: ReadonlyArray<TestChange>): string;

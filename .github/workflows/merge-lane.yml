@@ -27,6 +27,7 @@ jobs:
       queue: max
     env:
       TEST_STRENGTH_MODE: ${{ vars.TEST_STRENGTH_MODE }}
+      BLIND_CHECKS_MODE: ${{ vars.BLIND_CHECKS_MODE }}
     steps:
       - name: Checkout base branch rules without the vendored .repos tree
         shell: bash
