@@ -111,6 +111,10 @@ function isLocalHub(configUrl: string, localUrl: string): boolean {
   }
 }
 
+function hubUrl(configUrl: string): string {
+  return (configUrl.includes("://") ? configUrl : `http://${configUrl}`).replace(/\/+$/, "");
+}
+
 function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
   if (config.label) return config.label;
   const fallback = id.trim() || "Usage limit source";
@@ -253,21 +257,6 @@ export const make = Effect.gen(function* () {
 
   // Serialize refreshes so slow old-settings reads cannot resurrect removed sources after newer refreshes.
   const refreshLock = yield* Semaphore.make(1);
-  const refresh = Effect.gen(function* () {
-    const settings = yield* settingsService.getSettings.pipe(
-      Effect.orElseSucceed((): ServerSettings | null => null),
-    );
-    const entries = Object.entries(settings?.usageLimitSources ?? {}).filter(
-      ([, config]) => config.enabled,
-    );
-    const snapshots = yield* Effect.forEach(
-      entries,
-      ([id, config]) => readSource(id as UsageLimitSourceId, config),
-      { concurrency: 4 },
-    );
-    yield* publish(snapshots);
-  }).pipe(refreshLock.withPermits(1), Effect.ignoreCause({ log: true }));
-
   const readEnabledSource = Effect.fn("UsageLimitSources.readEnabledSource")(function* (
     sourceId: UsageLimitSourceId,
   ) {
@@ -364,6 +353,90 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const providersLock = yield* Semaphore.make(1);
+
+  const addProviders = Effect.fn("UsageLimitSources.addProviders")(function* (
+    settings: ServerSettings,
+    id: string,
+    config: UsageLimitSourceConfig,
+    url: string,
+    keys: { readonly managementKey: string; readonly clientKey: string },
+    input: CliproxyAddProvidersInput,
+  ) {
+    const clientKey = keys.clientKey || (yield* newKey);
+    if (clientKey !== keys.clientKey) {
+      yield* settingsService
+        .updateSettings({ usageLimitSources: { [id]: { ...config, clientKey } } })
+        .pipe(Effect.mapError(() => localFailure("saveFailed")));
+    }
+    yield* api
+      .addClientKey({ url, managementKey: keys.managementKey }, clientKey)
+      .pipe(Effect.mapError(() => localFailure("clientKeyFailed")));
+    const routes = proxyInstances(url, clientKey, input);
+    for (const route of routes) {
+      yield* settingsService
+        .updateProviderInstance({
+          operation: "upsert",
+          instanceId: route.instanceId,
+          instance: withProxyRoute(settings.providerInstances[route.instanceId], route),
+        })
+        .pipe(Effect.mapError(() => localFailure("saveFailed")));
+    }
+    return {
+      instances: routes.map(({ instanceId, driver }) => ({ instanceId, driver })),
+    } satisfies CliproxyAddProvidersResult;
+  });
+
+  const ensureProviders = Effect.gen(function* () {
+    const settings = yield* settingsService.getSettings;
+    const missing = {
+      claude: settings.providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID] === undefined,
+      codex: settings.providerInstances[CLIPROXY_CODEX_INSTANCE_ID] === undefined,
+    };
+    if (!missing.claude && !missing.codex) return;
+    for (const [id, config] of Object.entries(settings.usageLimitSources)) {
+      if (!config.enabled) continue;
+      const keys = yield* readHubKeys(config);
+      if (keys.managementKey.length === 0) continue;
+      const accounts = yield* api
+        .listAccounts({ url: config.url, managementKey: keys.managementKey })
+        .pipe(Effect.orElseSucceed(() => null));
+      const pooled = (driver: string) =>
+        accounts === null || accounts.some((account) => account.driver === driver);
+      const input = {
+        claude: missing.claude && pooled("claudeAgent"),
+        codex: missing.codex && pooled("codex"),
+      };
+      if (input.claude || input.codex) {
+        yield* addProviders(settings, id, config, hubUrl(config.url), keys, input);
+      }
+      return;
+    }
+  }).pipe(
+    providersLock.withPermits(1),
+    Effect.ignore({ log: "Debug" }),
+    Effect.withSpan("UsageLimitSources.ensureProviders"),
+  );
+
+  const refresh = Effect.gen(function* () {
+    const settings = yield* settingsService.getSettings.pipe(
+      Effect.orElseSucceed((): ServerSettings | null => null),
+    );
+    const entries = Object.entries(settings?.usageLimitSources ?? {}).filter(
+      ([, config]) => config.enabled,
+    );
+    const snapshots = yield* Effect.forEach(
+      entries,
+      ([id, config]) => readSource(id as UsageLimitSourceId, config),
+      { concurrency: 4 },
+    );
+    yield* publish(snapshots);
+  }).pipe(
+    refreshLock.withPermits(1),
+    Effect.andThen(ensureProviders),
+    Effect.ignoreCause({ log: true }),
+  );
+
   const saveLocal = Effect.fn("UsageLimitSources.saveLocal")(
     function* (url: string, managementKey: string) {
       const settings = yield* settingsService.getSettings;
@@ -420,6 +493,7 @@ export const make = Effect.gen(function* () {
       yield* local.startService(found.brew);
       yield* waitUntilRunning(machine.url);
     }
+    yield* ensureProviders;
     return yield* statusOf(machine);
   }).pipe(localLock.withPermits(1), Effect.withSpan("UsageLimitSources.installLocal"));
 
@@ -430,6 +504,7 @@ export const make = Effect.gen(function* () {
     if (!(yield* api.isRunning(machine.url))) return yield* localFailure("notRunning");
     yield* verifyKey(machine.url, input.managementKey);
     yield* saveLocal(machine.url, input.managementKey);
+    yield* ensureProviders;
     return yield* statusOf(machine);
   }, localLock.withPermits(1));
 
@@ -438,47 +513,29 @@ export const make = Effect.gen(function* () {
     if (machine.brew === null) return yield* localFailure("noHomebrew");
     if (machine.configPath === null) return yield* localFailure("configNotWritable");
     yield* restartWithNewKey(machine.brew, machine.configPath, machine.url, false);
+    yield* ensureProviders;
     return yield* statusOf(machine);
   }).pipe(localLock.withPermits(1), Effect.withSpan("UsageLimitSources.setNewLocalKey"));
 
-  const addLocalProviders = Effect.fn("UsageLimitSources.addLocalProviders")(function* (
-    input: CliproxyAddProvidersInput,
-  ) {
-    const machine = yield* local.detect();
-    if (!(yield* api.isRunning(machine.url))) return yield* localFailure("notRunning");
-    const settings = yield* settingsService.getSettings.pipe(
-      Effect.mapError(() => localFailure("saveFailed")),
-    );
-    const saved = Object.entries(settings.usageLimitSources).find(
-      ([, config]) => config.enabled && isLocalHub(config.url, machine.url),
-    );
-    if (saved === undefined) return yield* localFailure("notConnected");
-    const [id, config] = saved;
-    const keys = yield* readHubKeys(config);
-    if (keys.managementKey.length === 0) return yield* localFailure("notConnected");
-    const clientKey = keys.clientKey || (yield* newKey);
-    if (clientKey !== keys.clientKey) {
-      yield* settingsService
-        .updateSettings({ usageLimitSources: { [id]: { ...config, clientKey } } })
-        .pipe(Effect.mapError(() => localFailure("saveFailed")));
-    }
-    yield* api
-      .addClientKey({ url: machine.url, managementKey: keys.managementKey }, clientKey)
-      .pipe(Effect.mapError(() => localFailure("clientKeyFailed")));
-    const routes = proxyInstances(machine.url, clientKey, input);
-    for (const route of routes) {
-      yield* settingsService
-        .updateProviderInstance({
-          operation: "upsert",
-          instanceId: route.instanceId,
-          instance: withProxyRoute(settings.providerInstances[route.instanceId], route),
-        })
-        .pipe(Effect.mapError(() => localFailure("saveFailed")));
-    }
-    return {
-      instances: routes.map(({ instanceId, driver }) => ({ instanceId, driver })),
-    } satisfies CliproxyAddProvidersResult;
-  }, localLock.withPermits(1));
+  const addLocalProviders = Effect.fn("UsageLimitSources.addLocalProviders")(
+    function* (input: CliproxyAddProvidersInput) {
+      const machine = yield* local.detect();
+      if (!(yield* api.isRunning(machine.url))) return yield* localFailure("notRunning");
+      const settings = yield* settingsService.getSettings.pipe(
+        Effect.mapError(() => localFailure("saveFailed")),
+      );
+      const saved = Object.entries(settings.usageLimitSources).find(
+        ([, config]) => config.enabled && isLocalHub(config.url, machine.url),
+      );
+      if (saved === undefined) return yield* localFailure("notConnected");
+      const [id, config] = saved;
+      const keys = yield* readHubKeys(config);
+      if (keys.managementKey.length === 0) return yield* localFailure("notConnected");
+      return yield* addProviders(settings, id, config, machine.url, keys, input);
+    },
+    providersLock.withPermits(1),
+    localLock.withPermits(1),
+  );
 
   const disconnect = Effect.gen(function* () {
     const settings = yield* settingsService.getSettings;
@@ -493,6 +550,7 @@ export const make = Effect.gen(function* () {
     });
   }).pipe(
     Effect.mapError(() => localFailure("saveFailed")),
+    providersLock.withPermits(1),
     localLock.withPermits(1),
     Effect.withSpan("UsageLimitSources.disconnect"),
   );

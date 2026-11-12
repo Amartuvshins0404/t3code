@@ -3,7 +3,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
   CLIPROXY_CLAUDE_INSTANCE_ID,
-  CLIPROXY_CODEX_INSTANCE_ID,
   ProviderDriverKind,
   ProviderInstanceId,
   SecretProviderId,
@@ -172,27 +171,53 @@ it.effect("reads a management key from its secret provider", () => {
   );
 });
 
-it.effect("disconnecting forgets the proxy and its providers, nothing else", () =>
-  Effect.gen(function* () {
+it.effect("a connected proxy gets providers for the accounts it pools until it disconnects", () => {
+  const clientKeys: Array<unknown> = [];
+  return Effect.gen(function* () {
+    const settingsService = yield* ServerSettings.ServerSettingsService;
     const sources = yield* UsageLimitSources.make;
+    yield* sources.refresh;
+    const connected = yield* settingsService.getSettings;
+    expect(Object.keys(connected.providerInstances).toSorted()).toEqual([
+      CLIPROXY_CLAUDE_INSTANCE_ID,
+      "claudeAgent_work",
+    ]);
+    const clientKey = connected.usageLimitSources[UsageLimitSourceId.make("hub")]?.clientKey;
+    expect(clientKeys).toEqual([{ old: clientKey, new: clientKey }]);
+    expect(connected.providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID]).toMatchObject({
+      enabled: true,
+      environment: [
+        { name: "ANTHROPIC_BASE_URL", value: "https://hub.test:8317" },
+        { name: "ANTHROPIC_AUTH_TOKEN", value: clientKey },
+      ],
+    });
+
+    yield* settingsService.updateProviderInstance({
+      operation: "upsert",
+      instanceId: CLIPROXY_CLAUDE_INSTANCE_ID,
+      instance: { ...connected.providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID]!, enabled: false },
+    });
+    yield* sources.refresh;
+    const turnedOff = yield* settingsService.getSettings;
+    expect(turnedOff.providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID]?.enabled).toBe(false);
+    expect(clientKeys).toHaveLength(1);
+
     yield* sources.disconnect;
-    const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings;
+    const settings = yield* settingsService.getSettings;
     expect(settings.usageLimitSources).toEqual({});
     expect(Object.keys(settings.providerInstances)).toEqual(["claudeAgent_work"]);
   }).pipe(
     Effect.provide([
       ServerSettings.layerTest({
         usageLimitSources: {
-          [UsageLimitSourceId.make("cliproxy-127.0.0.1-8317")]: {
+          [UsageLimitSourceId.make("hub")]: {
             kind: "cliproxy",
-            url: "http://127.0.0.1:8317",
-            managementKey: "",
+            url: "https://hub.test:8317",
+            managementKey: "management-key",
             enabled: true,
           },
         },
         providerInstances: {
-          [CLIPROXY_CLAUDE_INSTANCE_ID]: { driver: ProviderDriverKind.make("claudeAgent") },
-          [CLIPROXY_CODEX_INSTANCE_ID]: { driver: ProviderDriverKind.make("codex") },
           [ProviderInstanceId.make("claudeAgent_work")]: {
             driver: ProviderDriverKind.make("claudeAgent"),
           },
@@ -208,12 +233,30 @@ it.effect("disconnecting forgets the proxy and its providers, nothing else", () 
       }),
       Layer.succeed(
         HttpClient.HttpClient,
-        HttpClient.make(() => Effect.die("Unexpected network request")),
+        HttpClient.make((request) =>
+          Effect.sync(() => {
+            const path = new URL(request.url).pathname;
+            if (path.endsWith("/auth-files")) {
+              return HttpClientResponse.fromWeb(
+                request,
+                Response.json({
+                  files: [
+                    { id: "claude-a.json", auth_index: "1", provider: "claude", email: "a@x.test" },
+                  ],
+                }),
+              );
+            }
+            if (path.endsWith("/api-keys") && request.body._tag === "Uint8Array") {
+              clientKeys.push(JSON.parse(new TextDecoder().decode(request.body.body)));
+            }
+            return HttpClientResponse.fromWeb(request, Response.json({}));
+          }),
+        ),
       ),
       NodeCrypto.layer,
       NodeServices.layer,
       Layer.mock(ProcessRunner.ProcessRunner)({}),
     ]),
     Effect.scoped,
-  ),
-);
+  );
+});

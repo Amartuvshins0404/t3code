@@ -533,6 +533,10 @@ function AccessGatedProviderSettings({
 }
 
 const CLIPROXY_ROW = ":cliproxy";
+const CLIPROXY_INSTANCE_IDS: ReadonlyArray<ProviderInstanceId> = [
+  CLIPROXY_CLAUDE_INSTANCE_ID,
+  CLIPROXY_CODEX_INSTANCE_ID,
+];
 const NO_PROJECT_IDS: readonly ProjectId[] = [];
 const NO_FAVORITES: UnifiedSettings["favorites"] = [];
 
@@ -713,11 +717,15 @@ export function EnvironmentProviderSettings({
     readonly isDirty?: boolean;
   }
 
+  const cliproxy = Object.entries(settings.usageLimitSources).at(-1);
   const instancesByDriver = new Map<
     ProviderDriverKind,
     Array<[ProviderInstanceId, ProviderInstanceConfig]>
   >();
   for (const [rawId, instance] of Object.entries(settings.providerInstances ?? {})) {
+    if (cliproxy !== undefined && CLIPROXY_INSTANCE_IDS.includes(rawId as ProviderInstanceId)) {
+      continue;
+    }
     const driver = instance.driver;
     const list = instancesByDriver.get(driver) ?? [];
     list.push([rawId as ProviderInstanceId, instance]);
@@ -783,13 +791,16 @@ export function EnvironmentProviderSettings({
     targetInstanceId !== undefined &&
     selectedInstanceId === targetInstanceId &&
     !rows.some((row) => row.instanceId === targetInstanceId);
-  const cliproxy = Object.entries(settings.usageLimitSources).at(-1);
-  const cliproxySelected = cliproxy !== undefined && selectedInstanceId === CLIPROXY_ROW;
-  const cliproxyProviderNames = [CLIPROXY_CLAUDE_INSTANCE_ID, CLIPROXY_CODEX_INSTANCE_ID].flatMap(
-    (instanceId) => {
-      const instance = settings.providerInstances[instanceId];
-      return instance ? [providerInstanceName(instance)] : [];
-    },
+  const cliproxySelected =
+    cliproxy !== undefined &&
+    (selectedInstanceId === CLIPROXY_ROW ||
+      CLIPROXY_INSTANCE_IDS.some((instanceId) => instanceId === selectedInstanceId));
+  const cliproxyModels = CLIPROXY_INSTANCE_IDS.flatMap((instanceId) => {
+    const instance = settings.providerInstances[instanceId];
+    return instance ? [{ instanceId, instance }] : [];
+  });
+  const cliproxyProviderNames = cliproxyModels.map(({ instance }) =>
+    providerInstanceName(instance),
   );
   const selectedRow = cliproxySelected
     ? null
@@ -1097,6 +1108,11 @@ export function EnvironmentProviderSettings({
                     sourceId={UsageLimitSourceId.make(cliproxy[0])}
                     source={cliproxy[1]}
                     providerNames={cliproxyProviderNames}
+                    models={cliproxyModels}
+                    readOnly={readOnly}
+                    onModelEnabledChange={(instanceId, instance, enabled) =>
+                      updateInstance(instanceId, instance, { ...instance, enabled })
+                    }
                   />
                 </div>
               </ScrollArea>

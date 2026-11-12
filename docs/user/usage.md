@@ -190,11 +190,9 @@ The hub's Codex, Claude, xAI (shown as Grok) and Antigravity accounts appear und
 accounts for other providers are not read. Codex accounts show banked reset credits; select an
 account and choose **Use reset** to redeem one. No hub plugin is required.
 
-This connection supplies usage information. To send agent requests through a proxy on the same
-computer, open **Add provider**, choose **CLI Proxy**, keep **Claude**, **Codex** or both checked,
-and choose **Add**. T3 connects the proxy first if needed, adds its own key to the proxy, and adds
-**Claude (CLI Proxy)** and **Codex (CLI Proxy)**. Your usual Claude and Codex sign-ins stay as they
-are.
+Connecting also lets agents send requests through the proxy. T3 adds its own key to the proxy and
+adds **Claude (CLI Proxy)** and **Codex (CLI Proxy)** to the model picker, one for each kind of
+account the proxy holds. Your usual Claude and Codex sign-ins stay as they are.
 
 Once connected, select **CLI Proxy** in the Settings providers list to manage it:
 
@@ -203,6 +201,7 @@ Once connected, select **CLI Proxy** in the Settings providers list to manage it
 - **Turn off** keeps an account but stops routing to it. **Remove** deletes its sign-in from the
   proxy.
 - **Routing** picks how requests spread: evenly across accounts, or one account until its limit.
+- **Models** turns **Claude (CLI Proxy)** or **Codex (CLI Proxy)** off or on in the model picker.
 - **Disconnect** forgets the proxy and removes **Claude (CLI Proxy)** and **Codex (CLI Proxy)**;
   the proxy itself keeps running with its key and accounts.
 

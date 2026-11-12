@@ -10,6 +10,9 @@ import {
   type CliproxySignIn,
   type CliproxySignInProvider,
   type EnvironmentId,
+  type ProviderInstanceConfig,
+  type ProviderInstanceId,
+  resolveProviderInstanceEnabled,
   type SecretReference,
   type ServerProviderUsageWindow,
   type UsageLimitSourceConfig,
@@ -79,6 +82,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
+import { Switch } from "../ui/switch";
 import { SecretInput } from "./SecretInput";
 import { SecretSourceInput, useSecretSources } from "./SecretSourceInput";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
@@ -667,11 +671,24 @@ export function CliProxyDetails({
   sourceId,
   source,
   providerNames,
+  models,
+  readOnly,
+  onModelEnabledChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly sourceId: UsageLimitSourceId;
   readonly source: UsageLimitSourceConfig;
   readonly providerNames: ReadonlyArray<string>;
+  readonly models: ReadonlyArray<{
+    readonly instanceId: ProviderInstanceId;
+    readonly instance: ProviderInstanceConfig;
+  }>;
+  readonly readOnly: boolean;
+  readonly onModelEnabledChange: (
+    instanceId: ProviderInstanceId,
+    instance: ProviderInstanceConfig,
+    enabled: boolean,
+  ) => void;
 }) {
   const registry = useContext(RegistryContext);
   const { canCopyKey, copyKey, isCopied, copyFailed } = useCopyProxyKey(environmentId);
@@ -957,15 +974,41 @@ export function CliProxyDetails({
           />
         )}
       </SettingsSection>
+      {models.length > 0 ? (
+        <SettingsSection title="Models">
+          {models.map(({ instanceId, instance }) => {
+            const label = providerClients.get(instance.driver)?.label ?? String(instance.driver);
+            return (
+              <SettingsRow
+                key={instanceId}
+                title={label}
+                description={`Shows up in the model picker as ${label} (CLI Proxy).`}
+                control={
+                  <Switch
+                    checked={resolveProviderInstanceEnabled(instance)}
+                    disabled={readOnly}
+                    onCheckedChange={(checked) =>
+                      onModelEnabledChange(instanceId, instance, Boolean(checked))
+                    }
+                    aria-label={`Enable ${label} through CLI Proxy`}
+                  />
+                }
+              />
+            );
+          })}
+        </SettingsSection>
+      ) : null}
       {panelUrl ? (
-        <Button
-          size="xs"
-          variant="link"
-          className="mx-3 sm:mx-4"
-          render={<a href={panelUrl} target="_blank" rel="noreferrer noopener" />}
-        >
-          Open the proxy's web panel
-        </Button>
+        <p className="px-3 text-xs sm:px-4">
+          <a
+            href={panelUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Open the proxy's web panel
+          </a>
+        </p>
       ) : null}
       <AlertDialog
         open={removing !== null}
