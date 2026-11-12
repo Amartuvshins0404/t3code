@@ -586,6 +586,15 @@ describe("test strength: the switch, the lane and the labels", () => {
     reports: [strongReport],
     outOfTime: { tried: 3, total: 9 },
   });
+  const pending: StrengthVerdict = {
+    result: "not measured",
+    reason: "pending",
+    tried: 0,
+    missed: 0,
+    missedLines: 0,
+    uncovered: 0,
+    examples: [],
+  };
 
   it.each([
     { name: "weak", verdict: weak, required: true, red: true },
@@ -593,6 +602,7 @@ describe("test strength: the switch, the lane and the labels", () => {
     { name: "tests did not pass", verdict: testsFailed, required: true, red: true },
     { name: "out of time", verdict: outOfTime, required: true, red: true },
     { name: "no test needed", verdict: noneNeeded, required: true, red: false },
+    { name: "Blind checks has not finished", verdict: pending, required: true, red: true },
     { name: "weak", verdict: weak, required: false, red: false },
     { name: "tests did not pass", verdict: testsFailed, required: false, red: false },
   ])("$name with the switch on: $required -> red: $red", ({ verdict, required, red }) => {
