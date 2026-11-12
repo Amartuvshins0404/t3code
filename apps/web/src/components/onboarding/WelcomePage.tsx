@@ -34,6 +34,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   PlusIcon,
+  ScanSearchIcon,
   SmartphoneIcon,
   TerminalIcon,
   WaypointsIcon,
@@ -94,6 +95,7 @@ import { projectEnvironment } from "../../state/projects";
 import { useAppBaseName } from "../../state/appBranding";
 import { serverEnvironment } from "../../state/server";
 import { OwnerLogoPicker, OwnerNameInput } from "../OwnerBranding";
+import { CodeSearchSetup, codeSearchStatusLabel, useCodeSearchStatus } from "../CodeSearchSetup";
 import {
   readEnvironmentScope,
   useEnvironmentScope,
@@ -293,6 +295,7 @@ export function WelcomePage({
                 isPrimary={isPrimary}
                 onImportSourceEnabled={() => scans[0]?.refresh()}
               />
+              <CodeSearchSection environmentId={environmentId} />
               <ProjectsSection
                 scan={scans[0]}
                 projectImport={projectImport}
@@ -425,6 +428,47 @@ function OwnerSection({ environmentId }: { readonly environmentId: EnvironmentId
         The app is named after you. Leave the name empty to call it Mode.
       </p>
     </WelcomeSection>
+  );
+}
+
+function CodeSearchSection({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const supported =
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.environment.capabilities
+      .codeSearchSetup === true;
+  if (!supported) return null;
+  return (
+    <WelcomeSection title="Code search">
+      <CodeSearchBand environmentId={environmentId} />
+    </WelcomeSection>
+  );
+}
+
+function CodeSearchBand({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const status = useCodeSearchStatus(environmentId);
+  const [editing, setEditing] = useState(false);
+  const connected = status?.provider !== undefined;
+  return (
+    <>
+      <div className="flex min-h-10 items-center gap-3 py-1">
+        <RowIcon>
+          <ScanSearchIcon className="size-4" />
+        </RowIcon>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-foreground">Let agents search code by meaning</p>
+          <p className="text-xs text-muted-foreground">{codeSearchStatusLabel(status)}</p>
+        </div>
+        {connected ? (
+          <Button size="xs" variant="outline" onClick={() => setEditing((open) => !open)}>
+            {editing ? "Done" : "Change key"}
+          </Button>
+        ) : null}
+      </div>
+      {!connected || editing ? (
+        <div className="pl-8">
+          <CodeSearchSetup environmentId={environmentId} onConnect={() => setEditing(true)} />
+        </div>
+      ) : null}
+    </>
   );
 }
 

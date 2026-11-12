@@ -984,6 +984,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     providerSettingsOnly: true,
   },
   {
+    id: "code-search",
+    title: "Code search",
+    to: "/settings/providers",
+    searchTerms: [
+      "jevgrep jg semantic search meaning agents skill api key typesafe openrouter vercel ai gateway opencode zen",
+    ],
+    providerSettingsOnly: true,
+  },
+  {
     id: "text-generators",
     title: "Text generators",
     to: "/settings/providers",

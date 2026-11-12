@@ -270,6 +270,7 @@ export const make = Effect.gen(function* () {
       ...(hostPlatform === "win32" ? {} : { localServerStop: true }),
       environmentIcon: true,
       ownerBranding: true,
+      codeSearchSetup: true,
       projectCloneTracking: true,
       projectOrganization: true,
       ignoredFileListing: true,

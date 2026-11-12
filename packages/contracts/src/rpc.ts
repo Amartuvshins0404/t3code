@@ -222,6 +222,12 @@ import {
   RelayClientStatusSchema,
 } from "./relayClient.ts";
 import {
+  CodeSearchConnectInput,
+  CodeSearchConnectResult,
+  CodeSearchSetupError,
+  CodeSearchStatus,
+} from "./codeSearch.ts";
+import {
   ORCHESTRATION_V2_WS_METHODS,
   OrchestrationGetWorkflowScriptError,
   OrchestrationV2GetNativeChildWorkError,
@@ -561,6 +567,9 @@ export const WS_METHODS = {
 
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
+
+  codeSearchStatus: "codeSearch.status",
+  codeSearchConnect: "codeSearch.connect",
 
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -1023,6 +1032,18 @@ const WsCloudInstallRelayClientRpc = Rpc.make(WS_METHODS.cloudInstallRelayClient
   success: RelayClientInstallProgressEventSchema,
   error: Schema.Union([RelayClientInstallFailedError, EnvironmentAuthorizationError]),
   stream: true,
+});
+
+const WsCodeSearchStatusRpc = Rpc.make(WS_METHODS.codeSearchStatus, {
+  payload: Schema.Struct({}),
+  success: CodeSearchStatus,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsCodeSearchConnectRpc = Rpc.make(WS_METHODS.codeSearchConnect, {
+  payload: CodeSearchConnectInput,
+  success: CodeSearchConnectResult,
+  error: Schema.Union([CodeSearchSetupError, EnvironmentAuthorizationError]),
 });
 
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
@@ -2136,6 +2157,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerReportClientActivityRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
+  WsCodeSearchStatusRpc,
+  WsCodeSearchConnectRpc,
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsFilterOptionsRpc,
