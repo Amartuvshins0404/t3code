@@ -40,8 +40,8 @@ const IGNORED = [
 const MODEL_HINT =
   /claude|opus|sonnet|haiku|fable|gpt|codex|gemini|grok|cursor|composer|kimi|qwen|deepseek|glm|llama|mistral/i;
 const CONFIDENCE = [
-  "against 59 upstream fixes labelled by hand on 2026-11-12, 5 of the ledger's 11 links were right, and it found 5 of the 7 fixes that repaired a change from the previous 14 days.",
-  "About half the escapes listed below are wrong, and the ledger counts about 1.5 times as many recent repairs as hand reading did (11 against 7).",
+  "against 60 upstream fixes labelled by hand on 2026-11-12 and kept out of tuning, 4 of the ledger's 13 links were right, and it found 4 of the 8 fixes that repaired a change from the previous 14 days.",
+  "Most of the escapes listed below are wrong, and the ledger counts about 1.6 times as many recent repairs as hand reading did (13 against 8).",
   "By hand, 15 of 120 upstream fixes (12.5%) repaired a recent change.",
   "These counts are small: read a rate as rough, and a gap between two rows as real only when it is large and both rows have many mature merges.",
   "Rerun the check with --score after changing a rule; see docs/operations/merge-lanes.md.",
