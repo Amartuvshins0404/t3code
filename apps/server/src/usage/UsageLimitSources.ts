@@ -1,4 +1,7 @@
 import {
+  CliproxyLocalError,
+  type CliproxyConnectLocalInput,
+  type CliproxyLocalStatus,
   DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL,
   UsageLimitSourceError,
   type UsageLimitSourceConsumeResetCreditInput,
@@ -6,27 +9,33 @@ import {
   type ServerSettings,
   UsageLimitSourceConfig,
   settingsSecretLiteral,
-  type UsageLimitSourceId,
+  UsageLimitSourceId,
   type UsageLimitSourceSnapshot,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import { usageLimitSourceIdFromUrl } from "@t3tools/shared/serverSettings";
 import * as Context from "effect/Context";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Hex from "effect/encoding/Hex";
 import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
+import * as ProcessRunner from "../processRunner.ts";
 import * as SecretResolverLayer from "../secrets/SecretResolver.ts";
 import { resolveSettingsSecrets } from "../secrets/settingsSecretValue.ts";
 import * as Settings from "../serverSettings.ts";
 import { makeCliproxyApi } from "./cliproxyApi.ts";
+import { type CliproxyMachine, makeCliproxyLocal } from "./cliproxyLocal.ts";
 
 export class UsageLimitSources extends Context.Service<
   UsageLimitSources,
@@ -37,8 +46,25 @@ export class UsageLimitSources extends Context.Service<
     readonly consumeResetCredit: (
       input: UsageLimitSourceConsumeResetCreditInput,
     ) => Effect.Effect<ProviderConsumeResetCreditResult, UsageLimitSourceError>;
+    readonly localStatus: Effect.Effect<CliproxyLocalStatus>;
+    readonly installLocal: Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
+    readonly connectLocal: (
+      input: CliproxyConnectLocalInput,
+    ) => Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
+    readonly setNewLocalKey: Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
   }
 >()("t3/usage/UsageLimitSources") {}
+
+const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+function isLocalHub(configUrl: string, localUrl: string): boolean {
+  try {
+    const hub = new URL(configUrl.includes("://") ? configUrl : `http://${configUrl}`);
+    return LOCAL_HOSTS.has(hub.hostname) && hub.port === new URL(localUrl).port;
+  } catch {
+    return false;
+  }
+}
 
 function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
   if (config.label) return config.label;
@@ -148,6 +174,131 @@ export const make = Effect.gen(function* () {
     return result;
   }, refreshLock.withPermits(1));
 
+  const local = yield* makeCliproxyLocal;
+  const random = yield* SecureRandom.SecureRandom;
+  const localLock = yield* Semaphore.make(1);
+  const localFailure = (reason: CliproxyLocalError["reason"]) => new CliproxyLocalError({ reason });
+
+  const statusOf = Effect.fn("UsageLimitSources.statusOf")(function* (machine: CliproxyMachine) {
+    const running = yield* api.isRunning(machine.url);
+    const settings = yield* settingsService.getSettings.pipe(
+      Effect.orElseSucceed((): ServerSettings | null => null),
+    );
+    const connected = Object.entries(settings?.usageLimitSources ?? {}).find(
+      ([, config]) => config.enabled && isLocalHub(config.url, machine.url),
+    );
+    return {
+      url: machine.url,
+      autoInstall: machine.brew !== null,
+      installed: machine.installed || running,
+      running,
+      canSetNewKey: machine.brew !== null && machine.configPath !== null,
+      ...(connected ? { sourceId: UsageLimitSourceId.make(connected[0]) } : {}),
+    } satisfies CliproxyLocalStatus;
+  });
+
+  const localStatus = Effect.gen(function* () {
+    return yield* statusOf(yield* local.detect());
+  }).pipe(Effect.withSpan("UsageLimitSources.localStatus"));
+
+  const newManagementKey = random.randomBytes(32).pipe(Effect.map(Hex.encode), Effect.orDie);
+
+  const waitUntilRunning = Effect.fn("UsageLimitSources.waitUntilRunning")(function* (url: string) {
+    yield* api.isRunning(url).pipe(
+      Effect.flatMap((running) =>
+        running ? Effect.void : Effect.fail(localFailure("serviceDidNotStart")),
+      ),
+      Effect.retry({ times: 40, schedule: Schedule.spaced("500 millis") }),
+    );
+  });
+
+  const verifyKey = Effect.fn("UsageLimitSources.verifyKey")(function* (
+    url: string,
+    managementKey: string,
+  ) {
+    const verdict = yield* api
+      .checkKey({ url, managementKey })
+      .pipe(Effect.orElseSucceed(() => "unreachable" as const));
+    if (verdict === "accepted") return;
+    return yield* localFailure(
+      verdict === "unreachable"
+        ? "notRunning"
+        : verdict === "lockedOut"
+          ? "lockedOut"
+          : "keyRejected",
+    );
+  });
+
+  const saveLocal = Effect.fn("UsageLimitSources.saveLocal")(
+    function* (url: string, managementKey: string) {
+      const settings = yield* settingsService.getSettings;
+      const saved = Object.entries(settings.usageLimitSources).find(([, config]) =>
+        isLocalHub(config.url, url),
+      );
+      const id = saved
+        ? UsageLimitSourceId.make(saved[0])
+        : usageLimitSourceIdFromUrl(url, settings.usageLimitSources);
+      yield* settingsService.updateSettings({
+        usageLimitSources: { [id]: { kind: "cliproxy", url, managementKey, enabled: true } },
+      });
+    },
+    Effect.mapError(() => localFailure("saveFailed")),
+  );
+
+  const restartWithNewKey = Effect.fn("UsageLimitSources.restartWithNewKey")(function* (
+    brew: string,
+    configPath: string,
+    url: string,
+    localOnly: boolean,
+  ) {
+    const managementKey = yield* newManagementKey;
+    yield* local.writeSecretKey(configPath, managementKey, localOnly);
+    yield* local.startService(brew);
+    yield* waitUntilRunning(url);
+    yield* verifyKey(url, managementKey).pipe(
+      Effect.retry({
+        times: 3,
+        schedule: Schedule.spaced("1 second"),
+        while: (error) => error.reason !== "lockedOut",
+      }),
+    );
+    yield* saveLocal(url, managementKey);
+  });
+
+  const installLocal = Effect.gen(function* () {
+    const found = yield* local.detect();
+    if (found.brew === null) return yield* localFailure("noHomebrew");
+    const fresh = found.configPath === null;
+    if (fresh) yield* local.install(found.brew);
+    const machine = fresh ? yield* local.detect() : found;
+    if (machine.configPath === null) return yield* localFailure("installFailed");
+    if (fresh || !machine.secretKeySet) {
+      yield* restartWithNewKey(found.brew, machine.configPath, machine.url, fresh);
+    } else if (!(yield* api.isRunning(machine.url))) {
+      yield* local.startService(found.brew);
+      yield* waitUntilRunning(machine.url);
+    }
+    return yield* statusOf(machine);
+  }).pipe(localLock.withPermits(1), Effect.withSpan("UsageLimitSources.installLocal"));
+
+  const connectLocal = Effect.fn("UsageLimitSources.connectLocal")(function* (
+    input: CliproxyConnectLocalInput,
+  ) {
+    const machine = yield* local.detect();
+    if (!(yield* api.isRunning(machine.url))) return yield* localFailure("notRunning");
+    yield* verifyKey(machine.url, input.managementKey);
+    yield* saveLocal(machine.url, input.managementKey);
+    return yield* statusOf(machine);
+  }, localLock.withPermits(1));
+
+  const setNewLocalKey = Effect.gen(function* () {
+    const machine = yield* local.detect();
+    if (machine.brew === null) return yield* localFailure("noHomebrew");
+    if (machine.configPath === null) return yield* localFailure("configNotWritable");
+    yield* restartWithNewKey(machine.brew, machine.configPath, machine.url, false);
+    return yield* statusOf(machine);
+  }).pipe(localLock.withPermits(1), Effect.withSpan("UsageLimitSources.setNewLocalKey"));
+
   yield* settingsService.streamChanges.pipe(
     Stream.map((settings) => settings.usageLimitSources),
     Stream.changes,
@@ -181,6 +332,10 @@ export const make = Effect.gen(function* () {
     current: Ref.get(stateRef),
     consumeResetCredit,
     refresh,
+    localStatus,
+    installLocal,
+    connectLocal,
+    setNewLocalKey,
     get streamChanges() {
       return Stream.unwrap(
         Effect.gen(function* () {
@@ -196,5 +351,5 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(UsageLimitSources, make).pipe(
-  Layer.provide(SecretResolverLayer.layer),
+  Layer.provide([SecretResolverLayer.layer, ProcessRunner.layer]),
 );

@@ -116,6 +116,44 @@ export class UsageLimitSourceError extends Schema.TaggedError<UsageLimitSourceEr
   }
 }
 
+export const CLIPROXY_INSTALL_URL = "https://github.com/router-for-me/CLIProxyAPI";
+
+export const CliproxyLocalStatus = Schema.Struct({
+  url: TrimmedNonEmptyString,
+  autoInstall: Schema.Boolean,
+  installed: Schema.Boolean,
+  running: Schema.Boolean,
+  canSetNewKey: Schema.Boolean,
+  sourceId: Schema.optional(UsageLimitSourceId),
+});
+export type CliproxyLocalStatus = typeof CliproxyLocalStatus.Type;
+
+export const CliproxyConnectLocalInput = Schema.Struct({
+  managementKey: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+});
+export type CliproxyConnectLocalInput = typeof CliproxyConnectLocalInput.Type;
+
+export const CliproxyLocalFailureReason = Schema.Literals([
+  "noHomebrew",
+  "installFailed",
+  "configNotWritable",
+  "serviceDidNotStart",
+  "notRunning",
+  "keyRejected",
+  "lockedOut",
+  "saveFailed",
+]);
+export type CliproxyLocalFailureReason = typeof CliproxyLocalFailureReason.Type;
+
+export class CliproxyLocalError extends Schema.TaggedError<CliproxyLocalError>()(
+  "CliproxyLocalError",
+  { reason: CliproxyLocalFailureReason },
+) {
+  override get message(): string {
+    return `CLIProxyAPI setup failed (${this.reason}).`;
+  }
+}
+
 export const ProviderConsumeResetCreditOutcome = Schema.Literals([
   "reset",
   "nothingToReset",

@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { AddUsageLimitSourceDialog } from "./AddUsageLimitSourceDialog";
+import { CliProxyDialog } from "./CliProxyDialog";
 import { searchableSetting } from "./settingsSearch";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
@@ -74,7 +74,7 @@ export function UsageProviderSettings({
         )}
       </SettingsSection>
       {adding && !readOnly ? (
-        <AddUsageLimitSourceDialog
+        <CliProxyDialog
           open
           onOpenChange={setAdding}
           environmentId={environmentId}

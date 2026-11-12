@@ -116,7 +116,12 @@ const CreditList = Schema.Struct({
   ),
 });
 
+const RootResponse = Schema.Struct({ message: Schema.String });
+const ManagementRefusal = Schema.Struct({ error: Schema.String });
+
 const decodeAuthFiles = Schema.decodeUnknownEffect(AuthFiles);
+const decodeRootResponse = Schema.decodeUnknownEffect(RootResponse);
+const decodeManagementRefusal = Schema.decodeUnknownOption(ManagementRefusal);
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeApiResponse = Schema.decodeUnknownEffect(ApiResponse);
 const decodeCreditList = Schema.decodeUnknownEffect(Schema.fromJsonString(CreditList));
@@ -403,20 +408,23 @@ export const makeCliproxyApi = Effect.gen(function* () {
   const platform = yield* HostProcess.Platform;
   const architecture = yield* HostProcess.Architecture;
 
-  const management = Effect.fn("CliproxyApi.management")(function* (
-    hub: CliproxyHub,
-    path: string,
-    body?: unknown,
-  ) {
-    const url = yield* Effect.try({
+  const managementUrl = (hubUrl: string, path: string) =>
+    Effect.try({
       try: () => {
-        const base = new URL(hub.url);
+        const base = new URL(hubUrl);
         // Users often paste the hub's web panel URL, which ends in management.html.
         base.pathname = base.pathname.replace(/(\/management\.html)?\/?$/i, "/");
         return new URL(`v0/management/${path}`, base).toString();
       },
       catch: () => new UsageLimitSourceError({ detail: "The hub URL is not valid." }),
     });
+
+  const management = Effect.fn("CliproxyApi.management")(function* (
+    hub: CliproxyHub,
+    path: string,
+    body?: unknown,
+  ) {
+    const url = yield* managementUrl(hub.url, path);
     const request = (
       body === undefined ? HttpClientRequest.get(url) : HttpClientRequest.post(url)
     ).pipe(HttpClientRequest.setHeader("Authorization", `Bearer ${hub.managementKey}`));
@@ -561,5 +569,39 @@ export const makeCliproxyApi = Effect.gen(function* () {
       ),
     );
   });
-  return { readAccounts, consume };
+  const isRunning = Effect.fn("CliproxyApi.isRunning")(function* (url: string) {
+    return yield* client.execute(HttpClientRequest.get(new URL("/", url).toString())).pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap((response) => response.json),
+      Effect.flatMap(decodeRootResponse),
+      Effect.map((root) => root.message.includes("CLI Proxy API")),
+      Effect.timeout("2 seconds"),
+      Effect.orElseSucceed(() => false),
+    );
+  });
+
+  const checkKey = Effect.fn("CliproxyApi.checkKey")(function* (hub: CliproxyHub) {
+    const url = yield* managementUrl(hub.url, "auth-files");
+    const response = yield* client
+      .execute(
+        HttpClientRequest.get(url).pipe(
+          HttpClientRequest.setHeader("Authorization", `Bearer ${hub.managementKey}`),
+        ),
+      )
+      .pipe(Effect.timeout("15 seconds"), Effect.option);
+    if (Option.isNone(response)) return "unreachable" as const;
+    const status = response.value.status;
+    if (status >= 200 && status < 300) return "accepted" as const;
+    if (status === 403) {
+      const refusal = decodeManagementRefusal(
+        yield* response.value.json.pipe(Effect.orElseSucceed(() => null)),
+      );
+      return Option.isSome(refusal) && /banned/i.test(refusal.value.error)
+        ? ("lockedOut" as const)
+        : ("rejected" as const);
+    }
+    return status === 401 || status === 404 ? ("rejected" as const) : ("unreachable" as const);
+  });
+
+  return { readAccounts, consume, isRunning, checkKey };
 });

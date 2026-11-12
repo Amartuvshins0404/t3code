@@ -20,6 +20,7 @@ import {
   AuthProvidersManageScope,
   AuthRelayReadScope,
   AuthRelayWriteScope,
+  AuthSettingsWriteScope,
   AuthTerminalOperateScope,
   CommandId,
   AuthOrchestrationOperateScope,
@@ -105,6 +106,7 @@ import { terminalEnvironment } from "../../state/terminal";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { getProviderSummary } from "../settings/providerStatus";
 import { AddProviderInstanceDialog } from "../settings/AddProviderInstanceDialog";
+import { CliProxyDialog } from "../settings/CliProxyDialog";
 import { useDesktopCliCommand } from "../settings/CliCommandSettingsRow";
 import { CodexSetupSection } from "../settings/CodexSetupSection";
 import { readCodexSetupMode } from "../settings/CodexSetupSection.logic";
@@ -373,7 +375,16 @@ function WelcomeSection({
 
 const CLI_PROXY_GUIDE_URL = "https://gist.github.com/t3dotgg/59a521d2ee8d70aaf90e280c175072af";
 
-function CliProxyRow() {
+function CliProxyRow({
+  environmentId,
+  label,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly label: string;
+}) {
+  const sources = useEnvironmentSettings(environmentId, (settings) => settings.usageLimitSources);
+  const canSetUp = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
+  const [open, setOpen] = useState(false);
   return (
     <div className="flex min-h-10 items-center gap-3 py-1">
       <RowIcon>
@@ -398,6 +409,20 @@ function CliProxyRow() {
       >
         Open guide
       </Button>
+      {canSetUp ? (
+        <Button size="xs" variant="outline" onClick={() => setOpen(true)}>
+          Set up
+        </Button>
+      ) : null}
+      {open ? (
+        <CliProxyDialog
+          open
+          onOpenChange={setOpen}
+          environmentId={environmentId}
+          environmentLabel={label}
+          sources={sources}
+        />
+      ) : null}
     </div>
   );
 }
@@ -792,7 +817,7 @@ function AgentsSection({
           ) : null}
         </CollapsiblePanel>
       </Collapsible>
-      <CliProxyRow />
+      <CliProxyRow environmentId={environmentId} label={label} />
       {codexSetupProvider !== null && serverConfig !== null ? (
         <div key={codexSetupProvider.instanceId} ref={revealOnMount} className="mt-2">
           <OnboardingCodexSetup

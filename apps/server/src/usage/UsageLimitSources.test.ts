@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { SecretProviderId, ServerConfigStreamEvent, UsageLimitSourceId } from "@t3tools/contracts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
@@ -9,6 +10,7 @@ import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as UsageLimitSources from "./UsageLimitSources.ts";
 
@@ -86,6 +88,8 @@ it.effect("keeps malformed source URLs encodable for config subscribers", () =>
         HttpClient.make(() => Effect.die("Unexpected network request")),
       ),
       NodeCrypto.layer,
+      NodeServices.layer,
+      Layer.mock(ProcessRunner.ProcessRunner)({}),
     ]),
     Effect.scoped,
   ),
@@ -153,6 +157,8 @@ it.effect("reads a management key from its secret provider", () => {
         ),
       ),
       NodeCrypto.layer,
+      NodeServices.layer,
+      Layer.mock(ProcessRunner.ProcessRunner)({}),
     ]),
     Effect.scoped,
   );

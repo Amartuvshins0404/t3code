@@ -356,6 +356,9 @@ import {
   ResourceTelemetrySnapshot,
 } from "./resourceTelemetry.ts";
 import {
+  CliproxyConnectLocalInput,
+  CliproxyLocalError,
+  CliproxyLocalStatus,
   UsageLimitSourceError,
   ProviderConsumeResetCreditInput,
   ProviderConsumeResetCreditResult,
@@ -570,6 +573,11 @@ export const WS_METHODS = {
 
   codeSearchStatus: "codeSearch.status",
   codeSearchConnect: "codeSearch.connect",
+
+  cliproxyLocalStatus: "cliproxy.local.status",
+  cliproxyLocalInstall: "cliproxy.local.install",
+  cliproxyLocalConnect: "cliproxy.local.connect",
+  cliproxyLocalSetNewKey: "cliproxy.local.setNewKey",
 
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -1044,6 +1052,32 @@ const WsCodeSearchConnectRpc = Rpc.make(WS_METHODS.codeSearchConnect, {
   payload: CodeSearchConnectInput,
   success: CodeSearchConnectResult,
   error: Schema.Union([CodeSearchSetupError, EnvironmentAuthorizationError]),
+});
+
+const WsCliproxyLocalStatusRpc = Rpc.make(WS_METHODS.cliproxyLocalStatus, {
+  payload: Schema.Struct({}),
+  success: CliproxyLocalStatus,
+  error: EnvironmentAuthorizationError,
+});
+
+const CliproxyLocalRpcError = Schema.Union([CliproxyLocalError, EnvironmentAuthorizationError]);
+
+const WsCliproxyLocalInstallRpc = Rpc.make(WS_METHODS.cliproxyLocalInstall, {
+  payload: Schema.Struct({}),
+  success: CliproxyLocalStatus,
+  error: CliproxyLocalRpcError,
+});
+
+const WsCliproxyLocalConnectRpc = Rpc.make(WS_METHODS.cliproxyLocalConnect, {
+  payload: CliproxyConnectLocalInput,
+  success: CliproxyLocalStatus,
+  error: CliproxyLocalRpcError,
+});
+
+const WsCliproxyLocalSetNewKeyRpc = Rpc.make(WS_METHODS.cliproxyLocalSetNewKey, {
+  payload: Schema.Struct({}),
+  success: CliproxyLocalStatus,
+  error: CliproxyLocalRpcError,
 });
 
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
@@ -2159,6 +2193,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsCloudInstallRelayClientRpc,
   WsCodeSearchStatusRpc,
   WsCodeSearchConnectRpc,
+  WsCliproxyLocalStatusRpc,
+  WsCliproxyLocalInstallRpc,
+  WsCliproxyLocalConnectRpc,
+  WsCliproxyLocalSetNewKeyRpc,
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsFilterOptionsRpc,

@@ -173,8 +173,17 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 ## Connect a CLIProxyAPI hub
 
-To see pooled accounts, open **Settings → Providers → Usage providers → Add hub**. Choose the
-environment that will connect to the hub and enter its URL and management key.
+To see pooled accounts, choose **Set up** next to CLI Proxy on the Welcome page, or open
+**Settings → Providers → Usage providers → Add hub**.
+
+- On a Mac with Homebrew, choose **Install and connect**. T3 installs and starts CLIProxyAPI and
+  connects it for you. A new install only accepts connections from the same computer.
+- If a proxy is already running, enter its management key. If you lost it, choose
+  **Set a new key**; tools that use the old key stop working until you update them.
+- For a hub on another computer, choose **Use a proxy on another machine** and enter its URL and
+  management key.
+
+Pooling accounts can get them banned, so use it at your own risk.
 
 The hub's Codex, Claude, xAI (shown as Grok) and Antigravity accounts appear under **Usage → Limits**;
 accounts for other providers are not read. Codex accounts show banked reset credits; select an

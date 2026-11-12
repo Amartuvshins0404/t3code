@@ -152,6 +152,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   environmentIcon: Schema.optionalKey(Schema.Boolean),
   ownerBranding: Schema.optionalKey(Schema.Boolean),
   codeSearchSetup: Schema.optionalKey(Schema.Boolean),
+  cliproxyLocalSetup: Schema.optionalKey(Schema.Boolean),
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
   /** The desktop app switches update tracks when a server update request names one. */
   desktopAppChannelSwitch: Schema.optionalKey(Schema.Boolean),

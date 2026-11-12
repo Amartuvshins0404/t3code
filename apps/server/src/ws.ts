@@ -2660,6 +2660,10 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.codeSearchStatus]: (_input) => codeSearchSetup.status,
         [WS_METHODS.codeSearchConnect]: (input) => codeSearchSetup.connect(input),
+        [WS_METHODS.cliproxyLocalStatus]: (_input) => usageLimitSources.localStatus,
+        [WS_METHODS.cliproxyLocalInstall]: (_input) => usageLimitSources.installLocal,
+        [WS_METHODS.cliproxyLocalConnect]: (input) => usageLimitSources.connectLocal(input),
+        [WS_METHODS.cliproxyLocalSetNewKey]: (_input) => usageLimitSources.setNewLocalKey,
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
           Stream.callback<RelayClientInstallProgressEvent, RelayClientInstallFailedError>((queue) =>
