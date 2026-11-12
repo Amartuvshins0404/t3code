@@ -361,6 +361,7 @@ import {
   CliproxyConnectLocalInput,
   CliproxyLocalError,
   CliproxyLocalStatus,
+  CliproxyLocalVersion,
   CliproxyAccount,
   CliproxyAccountInput,
   CliproxyManageError,
@@ -589,6 +590,8 @@ export const WS_METHODS = {
 
   cliproxyLocalStatus: "cliproxy.local.status",
   cliproxyLocalInstall: "cliproxy.local.install",
+  cliproxyLocalVersion: "cliproxy.local.version",
+  cliproxyLocalUpdate: "cliproxy.local.update",
   cliproxyLocalConnect: "cliproxy.local.connect",
   cliproxyLocalSetNewKey: "cliproxy.local.setNewKey",
   cliproxyLocalRevealKey: "cliproxy.local.revealKey",
@@ -1089,6 +1092,18 @@ const CliproxyLocalRpcError = Schema.Union([CliproxyLocalError, EnvironmentAutho
 const WsCliproxyLocalInstallRpc = Rpc.make(WS_METHODS.cliproxyLocalInstall, {
   payload: Schema.Struct({}),
   success: CliproxyLocalStatus,
+  error: CliproxyLocalRpcError,
+});
+
+const WsCliproxyLocalVersionRpc = Rpc.make(WS_METHODS.cliproxyLocalVersion, {
+  payload: Schema.Struct({}),
+  success: CliproxyLocalVersion,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsCliproxyLocalUpdateRpc = Rpc.make(WS_METHODS.cliproxyLocalUpdate, {
+  payload: Schema.Struct({}),
+  success: CliproxyLocalVersion,
   error: CliproxyLocalRpcError,
 });
 
@@ -2282,6 +2297,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsCodeSearchConnectRpc,
   WsCliproxyLocalStatusRpc,
   WsCliproxyLocalInstallRpc,
+  WsCliproxyLocalVersionRpc,
+  WsCliproxyLocalUpdateRpc,
   WsCliproxyLocalConnectRpc,
   WsCliproxyLocalSetNewKeyRpc,
   WsCliproxyLocalRevealKeyRpc,

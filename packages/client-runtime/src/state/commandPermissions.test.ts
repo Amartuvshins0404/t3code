@@ -162,6 +162,7 @@ describe("command permissions", () => {
     { method: WS_METHODS.serverRunStorageCleanup, scope: AuthSettingsWriteScope },
     { method: WS_METHODS.cliproxyLocalRevealKey, scope: AuthSettingsWriteScope },
     { method: WS_METHODS.cliproxyLocalAddProviders, scope: AuthProvidersManageScope },
+    { method: WS_METHODS.cliproxyLocalUpdate, scope: AuthProvidersManageScope },
     { method: WS_METHODS.cliproxyDisconnect, scope: AuthProvidersManageScope },
     { method: WS_METHODS.cliproxyAccountsSignInStart, scope: AuthProvidersManageScope },
     { method: WS_METHODS.cliproxyAccountsRemove, scope: AuthProvidersManageScope },

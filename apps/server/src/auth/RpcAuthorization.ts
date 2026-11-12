@@ -124,6 +124,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.cloudInstallRelayClient]: AuthRelayWriteScope,
   [WS_METHODS.codeSearchStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.cliproxyLocalStatus]: AuthOrchestrationReadScope,
+  [WS_METHODS.cliproxyLocalVersion]: AuthOrchestrationReadScope,
   [WS_METHODS.cliproxyAccountsList]: AuthOrchestrationReadScope,
   [WS_METHODS.cliproxyAccountsSignInStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.cliproxyRoutingGet]: AuthOrchestrationReadScope,

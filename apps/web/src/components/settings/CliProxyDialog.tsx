@@ -32,7 +32,7 @@ import {
   WaypointsIcon,
   XIcon,
 } from "lucide-react";
-import { useContext, useRef, useState } from "react";
+import { type ReactNode, useContext, useRef, useState } from "react";
 
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { cn } from "~/lib/utils";
@@ -47,6 +47,8 @@ import {
   cliproxyLocalRevealKey,
   cliproxyLocalSetNewKey,
   cliproxyLocalStatus,
+  cliproxyLocalUpdate,
+  cliproxyLocalVersion,
   cliproxyRemoveAccount,
   cliproxyRouting,
   cliproxySetAccountEnabled,
@@ -184,6 +186,8 @@ export function cliproxyFailureMessage(
       return `Homebrew isn't on ${machine}. Install it from brew.sh, or install CLIProxyAPI yourself.`;
     case "installFailed":
       return `Homebrew couldn't install CLIProxyAPI. Run "brew install cliproxyapi" on ${machine} to see why.`;
+    case "updateFailed":
+      return `Homebrew couldn't update CLIProxyAPI. Run "brew upgrade cliproxyapi" on ${machine} to see why.`;
     case "configNotWritable":
       return "Couldn't update the proxy's config file. Check that it can be edited, then try again.";
     case "serviceDidNotStart":
@@ -666,6 +670,78 @@ export function CliProxyProviderRow({
   );
 }
 
+function LocalProxyRow({
+  environmentId,
+  address,
+  state,
+  control,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly address: string;
+  readonly state: string;
+  readonly control: ReactNode;
+}) {
+  const registry = useContext(RegistryContext);
+  const versionAtom = cliproxyLocalVersion({ environmentId, input: {} });
+  const version = AsyncResult.getOrElse(useAtomValue(versionAtom), () => null);
+  const canUpdate = useAtomValue(cliproxyLocalUpdate.permissionAtom(environmentId));
+  const update = useAtomCommand(cliproxyLocalUpdate, { reportFailure: false });
+  const [updating, setUpdating] = useState(false);
+  const [failure, setFailure] = useState<{ reason: CliproxyLocalFailureReason | null } | null>(
+    null,
+  );
+
+  const runUpdate = async () => {
+    setUpdating(true);
+    setFailure(null);
+    const result = await update({ environmentId, input: {} });
+    registry.refresh(versionAtom);
+    registry.refresh(statusAtom(environmentId));
+    setUpdating(false);
+    if (result._tag === "Success") return;
+    const error = Cause.squash(result.cause);
+    setFailure({ reason: isLocalError(error) ? error.reason : null });
+  };
+
+  const latest = canUpdate && version?.canUpdate ? version.latest : null;
+
+  return (
+    <SettingsRow
+      title={<span className="break-all">{address}</span>}
+      description={version?.installed ? `${state} · v${version.installed}` : state}
+      status={
+        failure === null ? undefined : (
+          <p className="text-sm text-destructive" role="alert">
+            {cliproxyFailureMessage(failure.reason, "the proxy's computer")}
+          </p>
+        )
+      }
+      control={
+        <div className="flex items-center gap-2">
+          {latest !== null || updating ? (
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={updating}
+              onClick={() => void runUpdate()}
+            >
+              {updating ? (
+                <>
+                  <Spinner size="xs" tone="muted" />
+                  Updating…
+                </>
+              ) : (
+                `Update to ${latest}`
+              )}
+            </Button>
+          ) : null}
+          {control}
+        </div>
+      }
+    />
+  );
+}
+
 export function CliProxyDetails({
   environmentId,
   sourceId,
@@ -790,6 +866,11 @@ export function CliProxyDetails({
   const routingChoices = (["round-robin", "fill-first", "weighted-round-robin"] as const).filter(
     (value) => value !== "weighted-round-robin" || strategy === value,
   );
+  const disconnectButton = canDisconnect ? (
+    <Button size="xs" variant="destructive-outline" onClick={() => setConfirming(true)}>
+      Disconnect
+    </Button>
+  ) : undefined;
 
   return (
     <div className="space-y-6">
@@ -808,17 +889,20 @@ export function CliProxyDetails({
           </Button>
         }
       >
-        <SettingsRow
-          title={<span className="break-all">{hubAddress(source.url)}</span>}
-          description={proxyState}
-          control={
-            canDisconnect ? (
-              <Button size="xs" variant="destructive-outline" onClick={() => setConfirming(true)}>
-                Disconnect
-              </Button>
-            ) : undefined
-          }
-        />
+        {local?.sourceId === sourceId ? (
+          <LocalProxyRow
+            environmentId={environmentId}
+            address={hubAddress(source.url)}
+            state={proxyState}
+            control={disconnectButton}
+          />
+        ) : (
+          <SettingsRow
+            title={<span className="break-all">{hubAddress(source.url)}</span>}
+            description={proxyState}
+            control={disconnectButton}
+          />
+        )}
         <SettingsRow
           title="Routing"
           description="How the proxy picks an account for each request."

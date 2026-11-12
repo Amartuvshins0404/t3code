@@ -128,6 +128,13 @@ export const CliproxyLocalStatus = Schema.Struct({
 });
 export type CliproxyLocalStatus = typeof CliproxyLocalStatus.Type;
 
+export const CliproxyLocalVersion = Schema.Struct({
+  installed: Schema.NullOr(TrimmedNonEmptyString),
+  latest: Schema.NullOr(TrimmedNonEmptyString),
+  canUpdate: Schema.Boolean,
+});
+export type CliproxyLocalVersion = typeof CliproxyLocalVersion.Type;
+
 export const CliproxyConnectLocalInput = Schema.Struct({
   managementKey: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
 });
@@ -155,6 +162,7 @@ export type CliproxyAddProvidersResult = typeof CliproxyAddProvidersResult.Type;
 export const CliproxyLocalFailureReason = Schema.Literals([
   "noHomebrew",
   "installFailed",
+  "updateFailed",
   "configNotWritable",
   "serviceDidNotStart",
   "notRunning",

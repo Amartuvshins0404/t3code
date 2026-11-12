@@ -196,6 +196,8 @@ account the proxy holds. Your usual Claude and Codex sign-ins stay as they are.
 
 Once connected, select **CLI Proxy** in the Settings providers list to manage it:
 
+- **Update to …** appears when Homebrew has a newer CLIProxyAPI for a proxy on this computer. It
+  upgrades and restarts the proxy, so requests in flight through it fail and turns may need a retry.
 - **Add Claude** or **Add Codex** opens the provider's sign-in page. Finish it in a browser on the
   computer that runs the proxy; sign-in can't finish from another device.
 - **Turn off** keeps an account but stops routing to it. **Remove** deletes its sign-in from the

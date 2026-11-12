@@ -24,6 +24,19 @@ export const cliproxyLocalInstall = createEnvironmentRpcCommand(connectionAtomRu
   concurrency: singleFlight,
 });
 
+export const cliproxyLocalVersion = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:local-version",
+  tag: WS_METHODS.cliproxyLocalVersion,
+  staleTimeMs: 5 * 60_000,
+  idleTtlMs: 10 * 60_000,
+});
+
+export const cliproxyLocalUpdate = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:local-update",
+  tag: WS_METHODS.cliproxyLocalUpdate,
+  concurrency: singleFlight,
+});
+
 export const cliproxyLocalConnect = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "environment-data:cliproxy:local-connect",
   tag: WS_METHODS.cliproxyLocalConnect,

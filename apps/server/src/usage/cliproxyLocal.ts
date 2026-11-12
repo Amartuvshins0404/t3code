@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
 import * as ProcessRunner from "../processRunner.ts";
 
@@ -22,6 +23,26 @@ export interface CliproxyMachine {
   readonly configPath: string | null;
   readonly secretKeySet: boolean;
 }
+
+export interface CliproxyFormulaVersion {
+  readonly installed: string | null;
+  readonly latest: string | null;
+  readonly outdated: boolean;
+}
+
+const decodeFormulaInfo = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      formulae: Schema.Array(
+        Schema.Struct({
+          versions: Schema.Struct({ stable: Schema.NullOr(Schema.String) }),
+          linked_keg: Schema.NullOr(Schema.String),
+          outdated: Schema.Boolean,
+        }),
+      ),
+    }),
+  ),
+);
 
 const scalarValue = (raw: string) => {
   const text = raw.trim();
@@ -179,8 +200,38 @@ export const makeCliproxyLocal = Effect.gen(function* () {
   const install = (brew: string) =>
     runBrew(brew, ["install", FORMULA], Duration.minutes(20), "installFailed");
 
+  const upgrade = (brew: string) =>
+    runBrew(brew, ["upgrade", FORMULA], Duration.minutes(20), "updateFailed");
+
   const startService = (brew: string) =>
     runBrew(brew, ["services", "restart", FORMULA], Duration.minutes(1), "serviceDidNotStart");
+
+  const version = Effect.fn("CliproxyLocal.version")(function* () {
+    const brew = yield* locateBrew();
+    const unknown = { installed: null, latest: null, outdated: false };
+    if (brew === null) return unknown satisfies CliproxyFormulaVersion;
+    const output = yield* runner
+      .run({
+        command: brew,
+        args: ["info", "--json=v2", FORMULA],
+        timeout: Duration.seconds(30),
+        maxOutputBytes: 1024 * 1024,
+      })
+      .pipe(Effect.option);
+    const formula =
+      Option.isSome(output) && output.value.code === 0
+        ? Option.flatMap(decodeFormulaInfo(output.value.stdout), (info) =>
+            Option.fromNullishOr(info.formulae[0]),
+          )
+        : Option.none();
+    if (Option.isNone(formula)) return unknown satisfies CliproxyFormulaVersion;
+    const installed = formula.value.linked_keg?.trim() || null;
+    return {
+      installed,
+      latest: formula.value.versions.stable?.trim() || null,
+      outdated: installed !== null && formula.value.outdated,
+    } satisfies CliproxyFormulaVersion;
+  });
 
   const writeSecretKey = Effect.fn("CliproxyLocal.writeSecretKey")(function* (
     configPath: string,
@@ -199,5 +250,5 @@ export const makeCliproxyLocal = Effect.gen(function* () {
     yield* fileSystem.writeFileString(configPath, next).pipe(Effect.mapError(notWritable));
   });
 
-  return { detect, install, startService, writeSecretKey };
+  return { detect, install, upgrade, startService, version, writeSecretKey };
 });

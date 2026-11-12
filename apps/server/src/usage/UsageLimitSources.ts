@@ -8,6 +8,7 @@ import {
   CliproxyLocalError,
   type CliproxyConnectLocalInput,
   type CliproxyLocalStatus,
+  type CliproxyLocalVersion,
   CliproxyManageError,
   type CliproxyRouting,
   type CliproxySetAccountEnabledInput,
@@ -37,6 +38,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Equal from "effect/Equal";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -64,6 +66,8 @@ export class UsageLimitSources extends Context.Service<
     ) => Effect.Effect<ProviderConsumeResetCreditResult, UsageLimitSourceError>;
     readonly localStatus: Effect.Effect<CliproxyLocalStatus>;
     readonly installLocal: Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
+    readonly localVersion: Effect.Effect<CliproxyLocalVersion>;
+    readonly updateLocal: Effect.Effect<CliproxyLocalVersion, CliproxyLocalError>;
     readonly connectLocal: (
       input: CliproxyConnectLocalInput,
     ) => Effect.Effect<CliproxyLocalStatus, CliproxyLocalError>;
@@ -335,6 +339,33 @@ export const make = Effect.gen(function* () {
       Effect.retry({ times: 40, schedule: Schedule.spaced("500 millis") }),
     );
   });
+
+  const [cachedVersion, forgetVersion] = yield* Effect.cachedInvalidateWithTTL(
+    local.version(),
+    (exit) =>
+      Exit.isSuccess(exit) && exit.value.latest !== null ? Duration.hours(1) : Duration.minutes(1),
+  );
+
+  const localVersion = cachedVersion.pipe(
+    Effect.map(
+      (version) =>
+        ({
+          installed: version.installed,
+          latest: version.latest,
+          canUpdate: version.outdated && version.latest !== null,
+        }) satisfies CliproxyLocalVersion,
+    ),
+    Effect.withSpan("UsageLimitSources.localVersion"),
+  );
+
+  const updateLocal = Effect.gen(function* () {
+    const machine = yield* local.detect();
+    if (machine.brew === null) return yield* localFailure("noHomebrew");
+    yield* local.upgrade(machine.brew).pipe(Effect.ensuring(forgetVersion));
+    yield* local.startService(machine.brew);
+    yield* waitUntilRunning(machine.url);
+    return yield* localVersion;
+  }).pipe(localLock.withPermits(1), Effect.withSpan("UsageLimitSources.updateLocal"));
 
   const verifyKey = Effect.fn("UsageLimitSources.verifyKey")(function* (
     url: string,
@@ -650,6 +681,8 @@ export const make = Effect.gen(function* () {
     refresh,
     localStatus,
     installLocal,
+    localVersion,
+    updateLocal,
     connectLocal,
     setNewLocalKey,
     addLocalProviders,

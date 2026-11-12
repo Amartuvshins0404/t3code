@@ -110,6 +110,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.codeSearchConnect]: "codeSearch",
   [WS_METHODS.cliproxyLocalStatus]: "usage",
   [WS_METHODS.cliproxyLocalInstall]: "usage",
+  [WS_METHODS.cliproxyLocalVersion]: "usage",
+  [WS_METHODS.cliproxyLocalUpdate]: "usage",
   [WS_METHODS.cliproxyLocalConnect]: "usage",
   [WS_METHODS.cliproxyLocalSetNewKey]: "usage",
   [WS_METHODS.cliproxyLocalRevealKey]: "usage",
