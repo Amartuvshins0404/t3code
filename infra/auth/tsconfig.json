@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "ESNext.Disposable", "DOM"],
+    "types": ["node"],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        // Better Auth owns the runtime here; the service uses plain Node APIs, not Effect.
+        "diagnosticSeverity": {
+          "nodeBuiltinImport": "off",
+          "globalConsole": "off",
+          "globalDate": "off",
+          "cryptoRandomUUID": "off"
+        }
+      }
+    ]
+  },
+  "include": ["src/**/*.ts"]
+}
