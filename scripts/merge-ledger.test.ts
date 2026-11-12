@@ -6,6 +6,16 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildLedger, scoreLedger, writerModel } from "./merge-ledger.ts";
+import { it as effectIt } from "@effect/vitest";
+import * as Schema from "effect/Schema";
+import {
+  keptEscape,
+  sortDisagreements,
+  sortLinks,
+  type Disagreement,
+  type Escape,
+  type Link,
+} from "./merge-ledger.ts";
 
 const DAY = 86_400;
 const START = Date.parse("2026-01-01T12:00:00Z") / 1000;
@@ -341,4 +351,103 @@ describe("merge ledger", () => {
     );
     expect(writerModel("Fixes the thing.\n\nCo-authored-by: Ada <ada@example.com>")).toBeNull();
   });
+});
+
+const LATER = [
+  { sha: "e".repeat(40), kind: "fix", days: 1 },
+  { sha: "b".repeat(40), kind: "revert", days: 3 },
+  { sha: "a".repeat(40), kind: "fix", days: 2 },
+  { sha: "f".repeat(40), kind: "revert", days: 0.5 },
+  { sha: "c".repeat(40), kind: "fix", days: 1 },
+  { sha: "d".repeat(40), kind: "revert", days: 3 },
+] as const;
+const LATER_SHAS = LATER.map((commit) => commit.sha);
+const laterOf = (sha: string) => LATER.find((commit) => commit.sha === sha) ?? LATER[0];
+const SEED = { arbitrary: { seed: 20261113 } };
+
+const escapeBy = (sha: string): Escape => {
+  const commit = laterOf(sha);
+  return {
+    kind: commit.kind,
+    by: commit.sha,
+    bySubject: `${commit.kind}: ${sha[0]}`,
+    days: commit.days,
+  };
+};
+const linkOf = (by: string, change: string): Link => ({
+  kind: laterOf(by).kind,
+  source: laterOf(by).kind === "fix" && by < change ? "repairs" : "blame",
+  by,
+  change,
+  days: laterOf(by).days,
+});
+const disagreementOf = (fix: string): Disagreement => ({
+  fix,
+  subject: `fix: ${fix[0]}`,
+  declared: [LATER_SHAS[0]],
+  notListed: [],
+  blamed: LATER_SHAS.filter((sha) => sha < fix),
+});
+const shuffled = <T>(items: ReadonlyArray<T>, keys: ReadonlyArray<number>) =>
+  items
+    .map((item, index) => ({ item, index, key: keys[index] ?? 0 }))
+    .sort((a, b) => a.key - b.key || b.index - a.index)
+    .map((entry) => entry.item);
+const asText = (items: ReadonlyArray<unknown>) => items.map((item) => JSON.stringify(item)).sort();
+const keys = Schema.Array(Schema.Literals([0, 1, 2, 3, 4, 5]));
+
+describe("merge ledger report is the same every run", () => {
+  it("keeps no escape when no later commit counts as one", () => {
+    expect(keptEscape([])).toBeNull();
+  });
+
+  effectIt.prop(
+    "keeps a revert over a fix, then the closest, then the first commit id, whatever order they arrive in",
+    { drawn: Schema.NonEmptyArray(Schema.Literals(LATER_SHAS)), keys },
+    ({ drawn, keys }) => {
+      const candidates = drawn.map(escapeBy);
+      const reverts = candidates.filter((candidate) => candidate.kind === "revert");
+      const pool = reverts.length > 0 ? reverts : candidates;
+      const closest = Math.min(...pool.map((candidate) => candidate.days));
+      const first = pool
+        .filter((candidate) => candidate.days === closest)
+        .map((candidate) => candidate.by)
+        .sort()[0];
+      expect(keptEscape(candidates)).toEqual(escapeBy(first!));
+      expect(keptEscape(shuffled(candidates, keys))).toEqual(escapeBy(first!));
+    },
+    SEED,
+  );
+
+  effectIt.prop(
+    "lists fix-to-change links in one order whatever order they arrive in",
+    {
+      pairs: Schema.Array(
+        Schema.Struct({ by: Schema.Literals(LATER_SHAS), change: Schema.Literals(LATER_SHAS) }),
+      ),
+      keys,
+    },
+    ({ pairs, keys }) => {
+      const links = pairs.map((pair) => linkOf(pair.by, pair.change));
+      const sorted = sortLinks(links);
+      expect(asText(sorted)).toEqual(asText(links));
+      expect(sortLinks(shuffled(links, keys))).toEqual(sorted);
+      expect(sortLinks([...links].reverse())).toEqual(sorted);
+    },
+    SEED,
+  );
+
+  effectIt.prop(
+    "lists disagreements in one order whatever order they arrive in, even for fixes made in the same second",
+    { fixes: Schema.Array(Schema.Literals(LATER_SHAS)), keys },
+    ({ fixes, keys }) => {
+      const disagreements = [...new Set(fixes)].map(disagreementOf);
+      const timeOf = (fix: string) => Math.ceil(laterOf(fix).days);
+      const sorted = sortDisagreements(disagreements, timeOf);
+      expect(asText(sorted)).toEqual(asText(disagreements));
+      expect(sortDisagreements(shuffled(disagreements, keys), timeOf)).toEqual(sorted);
+      expect(sortDisagreements([...disagreements].reverse(), timeOf)).toEqual(sorted);
+    },
+    SEED,
+  );
 });
