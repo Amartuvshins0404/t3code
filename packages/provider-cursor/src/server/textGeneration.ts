@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import * as FileSystem from "effect/FileSystem";
 
 import type { AgentOptions, RunResult } from "@cursor/sdk";
@@ -62,7 +63,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
     if (!cursorSettings.enabled) {
       return yield* new TextGenerationError({
         operation,
-        detail: "Cursor is disabled in T3 Code settings.",
+        detail: `Cursor is disabled in ${getAppBaseName()} settings.`,
       });
     }
 

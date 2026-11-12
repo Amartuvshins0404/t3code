@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import { pipe } from "effect/Function";
 import * as DocumentText from "../../provider/DocumentText.ts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
@@ -1866,7 +1867,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return yield* new ProviderSetupError({
                 instanceId: adapterOptions.instanceId,
                 operation: "runtime",
-                detail: `Codex ${version} does not work with this T3 Code release. Update Codex to ${target}, then retry.`,
+                detail: `Codex ${version} does not work with this ${getAppBaseName()} release. Update Codex to ${target}, then retry.`,
               });
             }
             yield* client.notify("initialized", undefined);

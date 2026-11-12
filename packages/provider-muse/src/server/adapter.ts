@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import { MspError, type ProcessExit, type SendUserTurnOptions } from "@muse-code/sdk";
 import {
   MUSE_DEFAULT_MODEL,
@@ -2492,7 +2493,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               driver: MUSE_PROVIDER,
               providerThreadId: args.providerThread.id,
               checkpointId: args.target.checkpointId,
-              cause: "Muse Code does not support conversation rollback in T3 Code.",
+              cause: `Muse Code does not support conversation rollback in ${getAppBaseName()}.`,
             }),
           ),
         forkThread: (args) =>
@@ -2500,7 +2501,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
             new ProviderAdapter.ProviderAdapterForkThreadError({
               driver: MUSE_PROVIDER,
               providerThreadId: args.sourceProviderThread.id,
-              cause: "Muse Code does not support native forks in T3 Code.",
+              cause: `Muse Code does not support native forks in ${getAppBaseName()}.`,
             }),
           ),
       };

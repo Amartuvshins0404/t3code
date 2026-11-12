@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
@@ -316,8 +317,8 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
           source: { kind: "system" },
           outcome: "updated",
           summary: note.settled
-            ? "T3 Code restarted and stopped background work"
-            : "T3 Code restarted and resumed this turn",
+            ? `${getAppBaseName()} restarted and stopped background work`
+            : `${getAppBaseName()} restarted and resumed this turn`,
           detail: text,
         },
         attachments: [],

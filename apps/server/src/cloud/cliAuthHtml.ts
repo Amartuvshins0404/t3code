@@ -1,3 +1,5 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
+
 export type LoopbackAuthorizationStage = "dev" | "nightly" | "latest";
 
 declare const __T3CODE_BUILD_CHANNEL__: "nightly" | "latest" | undefined;
@@ -6,16 +8,16 @@ function resolveLoopbackAuthorizationStage(): LoopbackAuthorizationStage {
   return typeof __T3CODE_BUILD_CHANNEL__ === "undefined" ? "dev" : __T3CODE_BUILD_CHANNEL__;
 }
 
-const stageBrands = {
-  dev: "T3 Code (Dev)",
-  nightly: "T3 Code (Nightly)",
-  latest: "T3 Code",
+const stageSuffixes = {
+  dev: " (Dev)",
+  nightly: " (Nightly)",
+  latest: "",
 } as const satisfies Record<LoopbackAuthorizationStage, string>;
 
 export function renderLoopbackAuthorizationCompleteHtml(
   stage: LoopbackAuthorizationStage = resolveLoopbackAuthorizationStage(),
 ): string {
-  const stageBrand = stageBrands[stage];
+  const stageBrand = `${getAppBaseName()}${stageSuffixes[stage]}`;
 
   return `<!doctype html>
 <html lang="en">

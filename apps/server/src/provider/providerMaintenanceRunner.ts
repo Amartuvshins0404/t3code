@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import {
   defaultInstanceIdForDriver,
   ProviderDriverKind,
@@ -540,7 +541,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                   message:
                     targetVersion !== undefined
                       ? "This version is no longer recommended or this installer cannot install a specific version. Refresh provider settings."
-                      : "The latest provider version is incompatible with this T3 Code release. Review provider settings.",
+                      : `The latest provider version is incompatible with this ${getAppBaseName()} release. Review provider settings.`,
                 }),
               );
             }
@@ -655,9 +656,9 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                 startedAt,
                 finishedAt,
                 message: couldNotVerify
-                  ? "Update command completed, but T3 Code could not verify the provider version."
+                  ? `Update command completed, but ${getAppBaseName()} could not verify the provider version.`
                   : stillOutdated
-                    ? "Update command completed, but T3 Code still detects an outdated provider version."
+                    ? `Update command completed, but ${getAppBaseName()} still detects an outdated provider version.`
                     : needsOpenCodeServerRestart(verifiedProviders)
                       ? OPENCODE_SERVER_RESTART_MESSAGE
                       : "Provider updated.",

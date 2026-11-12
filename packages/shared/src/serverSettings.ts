@@ -44,6 +44,16 @@ const ServerObservabilitySettingsJson = fromLenientJson(
 const decodeServerObservabilitySettingsJson = Schema.decodeUnknownOption(
   ServerObservabilitySettingsJson,
 );
+const decodeOwnerNameJson = Schema.decodeUnknownOption(
+  fromLenientJson(Schema.Struct({ ownerName: ServerSettings.fields.ownerName })),
+);
+
+export function parsePersistedOwnerName(raw: string): string {
+  return Option.match(decodeOwnerNameJson(raw), {
+    onNone: () => "",
+    onSome: (settings) => settings.ownerName,
+  });
+}
 
 export function isModelSelectionProviderEnabled(
   settings: ServerSettings,

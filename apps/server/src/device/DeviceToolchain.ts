@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import type { DeviceToolVersions } from "@t3tools/contracts";
 // npm exposes entry files before extraction completes; their presence does not prove a usable tree.
 import * as Duration from "effect/Duration";
@@ -43,7 +44,7 @@ export class DeviceToolchainInstallError extends Schema.TaggedError<DeviceToolch
 ) {
   override get message(): string {
     if (this.reason === "npm_not_found")
-      return "Device support needs npm, which is not on the T3 server's PATH. Install npm (it comes with Node.js from nodejs.org), restart T3 Code, then retry.";
+      return `Device support needs npm, which is not on the T3 server's PATH. Install npm (it comes with Node.js from nodejs.org), restart ${getAppBaseName()}, then retry.`;
     const suffix = this.exitCode === undefined ? "" : ` (exit code ${this.exitCode})`;
     return `Installing ${this.tool} failed while ${this.step}${suffix}.`;
   }

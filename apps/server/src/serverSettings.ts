@@ -8,6 +8,7 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceMutation,
   defaultInstanceIdForDriver,
+  formatAppBaseName,
   isProviderDriverKind,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -43,6 +44,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
+import { setAppBaseName } from "@t3tools/shared/appName";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
 import * as ServerConfig from "./config.ts";
@@ -692,8 +694,14 @@ const make = Effect.gen(function* () {
   const watcherScope = yield* Scope.make("sequential");
   yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
 
+  const syncAppBaseName = (settings: ServerSettings) =>
+    Effect.sync(() => setAppBaseName(formatAppBaseName(settings.ownerName)));
+
   const emitChange = (settings: ServerSettings) =>
-    PubSub.publish(changesPubSub, settings).pipe(Effect.asVoid);
+    syncAppBaseName(settings).pipe(
+      Effect.andThen(PubSub.publish(changesPubSub, settings)),
+      Effect.asVoid,
+    );
 
   const readConfigExists = fs.exists(settingsPath).pipe(
     Effect.mapError(
@@ -926,10 +934,14 @@ const make = Effect.gen(function* () {
     return { settings: migrated, parseFailure };
   });
 
-  const settingsCache = yield* Cache.makeWith((_key: typeof cacheKey) => loadSettingsFromDisk, {
-    capacity: 1,
-    timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
-  });
+  const settingsCache = yield* Cache.makeWith(
+    (_key: typeof cacheKey) =>
+      loadSettingsFromDisk.pipe(Effect.tap((loaded) => syncAppBaseName(loaded.settings))),
+    {
+      capacity: 1,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
+    },
+  );
 
   const getSettingsFromCache = Cache.get(settingsCache, cacheKey).pipe(
     Effect.map((loaded) => loaded.settings),

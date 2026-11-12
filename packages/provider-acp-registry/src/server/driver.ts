@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import {
   officialAcpRegistryIconUrlForAgentId,
   ProviderDriverKind,
@@ -314,7 +315,7 @@ const buildInitialAcpRegistrySnapshot = Effect.fn("AcpRegistryDriver.buildInitia
       auth: { status: "unknown" },
       message: input.settings.enabled
         ? "Checking ACP Registry agent readiness..."
-        : "ACP Registry is disabled in T3 Code settings.",
+        : `ACP Registry is disabled in ${getAppBaseName()} settings.`,
     });
   },
 );
@@ -343,7 +344,7 @@ export function buildCheckedAcpRegistrySnapshot(
       ? `Sign in in provider settings using "${advertisedAuthMethod.name}". The login terminal runs on this environment.`
       : advertisedAuthMethod.type === "env_var" &&
           (advertisedAuthMethod.envVarNames?.length ?? 0) > 0
-        ? `Set ${advertisedAuthMethod.envVarNames!.join(", ")} under this instance's environment variables in provider settings. T3 Code will detect it on the next provider refresh.`
+        ? `Set ${advertisedAuthMethod.envVarNames!.join(", ")} under this instance's environment variables in provider settings. ${getAppBaseName()} will detect it on the next provider refresh.`
         : `Sign in in provider settings using "${advertisedAuthMethod.name}".`
     : undefined;
   return baseSnapshot({

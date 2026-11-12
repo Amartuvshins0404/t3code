@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import * as NetService from "@t3tools/shared/Net";
 import {
   OtlpHeadersFromString,
@@ -5,8 +6,12 @@ import {
   type SignalExport,
 } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
-import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
+import { setAppBaseName } from "@t3tools/shared/appName";
+import {
+  parsePersistedOwnerName,
+  parsePersistedServerObservabilitySettings,
+} from "@t3tools/shared/serverSettings";
+import { DesktopBackendBootstrap, formatAppBaseName, PortSchema } from "@t3tools/contracts";
 import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -43,7 +48,7 @@ const hostFlag = Flag.String("host").pipe(
 );
 export const baseDirFlag = Flag.String("base-dir").pipe(
   Flag.withDescription(
-    "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME).",
+    `Explicit ${getAppBaseName()} data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME).`,
   ),
   Flag.optional,
 );
@@ -249,15 +254,11 @@ const resolveOptionPrecedence = <Value>(
   ...values: ReadonlyArray<Option.Option<Value>>
 ): Option.Option<Value> => Option.firstSomeOf(values);
 
-const loadPersistedObservabilitySettings = Effect.fn(function* (settingsPath: string) {
+const readPersistedSettingsJson = Effect.fn(function* (settingsPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const exists = yield* fs.exists(settingsPath).pipe(Effect.orElseSucceed(() => false));
-  if (!exists) {
-    return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined, otlpLogsUrl: undefined };
-  }
-
-  const raw = yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
-  return parsePersistedServerObservabilitySettings(raw);
+  if (!exists) return "";
+  return yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
 });
 
 export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(function* (
@@ -356,15 +357,18 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
       isProcessAlive(runtime.value.pid)
     ) {
       return yield* new CliError.UserError({
-        cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
+        cause: `A ${getAppBaseName()} server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
       });
     }
   }
   yield* fs.makeDirectory(cwd, { recursive: true });
   yield* ServerConfig.ensureServerDirectories(derivedPaths);
-  const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
-    derivedPaths.settingsPath,
-  );
+  const persistedSettingsJson = yield* readPersistedSettingsJson(derivedPaths.settingsPath);
+  if (persistedSettingsJson.length > 0) {
+    setAppBaseName(formatAppBaseName(parsePersistedOwnerName(persistedSettingsJson)));
+  }
+  const persistedObservabilitySettings =
+    parsePersistedServerObservabilitySettings(persistedSettingsJson);
   const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;
   yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
   const startupPresentation = options?.startupPresentation ?? "browser";

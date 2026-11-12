@@ -546,6 +546,10 @@
     "./speech": {
       "types": "./src/speech.ts",
       "import": "./src/speech.ts"
+    },
+    "./appName": {
+      "types": "./src/appName.ts",
+      "import": "./src/appName.ts"
     }
   },
   "scripts": {

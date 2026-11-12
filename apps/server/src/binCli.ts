@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import { doctorCommand } from "./cli/doctor.ts";
 import { policyCommand } from "./cli/policy.ts";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -70,7 +71,7 @@ const connectUnavailableCommand = Command.make("connect", {
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
     Command.withDescription(
-      "Run T3 Code in this terminal and open it in your browser. To use it from your other devices, run `t3 up`.",
+      `Run ${getAppBaseName()} in this terminal and open it in your browser. To use it from your other devices, run \`t3 up\`.`,
     ),
     Command.withHandler(runDefaultServerCommand),
     Command.withSubcommands([

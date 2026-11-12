@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import { ServerProviderModel } from "@t3tools/contracts";
 import { MuseSettings } from "../settings.ts";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -48,7 +49,7 @@ export const makePendingMuseProvider = Effect.fn("makePendingMuseProvider")(func
       auth: { status: "unknown" },
       message: settings.enabled
         ? "Checking Muse Code CLI availability..."
-        : "Muse Code is disabled in T3 Code settings.",
+        : `Muse Code is disabled in ${getAppBaseName()} settings.`,
     },
   });
 });

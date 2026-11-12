@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+import { getAppBaseName } from "@t3tools/shared/appName";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -146,7 +147,7 @@ export const triageCommand = Command.make("triage", {
   model: modelFlag,
 }).pipe(
   Command.withDescription(
-    "Investigate a T3 Code problem on this machine with claude or codex, and help file a good issue.",
+    `Investigate a ${getAppBaseName()} problem on this machine with claude or codex, and help file a good issue.`,
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {

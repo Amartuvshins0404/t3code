@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import {
   ProviderSetupError,
   type ChatGptReconnectProfile,
@@ -83,7 +84,7 @@ export const makeProviderAuthService = Effect.gen(function* () {
         instanceId,
         operation,
         detail: instance
-          ? "This provider does not support sign-in in T3 Code."
+          ? `This provider does not support sign-in in ${getAppBaseName()}.`
           : "This provider instance is no longer available.",
       });
     }
