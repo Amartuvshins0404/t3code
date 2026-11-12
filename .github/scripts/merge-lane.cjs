@@ -1,7 +1,8 @@
 const { execFileSync } = require("node:child_process");
+const { createHash } = require("node:crypto");
 
 const { readWorkspace } = require("./ci-changes.cjs");
-const { countTestDelta } = require("./test-delta.cjs");
+const { countTestDelta, TEST_CASE } = require("./test-delta.cjs");
 
 const LANES = ["green", "amber", "red"];
 
@@ -25,8 +26,8 @@ const PATH_RULES = [
     lane: "red",
     why: "Changes the lane rules or the merge ledger",
     paths: [
-      /^\.github\/scripts\/merge-(lane|ledger)/,
-      /^\.github\/workflows\/merge-lane\.ya?ml$/,
+      /^\.github\/scripts\/(merge-(lane|ledger)|blind-checks)/,
+      /^\.github\/workflows\/(merge-lane|blind-checks)\.ya?ml$/,
       /^scripts\/merge-(lane|ledger)/,
     ],
   },
@@ -194,7 +195,53 @@ const CONTENT_RULES = {
   "no-files": { lane: "red", why: "No changed files to judge" },
 };
 
+const CHECKS_RULES = {
+  "checks-missing": {
+    lane: "red",
+    why: "Not checked blind: the first commit is not a checks commit and does not say why no test is needed",
+  },
+  "checks-not-tests": {
+    lane: "red",
+    why: "The checks commit must add or change test files and nothing else",
+  },
+  "checks-none-invalid": {
+    lane: "red",
+    why: "The first commit says no test is needed, but it is not an empty commit with a reason",
+  },
+  "request-missing": {
+    lane: "red",
+    why: "The pull request text has no ## Request section to judge the checks against",
+  },
+  "checks-rewritten": { lane: "red", why: "The locked checks commit was rewritten or removed" },
+  "checks-revised": { lane: "red", why: "The checks were revised after they were locked" },
+  "checks-touched": { lane: "red", why: "A test file changed after the checks were locked" },
+  "repairs-missing": {
+    lane: "red",
+    why: "A fix with no Repairs: line naming the change it repairs",
+  },
+  "repairs-unknown": {
+    lane: "red",
+    why: "A Repairs: target is not a change on the base branch",
+  },
+  "repairs-not-older": { lane: "red", why: "A Repairs: target is not older than the fix" },
+};
+
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const TEST_SUPPORT = [
+  TEST_FILE,
+  /(^|\/)(test|tests|__tests__|testkit|testing|testUtils|fixtures|__snapshots__|integration)\//,
+  /\.(testkit|fixture|testFixtures)\.[cm]?[jt]sx?$/,
+  /\.snap$/,
+];
+const FIX_TITLE = /^fix(\([^)]*\))?!?:/i;
+const CHECKS_TRAILER = /^Blind-checks:[ \t]*(.*?)[ \t]*$/im;
+const REPAIRS_LINE = /^[ \t]*Repairs:[ \t]*(.*?)[ \t]*$/im;
+const REQUEST_SECTION = /^##[ \t]+Request[ \t]*$([\s\S]*?)(?=^##?[ \t]|$(?![\s\S]))/im;
+const TEST_NAME =
+  /^\s*(?:it|test)(?:\.\w+)*(?:<[^>]*>)?\s*\((?:[^"'`()]*\)\s*\()?\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/;
+const NAMELESS_TEST = "a test whose name is not on its first line";
+const LOCK_MARKER = "<!-- merge-lane-lock";
+const LANE_BOT = "github-actions[bot]";
 const SCRIPT_FILE = /(?:^|\/)scripts\//;
 const REQUIRED_SUPPRESSIONS = [
   { line: /^\s*\/\/ oxlint-disable-next-line t3code\/no-unreasoned-state-sync -- \S/ },
@@ -303,19 +350,284 @@ function classify(files, { packageDirs = [], fileListComplete = true } = {}) {
     for (const name of shrunkTests) hit(CONTENT_RULES["fewer-tests"], "fewer-tests", name);
   }
 
-  const order = [
-    ...PATH_RULES.map((rule) => rule.id),
-    UNKNOWN_RULE.id,
-    ...Object.keys(CONTENT_RULES),
-  ];
-  const reasons = [...hits.values()].sort(
-    (a, b) => laneRank(b.lane) - laneRank(a.lane) || order.indexOf(a.rule) - order.indexOf(b.rule),
+  return withReasons({ lane: "green", reasons: [] }, [...hits.values()]);
+}
+
+const RULE_ORDER = [
+  ...PATH_RULES.map((rule) => rule.id),
+  UNKNOWN_RULE.id,
+  ...Object.keys(CONTENT_RULES),
+  ...Object.keys(CHECKS_RULES),
+];
+
+function withReasons(result, extra) {
+  const reasons = [...result.reasons, ...extra].sort(
+    (a, b) =>
+      laneRank(b.lane) - laneRank(a.lane) ||
+      RULE_ORDER.indexOf(a.rule) - RULE_ORDER.indexOf(b.rule),
   );
-  const lane = reasons.reduce((current, reason) => higher(current, reason.lane), "green");
+  const lane = reasons.reduce((current, reason) => higher(current, reason.lane), result.lane);
   return { lane, reasons };
 }
 
-function summarize(result, { maxFiles = 5 } = {}) {
+const isTestSupport = (file) => TEST_SUPPORT.some((pattern) => pattern.test(file));
+
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+
+function normalizeText(text) {
+  return (text ?? "").replace(/\r\n?/g, "\n");
+}
+
+function checksMarker(message) {
+  const match = CHECKS_TRAILER.exec(normalizeText(message));
+  if (!match) return null;
+  const none = /^none\b[ \t]*,?[ \t]*(.*)$/i.exec(match[1]);
+  return none ? { kind: "none", reason: none[1].trim() } : { kind: "checks", note: match[1] };
+}
+
+function hasRequest(body) {
+  const match = REQUEST_SECTION.exec(normalizeText(body));
+  return Boolean(match && match[1].trim());
+}
+
+function parseRepairs(text) {
+  const match = REPAIRS_LINE.exec(normalizeText(text));
+  if (!match || !match[1]) return null;
+  if (/^none,[ \t]*older than 14 days\.?$/i.test(match[1])) return { none: true, targets: [] };
+  const targets = match[1]
+    .split(/[\s,`]+/)
+    .filter(Boolean)
+    .map((ref) => {
+      const pr = /^#(\d+)$|^(\d{1,6})$/.exec(ref);
+      if (pr) return { kind: "pr", ref, number: Number(pr[1] ?? pr[2]) };
+      if (/^[0-9a-f]{7,40}$/i.test(ref)) return { kind: "commit", ref: ref.toLowerCase() };
+      return { kind: "unknown", ref };
+    });
+  return { none: false, targets };
+}
+
+function testNames(patch) {
+  return addedLines(patch ?? "")
+    .filter((line) => TEST_CASE.test(line))
+    .map((line) => TEST_NAME.exec(line)?.[2] ?? NAMELESS_TEST);
+}
+
+function patchKey(file) {
+  if (typeof file.patch !== "string") return `blob:${file.sha ?? "none"}`;
+  const changed = file.patch
+    .split("\n")
+    .filter((line) => /^[-+]/.test(line))
+    .join("\n");
+  return sha256(`${file.previous_filename ?? ""}\n${changed}`);
+}
+
+function testEntry(file) {
+  return {
+    file: file.filename,
+    status: file.status,
+    key: patchKey(file),
+    tests: TEST_FILE.test(file.filename) ? testNames(file.patch) : [],
+  };
+}
+
+function lockOf(commit, marker, files) {
+  const entries = files.map(testEntry).sort((a, b) => a.file.localeCompare(b.file));
+  const fingerprint = sha256(
+    JSON.stringify([marker, entries.map((entry) => [entry.file, entry.status, entry.key])]),
+  );
+  return {
+    commit: commit.sha,
+    fingerprint,
+    kind: marker.kind,
+    ...(marker.kind === "none" ? { reason: marker.reason } : {}),
+    files: entries,
+  };
+}
+
+function compareTests(locked, now) {
+  const before = new Map(locked.map((entry) => [entry.file, entry]));
+  const after = new Map(now.map((entry) => [entry.file, entry]));
+  const files = [...new Set([...before.keys(), ...after.keys()])].sort();
+  return files.flatMap((file) => {
+    const was = before.get(file);
+    const is = after.get(file);
+    if (was && is && was.key === is.key) return [];
+    return [{ file, before: was ? was.tests : null, after: is ? is.tests : null }];
+  });
+}
+
+function reason(id, files = []) {
+  const rule = CHECKS_RULES[id];
+  return { rule: id, lane: rule.lane, why: rule.why, files };
+}
+
+function judgeChecks({ lane, body, commits, firstFiles, prFiles, lock }) {
+  const none = { state: null, reasons: [], lock: null, changes: [] };
+  if (lane === "green") return none;
+  const first = commits[0];
+  const marker = first ? checksMarker(first.message) : null;
+  if (!marker && !lock) {
+    return {
+      ...none,
+      state: "no checks",
+      reasons: lane === "amber" ? [reason("checks-missing")] : [],
+    };
+  }
+  const reasons = [];
+  if (!hasRequest(body)) reasons.push(reason("request-missing"));
+  const current = marker ? lockOf(first, marker, firstFiles) : null;
+  const saved = lock ?? current;
+  const rewritten = Boolean(lock && lock.fingerprint !== current?.fingerprint);
+  if (rewritten) reasons.push(reason("checks-rewritten"));
+
+  if (marker?.kind === "none") {
+    if (!marker.reason || firstFiles.length > 0) {
+      reasons.push(
+        reason(
+          "checks-none-invalid",
+          firstFiles.map((file) => file.filename),
+        ),
+      );
+    }
+  }
+  if (marker?.kind === "checks") {
+    const notTests = firstFiles
+      .filter(
+        (file) =>
+          !isTestSupport(file.filename) ||
+          (file.previous_filename && !isTestSupport(file.previous_filename)),
+      )
+      .map((file) => file.filename);
+    if (notTests.length > 0 || !firstFiles.some((file) => TEST_FILE.test(file.filename))) {
+      reasons.push(reason("checks-not-tests", notTests));
+    }
+  }
+
+  const revisions = commits.slice(1).filter((commit) => checksMarker(commit.message));
+  if (revisions.length > 0) {
+    reasons.push(
+      reason(
+        "checks-revised",
+        revisions.map((commit) => commit.sha.slice(0, 10)),
+      ),
+    );
+  }
+  const nowTests = prFiles.filter(
+    (file) =>
+      file.status !== "removed" &&
+      (isTestSupport(file.filename) ||
+        (file.previous_filename && isTestSupport(file.previous_filename))),
+  );
+  const nowEntries = nowTests.map(testEntry);
+  const lockedTests = (entry) => entry.files.filter((file) => isTestSupport(file.file));
+  const touched =
+    current && current.kind === "checks"
+      ? compareTests(lockedTests(current), nowEntries).map((change) => change.file)
+      : [];
+  if (touched.length > 0 && revisions.length === 0) {
+    reasons.push(reason("checks-touched", touched));
+  }
+
+  const revised = rewritten || revisions.length > 0 || touched.length > 0;
+  return {
+    state: revised ? "checks revised" : saved.kind === "none" ? "none needed" : "checked blind",
+    reasons,
+    lock: saved,
+    changes: revised && saved.kind === "checks" ? compareTests(lockedTests(saved), nowEntries) : [],
+  };
+}
+
+function judgeRepairs({ title, body, resolved, fixTime }) {
+  if (!FIX_TITLE.test(title ?? "")) return [];
+  const parsed = parseRepairs(body);
+  if (!parsed || (!parsed.none && parsed.targets.length === 0)) return [reason("repairs-missing")];
+  const unknown = resolved.filter((target) => !target.onBase).map((target) => target.ref);
+  const newer = resolved
+    .filter((target) => target.onBase && !(target.time < fixTime))
+    .map((target) => target.ref);
+  return [
+    ...(unknown.length > 0 ? [reason("repairs-unknown", unknown)] : []),
+    ...(newer.length > 0 ? [reason("repairs-not-older", newer)] : []),
+  ];
+}
+
+const quoted = (names) => names.map((name) => `"${name}"`).join(", ");
+
+function describeChange(change) {
+  const name = `\`${change.file}\``;
+  if (!TEST_FILE.test(change.file)) {
+    if (change.after === null)
+      return `- ${name}: a test helper the checks changed, now back as it was before.`;
+    if (change.before === null) return `- ${name}: a test helper changed after the lock.`;
+    return `- ${name}: a test helper in the locked checks, changed again after the lock.`;
+  }
+  if (change.after === null) {
+    return `- ${name}: in the locked checks with ${change.before.length} tests, now deleted or put back as it was before.`;
+  }
+  if (change.before === null) {
+    return `- ${name}: not in the locked checks; it now adds ${change.after.length} tests: ${quoted(change.after)}.`;
+  }
+  const gone = change.before.filter((test) => !change.after.includes(test));
+  const added = change.after.filter((test) => !change.before.includes(test));
+  if (gone.length === 0 && added.length === 0) {
+    return `- ${name}: the same ${change.after.length} test names, but the code inside the tests changed.`;
+  }
+  return [
+    `- ${name}: locked with ${change.before.length} tests, now ${change.after.length}.`,
+    gone.length > 0 ? ` Gone: ${quoted(gone)}.` : "",
+    added.length > 0 ? ` New: ${quoted(added)}.` : "",
+  ].join("");
+}
+
+function renderChanges(changes) {
+  if (changes.length === 0) return "";
+  return [
+    "**How the checks changed since they were locked**",
+    "",
+    ...changes.map(describeChange),
+  ].join("\n");
+}
+
+function readLock(body) {
+  const start = body.indexOf(LOCK_MARKER);
+  if (start === -1) return null;
+  const end = body.indexOf("-->", start);
+  try {
+    return JSON.parse(body.slice(start + LOCK_MARKER.length, end));
+  } catch {
+    return null;
+  }
+}
+
+function renderLockComment(lock, checks) {
+  const short = lock.commit.slice(0, 10);
+  const tests = lock.files.filter((entry) => TEST_FILE.test(entry.file));
+  const count = tests.reduce((total, entry) => total + entry.tests.length, 0);
+  const broken = checks.reasons.filter((entry) => entry.rule in CHECKS_RULES);
+  return [
+    `${LOCK_MARKER}${JSON.stringify(lock).replace(/-->/g, "--\\u003e")}-->`,
+    "### Locked checks",
+    "",
+    lock.kind === "none"
+      ? `The first commit \`${short}\` says no test is needed: ${lock.reason || "(no reason given)"}.`
+      : `Locked at commit \`${short}\`: ${tests.length} test files with ${count} tests.`,
+    ...tests.map((entry) => `- \`${entry.file}\`: ${entry.tests.length} tests`),
+    "",
+    broken.length > 0
+      ? ["Broken since the lock:", ...broken.map((entry) => `- **${entry.why}**`)].join("\n")
+      : "The checks are as they were locked.",
+    "",
+    renderChanges(checks.changes),
+    "",
+    "The lane bot wrote this lock the first time it saw the checks commit, and keeps it. An edit to this comment shows in its edit history.",
+  ].join("\n");
+}
+
+function isRequired(env = process.env) {
+  return env.BLIND_CHECKS_MODE === "required";
+}
+
+function summarize(result, { maxFiles = 5, required = false, changes = [] } = {}) {
   const lines = [
     `### Lane: ${LANE_ICON[result.lane]} ${result.lane} (${LANE_MEANING[result.lane]})`,
     "",
@@ -331,9 +643,13 @@ function summarize(result, { maxFiles = 5 } = {}) {
   };
   lines.push("Why:", ...deciding.map(describe));
   if (others.length > 0) lines.push("", "Also in this change:", ...others.map(describe));
+  if (changes.length > 0) lines.push("", renderChanges(changes));
+  const broken = result.reasons.some((entry) => entry.rule in CHECKS_RULES);
   lines.push(
     "",
-    "This lane is a report only. Nothing was merged, blocked or closed. The rules come from the base branch, so this pull request cannot change its own lane.",
+    required && broken
+      ? "The checks and Repairs: rules are switched on, so this check fails until the reasons above are fixed. The rules come from the base branch, so this pull request cannot change its own lane."
+      : "This lane is a report only. Nothing was merged, blocked or closed. The rules come from the base branch, so this pull request cannot change its own lane.",
   );
   return lines.join("\n");
 }
@@ -438,6 +754,107 @@ function ghJson(args) {
   return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 1024 * 1024 * 1024 });
 }
 
+function ghApi() {
+  const withQuery = (path, params) => {
+    const query = new URLSearchParams(params).toString();
+    return query ? `${path}?${query}` : path;
+  };
+  return {
+    get: async (path, params = {}) => {
+      try {
+        return JSON.parse(ghJson(["api", withQuery(path, params)]));
+      } catch (error) {
+        const status = /HTTP (\d{3})/.exec(String(error.stderr ?? ""))?.[1];
+        throw Object.assign(new Error(`gh api ${path} failed`), { status: Number(status) });
+      }
+    },
+    all: async (path) =>
+      ghJson(["api", "--paginate", withQuery(path, { per_page: 100 }), "--jq", ".[]"])
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line)),
+  };
+}
+
+function octokitApi(github) {
+  return {
+    get: async (path, params = {}) => (await github.request(`GET ${path}`, params)).data,
+    all: (path) => github.paginate(`GET ${path}`, { per_page: 100 }),
+  };
+}
+
+async function resolveRepairs(api, repoPath, pr) {
+  const parsed = parseRepairs(pr.body);
+  if (!parsed) return [];
+  const missing = (error) => {
+    if (error.status === 404 || error.status === 422) return null;
+    throw error;
+  };
+  return Promise.all(
+    parsed.targets.map(async (target) => {
+      if (target.kind === "pr") {
+        const found = await api.get(`${repoPath}/pulls/${target.number}`).catch(missing);
+        const onBase = Boolean(found?.merged_at && found.base?.ref === pr.base.ref);
+        return {
+          ref: target.ref,
+          onBase,
+          time: onBase ? Date.parse(found.merged_at) / 1000 : null,
+        };
+      }
+      if (target.kind !== "commit") return { ref: target.ref, onBase: false, time: null };
+      const found = await api.get(`${repoPath}/commits/${target.ref}`).catch(missing);
+      if (!found) return { ref: target.ref, onBase: false, time: null };
+      const compared = await api
+        .get(`${repoPath}/compare/${found.sha}...${pr.base.sha}`, { per_page: 1 })
+        .catch(missing);
+      const onBase = compared?.status === "ahead" || compared?.status === "identical";
+      return { ref: target.ref, onBase, time: Date.parse(found.commit.committer.date) / 1000 };
+    }),
+  );
+}
+
+async function judgePullRequest(api, repoPath, pr, listed) {
+  const base = classifyPullRequestFiles(listed, pr.changed_files);
+  const isFix = FIX_TITLE.test(pr.title ?? "");
+  const empty = { state: null, reasons: [], lock: null, changes: [] };
+  if (base.lane === "green" && !isFix) return { result: base, checks: empty, lockComment: null };
+  const commits = (await api.all(`${repoPath}/pulls/${pr.number}/commits`)).map((entry) => ({
+    sha: entry.sha,
+    message: entry.commit.message,
+    time: Date.parse(entry.commit.committer.date) / 1000,
+  }));
+  let checks = empty;
+  let lockComment = null;
+  if (base.lane !== "green") {
+    const comments = await api.all(`${repoPath}/issues/${pr.number}/comments`);
+    lockComment =
+      comments.find(
+        (comment) => comment.user?.login === LANE_BOT && comment.body?.includes(LOCK_MARKER),
+      ) ?? null;
+    const firstFiles =
+      commits[0] && checksMarker(commits[0].message)
+        ? ((await api.get(`${repoPath}/commits/${commits[0].sha}`)).files ?? [])
+        : [];
+    checks = judgeChecks({
+      lane: base.lane,
+      body: pr.body,
+      commits,
+      firstFiles,
+      prFiles: listed,
+      lock: lockComment ? readLock(lockComment.body) : null,
+    });
+  }
+  const repairs = isFix
+    ? judgeRepairs({
+        title: pr.title,
+        body: pr.body,
+        resolved: await resolveRepairs(api, repoPath, pr),
+        fixTime: Math.min(...commits.map((commit) => commit.time)),
+      })
+    : [];
+  return { result: withReasons(base, [...checks.reasons, ...repairs]), checks, lockComment };
+}
+
 function fetchPullRequestFiles(repo, number) {
   const pr = JSON.parse(ghJson(["api", `repos/${repo}/pulls/${number}`]));
   const listed = ghJson([
@@ -450,7 +867,17 @@ function fetchPullRequestFiles(repo, number) {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
-  return { listed, changedFiles: pr.changed_files };
+  return { pr, listed, changedFiles: pr.changed_files };
+}
+
+async function syncLockComment(github, { owner, repo, number }, checks, lockComment) {
+  if (!checks.lock) return;
+  const body = renderLockComment(checks.lock, checks);
+  if (!lockComment) {
+    await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+  } else if (lockComment.body !== body) {
+    await github.rest.issues.updateComment({ owner, repo, comment_id: lockComment.id, body });
+  }
 }
 
 async function syncPullRequest({ github, context, core }) {
@@ -462,7 +889,13 @@ async function syncPullRequest({ github, context, core }) {
     pull_number: pr.number,
     per_page: 100,
   });
-  const result = classifyPullRequestFiles(listed, pr.changed_files);
+  const { result, checks, lockComment } = await judgePullRequest(
+    octokitApi(github),
+    `/repos/${owner}/${repo}`,
+    pr,
+    listed,
+  );
+  await syncLockComment(github, { owner, repo, number: pr.number }, checks, lockComment);
   const wanted = `lane:${result.lane}`;
 
   const current = await github.paginate(github.rest.issues.listLabelsOnIssue, {
@@ -491,11 +924,18 @@ async function syncPullRequest({ github, context, core }) {
   core.info(
     `PR #${pr.number}: ${wanted} (${result.reasons.map((reason) => reason.rule).join(", ")})`,
   );
-  await core.summary.addRaw(summarize(result, { maxFiles: 10 })).write();
+  const required = isRequired();
+  await core.summary
+    .addRaw(summarize(result, { maxFiles: 10, required, changes: checks.changes }))
+    .write();
+  const broken = result.reasons.filter((entry) => entry.rule in CHECKS_RULES);
+  if (required && broken.length > 0) {
+    core.setFailed(broken.map((entry) => entry.why).join("; "));
+  }
   return result;
 }
 
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   const flag = (name) => {
     const index = args.indexOf(name);
@@ -517,20 +957,28 @@ function main() {
         "  node .github/scripts/merge-lane.cjs --pr <number> --repo <owner/name> [--json]",
         "",
         "--worktree-base judges the working tree of --cwd, untracked files included, against <ref>.",
-        "--pr reads the pull request's files from the GitHub API, as the Merge Lane workflow does, and changes nothing.",
+        "--pr reads the pull request's files, commits, lock comment and Repairs: targets from the GitHub API, as the Merge Lane workflow does, and changes nothing.",
       ].join("\n"),
     );
     process.exit(2);
   }
   let result;
+  let changes = [];
   if (pr) {
-    const { listed, changedFiles } = fetchPullRequestFiles(flag("--repo"), pr);
-    result = classifyPullRequestFiles(listed, changedFiles);
+    const repo = flag("--repo");
+    const fetched = fetchPullRequestFiles(repo, pr);
+    const judged = await judgePullRequest(ghApi(), `/repos/${repo}`, fetched.pr, fetched.listed);
+    result = judged.result;
+    changes = judged.checks.changes;
   } else {
     const files = gitFiles({ cwd, range, worktree: Boolean(worktreeBase) });
     result = classify(files, { packageDirs: readWorkspace().map((pkg) => pkg.dir) });
   }
-  console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : summarize(result));
+  console.log(
+    args.includes("--json")
+      ? JSON.stringify(result, null, 2)
+      : summarize(result, { required: isRequired(), changes }),
+  );
 }
 
 module.exports = {
@@ -538,12 +986,29 @@ module.exports = {
   LANE_MEANING,
   PATH_RULES,
   CONTENT_RULES,
+  CHECKS_RULES,
   TEST_FILE,
+  TEST_SUPPORT,
+  FIX_TITLE,
   classify,
   summarize,
   parseGitDiff,
   gitFiles,
+  isTestSupport,
+  checksMarker,
+  parseRepairs,
+  testNames,
+  judgeChecks,
+  judgeRepairs,
+  renderChanges,
+  renderLockComment,
+  readLock,
   syncPullRequest,
 };
 
-if (require.main === module) main();
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

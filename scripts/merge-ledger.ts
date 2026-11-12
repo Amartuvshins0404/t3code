@@ -5,7 +5,18 @@ import * as NodePath from "node:path";
 import * as NodeReadline from "node:readline";
 
 import { readWorkspace } from "../.github/scripts/ci-changes.cjs";
-import { classify, parseGitDiff, TEST_FILE, type Lane } from "../.github/scripts/merge-lane.cjs";
+import {
+  checksMarker,
+  classify,
+  FIX_TITLE,
+  isTestSupport,
+  parseGitDiff,
+  parseRepairs,
+  TEST_SUPPORT,
+  type ChecksState,
+  type Lane,
+  type RepairsLine,
+} from "../.github/scripts/merge-lane.cjs";
 
 const HELP = `Usage:
   vp run report:merge-ledger [--branch <ref>] [--since <date>] [--until <date>]
@@ -16,7 +27,9 @@ Lists the changes merged to --branch (default HEAD) between --since (default
 "30 days ago") and --until (default now), each with its lane, area, size and
 writer model, and marks a change escaped when a later commit reverts it, or
 when a later fix commit within --window days (default 14) rewrites code it
-wrote: at least half of the code lines the fix changes or deletes.
+wrote: at least half of the code lines the fix changes or deletes. A fix whose
+PR body or commit message has a Repairs: line is linked to the changes it names
+instead, and the report lists where blame disagrees.
 
 --repo reads lane:* labels and PR bodies of merged pull requests with gh; without
 it, lanes are recomputed from the lane rules. --score compares the links with a
@@ -27,11 +40,9 @@ or the JSON with --json.`;
 const DAY = 86_400;
 const BLAME_CONCURRENCY = 8;
 const IGNORED = [
-  TEST_FILE,
-  /(^|\/)(test|tests|__tests__|testkit|testing|fixtures|__snapshots__|integration)\//,
-  /\.(testkit|fixture|testFixtures)\.[cm]?[jt]sx?$/,
+  ...TEST_SUPPORT,
   /^docs\//,
-  /\.(mdx?|txt|snap)$/,
+  /\.(mdx?|txt)$/,
   /(^|\/)(pnpm-lock\.yaml|Cargo\.lock|package-lock\.json|yarn\.lock|Podfile\.lock)$/,
   /(\.gen\.|_generated|(^|\/)generated|\.generated\.)/,
   /^\.repos\//,
@@ -62,6 +73,7 @@ export interface PullRequestInfo {
   readonly number: number;
   readonly lane: Lane | null;
   readonly model: string | null;
+  readonly repairs: RepairsLine | null;
 }
 
 export interface Escape {
@@ -73,9 +85,18 @@ export interface Escape {
 
 export interface Link {
   readonly kind: Escape["kind"];
+  readonly source: "repairs" | "blame";
   readonly by: string;
   readonly change: string;
   readonly days: number;
+}
+
+export interface Disagreement {
+  readonly fix: string;
+  readonly subject: string;
+  readonly declared: ReadonlyArray<string>;
+  readonly notListed: ReadonlyArray<string>;
+  readonly blamed: ReadonlyArray<string>;
 }
 
 export interface LedgerChange {
@@ -90,6 +111,8 @@ export interface LedgerChange {
   readonly size: number;
   readonly model: string;
   readonly mature: boolean;
+  checks: ChecksState;
+  readonly repairs: RepairsLine | null;
   escape: Escape | null;
 }
 
@@ -112,8 +135,10 @@ export interface Ledger {
   readonly byLane: ReadonlyArray<LedgerGroup>;
   readonly byArea: ReadonlyArray<LedgerGroup>;
   readonly byModel: ReadonlyArray<LedgerGroup>;
+  readonly byChecks: ReadonlyArray<LedgerGroup>;
   readonly changes: ReadonlyArray<LedgerChange>;
   readonly links: ReadonlyArray<Link>;
+  readonly disagreements: ReadonlyArray<Disagreement>;
 }
 
 interface Range {
@@ -191,8 +216,43 @@ function prNumber(subject: string) {
 
 function commitKind(subject: string): RawChange["kind"] {
   if (/^revert\b/i.test(subject)) return "revert";
-  if (/^fix(\([^)]*\))?!?:/i.test(subject)) return "fix";
+  if (FIX_TITLE.test(subject)) return "fix";
   return null;
+}
+
+function checksOf(marker: ReturnType<typeof checksMarker>): ChecksState {
+  if (!marker) return "no checks";
+  return marker.kind === "none" ? "none needed" : "checked blind";
+}
+
+function memberChecks(cwd: string, from: string, to: string): ChecksState {
+  const log = gitText(cwd, [
+    "log",
+    "--reverse",
+    "--first-parent",
+    "--format=%x1e%P%x1f%B%x1f",
+    "--name-only",
+    `${from}..${to}`,
+  ]);
+  const [first, ...later] = log
+    .split("\x1e")
+    .filter(Boolean)
+    .map((entry) => {
+      const [parents = "", message = "", names = ""] = entry.split("\x1f");
+      return {
+        merge: parents.trim().split(" ").length > 1,
+        message,
+        files: names.split("\n").filter(Boolean),
+      };
+    });
+  const marker = first ? checksMarker(first.message) : null;
+  if (!marker) return "no checks";
+  const revised = later.some(
+    (commit) =>
+      checksMarker(commit.message) !== null ||
+      (marker.kind === "checks" && !commit.merge && commit.files.some(isTestSupport)),
+  );
+  return revised ? "checks revised" : checksOf(marker);
 }
 
 function revertHints(subject: string, body: string, own: number | null): RevertHints {
@@ -312,6 +372,8 @@ async function readChanges(options: Required<LedgerOptions>) {
           .reduce((total, file) => total + file.additions + file.deletions, 0),
         model: info?.model ?? writerModel(body) ?? "unknown",
         mature: commitTime + options.windowDays * DAY <= nowTime,
+        checks: checksOf(checksMarker(body)),
+        repairs: info?.repairs ?? parseRepairs(body),
         escape: null,
       },
       parents: parents.split(" ").filter(Boolean),
@@ -442,6 +504,7 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
       .split("\n")
       .filter(Boolean);
     for (const member of members) if (!owner.has(member)) owner.set(member, raw);
+    raw.change.checks = memberChecks(options.cwd, raw.parents[0]!, raw.parents[1]!);
   }
   const ownerOf = (sha: string) => {
     const exact = owner.get(sha);
@@ -461,12 +524,18 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
   );
 
   const links: Array<Link> = [];
-  const mark = (target: RawChange | undefined, by: RawChange, kind: Escape["kind"]) => {
+  const disagreements: Array<Disagreement> = [];
+  const mark = (
+    target: RawChange | undefined,
+    by: RawChange,
+    kind: Escape["kind"],
+    source: Link["source"] = "blame",
+  ) => {
     if (!target || target === by || target.change.time > by.change.time) return;
     const exact = (by.change.time - target.change.time) / DAY;
     if (kind === "fix" && exact > options.windowDays) return;
     const days = Math.round(exact * 10) / 10;
-    links.push({ kind, by: by.change.sha, change: target.change.sha, days });
+    links.push({ kind, source, by: by.change.sha, change: target.change.sha, days });
     const current = target.change.escape;
     const better =
       !current ||
@@ -511,7 +580,39 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
       }
     }
     if (raw.kind === "fix") {
-      for (const [target, count] of totals) if (count * 2 >= blamed) mark(target, raw, "fix");
+      const byBlame = [...totals]
+        .filter(([target, count]) => count * 2 >= blamed && target !== raw)
+        .map(([target]) => target);
+      const declared = raw.change.repairs;
+      if (!declared) {
+        for (const target of byBlame) mark(target, raw, "fix");
+        return;
+      }
+      const resolved = declared.targets.map((target) => ({
+        ref: target.ref,
+        raw:
+          target.kind === "commit"
+            ? ownerOf(target.ref)
+            : target.kind === "pr" && target.number !== undefined
+              ? byPr.get(target.number)
+              : undefined,
+      }));
+      for (const target of resolved) mark(target.raw, raw, "fix", "repairs");
+      const named = new Set(resolved.flatMap((target) => (target.raw ? [target.raw] : [])));
+      const notListed = resolved.filter((target) => !target.raw).map((target) => target.ref);
+      const same =
+        notListed.length === 0 &&
+        named.size === byBlame.length &&
+        byBlame.every((target) => named.has(target));
+      if (!same) {
+        disagreements.push({
+          fix: raw.change.sha,
+          subject: raw.change.subject,
+          declared: [...named].map((target) => target.change.sha),
+          notListed,
+          blamed: byBlame.map((target) => target.change.sha),
+        });
+      }
     } else {
       const [top] = [...totals.entries()].sort((a, b) => b[1] - a[1]);
       mark(
@@ -532,8 +633,12 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
     byLane: groupBy(changes, (change) => change.lane),
     byArea: groupBy(changes, (change) => change.area),
     byModel: groupBy(changes, (change) => change.model),
+    byChecks: groupBy(changes, (change) => change.checks),
     changes,
     links,
+    disagreements: disagreements.sort(
+      (a, b) => (owner.get(a.fix)?.change.time ?? 0) - (owner.get(b.fix)?.change.time ?? 0),
+    ),
   };
 }
 
@@ -642,12 +747,18 @@ export function renderMarkdown(ledger: Ledger) {
   );
   const linked = new Set(ledger.links.filter((link) => link.kind === "fix").map((link) => link.by));
   const repairing = fixes.filter((change) => linked.has(change.sha)).length;
+  const declaring = ledger.changes.filter(
+    (change) => commitKind(change.subject) === "fix" && change.repairs,
+  ).length;
+  const short = (shas: ReadonlyArray<string>) =>
+    shas.length > 0 ? shas.map((sha) => sha.slice(0, 10)).join(", ") : "nothing";
   return [
     `## Merge ledger: ${ledger.branch}, ${ledger.since} to ${ledger.until}`,
     "",
     `${total.merges} merged changes. Lane share: ${share}.`,
     `${total.matureMerges} are older than the ${ledger.windowDays}-day fix window; ${total.matureEscapes} of those escaped (${percent(total.escapeRate)}). Median days to the fix or revert: ${total.medianDaysToFix ?? "n/a"}.`,
     `${repairing} of the ${fixes.length} fix commits with ${ledger.windowDays} days of listed history behind them (${percent(fixes.length ? repairing / fixes.length : null)}) are linked to a change from those days.`,
+    `${declaring} fixes name what they repair in a Repairs: line, and those links come from the line. Blame links the rest. ${ledger.disagreements.length} Repairs: lines disagree with blame.`,
     "",
     "Escape rates count only mature changes, whose fix window has fully passed.",
     "",
@@ -657,13 +768,25 @@ export function renderMarkdown(ledger: Ledger) {
     table("Leakiest areas (10+ mature merges)", leaking, 5),
     table("By area", ledger.byArea, 25),
     table("By writer model", ledger.byModel, 15),
+    table("By checks", ledger.byChecks),
+    "### Repairs: line against blame",
+    "",
+    ...(ledger.disagreements.length === 0
+      ? ["Every Repairs: line in this range agrees with blame."]
+      : ledger.disagreements
+          .slice(0, 20)
+          .map(
+            (entry) =>
+              `- ${entry.fix.slice(0, 10)} ${entry.subject}: the line names ${short(entry.declared)}${entry.notListed.length > 0 ? ` (not in this range: ${entry.notListed.join(", ")})` : ""}; blame names ${short(entry.blamed)}`,
+          )),
+    "",
     "### Escapes",
     "",
     ...escapes
       .slice(0, 50)
       .map(
         (change) =>
-          `- ${change.sha.slice(0, 10)} ${change.subject} (${change.lane}, ${change.area}): ${change.escape!.kind} ${change.escape!.by.slice(0, 10)} after ${change.escape!.days} days`,
+          `- ${change.sha.slice(0, 10)} ${change.subject} (${change.lane}, ${change.area}, ${change.checks}): ${change.escape!.kind} ${change.escape!.by.slice(0, 10)} after ${change.escape!.days} days`,
       ),
     escapes.length > 50 ? `- and ${escapes.length - 50} more in the JSON` : "",
   ].join("\n");
@@ -703,6 +826,7 @@ function pullRequestsFromGitHub(repo: string, base: string) {
       number: row.number,
       lane: label ? (label.name.slice(5) as Lane) : null,
       model: writerModel(row.body) ?? (last && last.length <= 120 ? last : null),
+      repairs: parseRepairs(row.body),
     });
   }
   return map;
