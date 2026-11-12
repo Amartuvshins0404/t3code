@@ -1,0 +1,35 @@
+name: Merge Lane
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+    branches: [amaraa-mode]
+
+permissions: {}
+
+jobs:
+  lane:
+    name: Merge lane
+    if: github.repository == 'Amartuvshins0404/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    concurrency:
+      group: merge-lane-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout base branch rules
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Judge the lane and sync its label
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { syncPullRequest } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/merge-lane.cjs`);
+            await syncPullRequest({ github, context, core });
