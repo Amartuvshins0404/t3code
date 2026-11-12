@@ -97,6 +97,11 @@ export function planStrength(input: {
   readonly repoFiles: ReadonlyArray<string>;
 }): StrengthPlan;
 
+export function planMeasurement(
+  cwd: string,
+  range: { readonly first: string; readonly base: string; readonly head: string },
+): StrengthPlan;
+
 export function judgeStrength(input: {
   readonly plan: StrengthPlan;
   readonly testsPassed?: boolean;
