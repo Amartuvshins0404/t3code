@@ -569,10 +569,24 @@ function judgeRepairs({ title, body, resolved, fixTime }) {
   ];
 }
 
-const quoted = (names) => names.map((name) => `"${name}"`).join(", ");
+const PLAIN_TEXT = /^[A-Za-z0-9 .,:;'"()/+=?!-]*$/;
+const LINK_LIKE = /:\/\/|www\.|[0-9a-f]{7}|gh-\d/i;
+
+function codeSpan(text) {
+  const flat = text.replace(/\r\n?|\n/g, " ");
+  const longest = Math.max(0, ...(flat.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(longest + 1);
+  const pad = /^[` ]|[` ]$/.test(flat) ? " " : "";
+  return `${fence}${pad}${flat}${pad}${fence}`;
+}
+
+const isPlain = (text) => PLAIN_TEXT.test(text) && !LINK_LIKE.test(text);
+const asText = (text) => (isPlain(text) ? text : codeSpan(text));
+const quoted = (names) =>
+  names.map((name) => (isPlain(name) ? `"${name}"` : codeSpan(name))).join(", ");
 
 function describeChange(change) {
-  const name = `\`${change.file}\``;
+  const name = codeSpan(change.file);
   if (!TEST_FILE.test(change.file)) {
     if (change.after === null)
       return `- ${name}: a test helper the checks changed, now back as it was before.`;
@@ -621,13 +635,13 @@ function renderLockComment(lock, checks) {
   const count = tests.reduce((total, entry) => total + entry.tests.length, 0);
   const broken = checks.reasons.filter((entry) => entry.rule in CHECKS_RULES);
   return [
-    `${LOCK_MARKER}${JSON.stringify(lock).replace(/-->/g, "--\\u003e")}-->`,
+    `${LOCK_MARKER}${JSON.stringify(lock).replace(/--(!?)>/g, "--$1\\u003e")}-->`,
     "### Locked checks",
     "",
     lock.kind === "none"
-      ? `The first commit \`${short}\` says no test is needed: ${lock.reason || "(no reason given)"}.`
+      ? `The first commit \`${short}\` says no test is needed: ${lock.reason ? asText(lock.reason) : "(no reason given)"}.`
       : `Locked at commit \`${short}\`: ${tests.length} test files with ${count} tests.`,
-    ...tests.map((entry) => `- \`${entry.file}\`: ${entry.tests.length} tests`),
+    ...tests.map((entry) => `- ${codeSpan(entry.file)}: ${entry.tests.length} tests`),
     "",
     broken.length > 0
       ? ["Broken since the lock:", ...broken.map((entry) => `- **${entry.why}**`)].join("\n")
@@ -640,9 +654,10 @@ function renderLockComment(lock, checks) {
 }
 
 function renderBotComment({ previous, checks, strength }) {
-  const split = previous?.lastIndexOf(`\n\n${STRENGTH_MARKER}\n`) ?? -1;
-  const kept = previous?.startsWith(LOCK_MARKER)
-    ? previous.slice(0, split === -1 ? undefined : split)
+  const text = normalizeText(previous);
+  const split = text.indexOf(`\n${STRENGTH_MARKER}`);
+  const kept = text.startsWith(LOCK_MARKER)
+    ? text.slice(0, split === -1 ? undefined : split).trimEnd()
     : null;
   const lockBlock = checks.lock ? renderLockComment(checks.lock, checks) : kept;
   return [
@@ -917,12 +932,24 @@ async function syncComment(github, { owner, repo, number }, checks, comment, str
   }
 }
 
+function runForPullRequest({ runs, pr }) {
+  return (
+    runs
+      .filter(
+        (run) =>
+          run.head_sha === pr.head.sha &&
+          run.head_branch === pr.head.ref &&
+          run.head_repository?.full_name === pr.head.repo?.full_name,
+      )
+      .sort((a, b) => b.run_number - a.run_number || b.run_attempt - a.run_attempt)[0] ?? null
+  );
+}
+
 function pullRequestForRun({ run, open, defaultBranch }) {
-  const matching = open
-    .filter((pr) => pr.head.sha === run.head_sha && pr.base.ref === defaultBranch)
-    .map((pr) => pr.number);
-  const linked = (run.pull_requests ?? []).map((entry) => entry.number);
-  return matching.find((number) => linked.includes(number)) ?? matching[0] ?? null;
+  return (
+    open.find((pr) => pr.base.ref === defaultBranch && runForPullRequest({ runs: [run], pr }))
+      ?.number ?? null
+  );
 }
 
 async function pullRequestFor(github, context) {
@@ -946,7 +973,8 @@ async function pullRequestFor(github, context) {
     : null;
 }
 
-async function readMeasurement(github, { owner, repo }, sha) {
+async function readMeasurement(github, { owner, repo }, pr) {
+  const sha = pr.head.sha;
   const { data } = await github.rest.actions.listWorkflowRuns({
     owner,
     repo,
@@ -955,9 +983,7 @@ async function readMeasurement(github, { owner, repo }, sha) {
     event: "pull_request",
     per_page: 20,
   });
-  const latest = data.workflow_runs.sort(
-    (a, b) => b.run_number - a.run_number || b.run_attempt - a.run_attempt,
-  )[0];
+  const latest = runForPullRequest({ runs: data.workflow_runs, pr });
   if (!latest || latest.status !== "completed") return { state: "pending" };
   const { data: listed } = await github.rest.actions.listWorkflowRunArtifacts({
     owner,
@@ -994,7 +1020,7 @@ async function readMeasurement(github, { owner, repo }, sha) {
 
 async function judgeStrengthOf(github, api, repoPath, ids, pr, listed) {
   const { judgeStrength, planStrength } = require("./test-strength.cjs");
-  const found = await readMeasurement(github, ids, pr.head.sha);
+  const found = await readMeasurement(github, ids, pr);
   const measurement = found.state === "measured" ? found.measurement : null;
   const commits = await api.all(`${repoPath}/pulls/${pr.number}/commits`);
   const plan = planStrength({
@@ -1186,6 +1212,7 @@ module.exports = {
   readLock,
   renderBotComment,
   pullRequestForRun,
+  runForPullRequest,
   syncPullRequest,
 };
 
