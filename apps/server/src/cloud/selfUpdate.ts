@@ -1,5 +1,7 @@
 import { getAppBaseName } from "@t3tools/shared/appName";
 import {
+  FORK_UPDATES_ENABLED,
+  FORK_UPDATES_OFF_MESSAGE,
   ServerSelfUpdateError,
   type ServerSelfUpdateCapability,
   type ServerSelfUpdateInput,
@@ -358,9 +360,21 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   });
 });
 
-export const layer = Layer.effect(ServerSelfUpdate, make()).pipe(
-  Layer.provide(ProcessRunner.layer),
-);
+export const layer = Layer.effect(
+  ServerSelfUpdate,
+  make().pipe(
+    Effect.map((service) =>
+      FORK_UPDATES_ENABLED
+        ? service
+        : ServerSelfUpdate.of({
+            ...service,
+            update: Effect.fn("ServerSelfUpdate.update")(function* () {
+              return yield* new ServerSelfUpdateError({ reason: FORK_UPDATES_OFF_MESSAGE });
+            }),
+          }),
+    ),
+  ),
+).pipe(Layer.provide(ProcessRunner.layer));
 
 // The update outlives client sockets; progress offers to a closed queue are ignored.
 export const updateProgressStream = (

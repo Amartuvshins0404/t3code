@@ -93,8 +93,9 @@ export class DesktopEnvironment extends Context.Service<
 
 declare const __T3CODE_BUILD_OWNER_NAME__: string | undefined;
 
-const BUILD_OWNER_NAME =
-  typeof __T3CODE_BUILD_OWNER_NAME__ === "undefined" ? "" : __T3CODE_BUILD_OWNER_NAME__;
+export const BUILD_OWNER_NAME = (
+  typeof __T3CODE_BUILD_OWNER_NAME__ === "undefined" ? "" : __T3CODE_BUILD_OWNER_NAME__
+).trim();
 
 const decodeOwnerName = Schema.decodeUnknownOption(
   fromLenientJson(Schema.Struct({ ownerName: ServerSettings.fields.ownerName })),
@@ -114,7 +115,7 @@ export function resolveDesktopOwnerIdentity(serverSettingsJson: Option.Option<st
     Option.flatMap(decodeOwnerLogo(raw), (settings) => Option.fromNullishOr(settings.ownerLogo)),
   );
   return {
-    ownerName: Option.getOrElse(savedName, () => BUILD_OWNER_NAME.trim()),
+    ownerName: Option.getOrElse(savedName, () => BUILD_OWNER_NAME),
     ownerLogo,
   };
 }

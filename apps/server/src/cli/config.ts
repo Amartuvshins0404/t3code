@@ -11,7 +11,8 @@ import {
   parsePersistedOwnerName,
   parsePersistedServerObservabilitySettings,
 } from "@t3tools/shared/serverSettings";
-import { DesktopBackendBootstrap, formatAppBaseName, PortSchema } from "@t3tools/contracts";
+import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
+import { formatOwnerAppBaseName } from "./savedAppName.ts";
 import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -364,9 +365,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
   yield* fs.makeDirectory(cwd, { recursive: true });
   yield* ServerConfig.ensureServerDirectories(derivedPaths);
   const persistedSettingsJson = yield* readPersistedSettingsJson(derivedPaths.settingsPath);
-  if (persistedSettingsJson.length > 0) {
-    setAppBaseName(formatAppBaseName(parsePersistedOwnerName(persistedSettingsJson)));
-  }
+  setAppBaseName(formatOwnerAppBaseName(parsePersistedOwnerName(persistedSettingsJson)));
   const persistedObservabilitySettings =
     parsePersistedServerObservabilitySettings(persistedSettingsJson);
   const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;

@@ -6,6 +6,8 @@
  * @module DesktopUpdatePolicy
  */
 import {
+  FORK_UPDATES_ENABLED,
+  FORK_UPDATES_OFF_MESSAGE,
   managedUpdatesMessage,
   type ManagedPolicyDocument,
   type ManagedUpdatesMode,
@@ -83,7 +85,16 @@ const make = Effect.gen(function* () {
   );
 });
 
-export const layer = Layer.effect(DesktopUpdatePolicy, make);
+const forkUpdatePolicy: UpdatePolicy = {
+  mode: "off",
+  feedUrl: undefined,
+  allowNightly: false,
+  message: FORK_UPDATES_OFF_MESSAGE,
+};
+
+export const layer = FORK_UPDATES_ENABLED
+  ? Layer.effect(DesktopUpdatePolicy, make)
+  : Layer.succeed(DesktopUpdatePolicy, forkUpdatePolicy);
 
 export const layerTest = (policy: UpdatePolicy = unmanagedUpdatePolicy) =>
   Layer.succeed(DesktopUpdatePolicy, policy);

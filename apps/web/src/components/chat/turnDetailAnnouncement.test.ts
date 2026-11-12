@@ -255,10 +255,10 @@ describe("nextTurnDetailAnnouncement", () => {
 
   it.each<{ level: ScreenReaderAnnouncements; spoken: ReadonlyArray<string> }>([
     { level: "status", spoken: [] },
-    { level: "messages", spoken: ["Mode:first", "Mode:second"] },
+    { level: "messages", spoken: ["Mode: first", "Mode: second"] },
     {
       level: "everything",
-      spoken: ["Running git", "Mode:first", "Reading a.ts", "Mode:second"],
+      spoken: ["Running git", "Mode: first", "Reading a.ts", "Mode: second"],
     },
   ])("says each message and step once at the $level level", ({ level, spoken }) => {
     expect(speak(level, turn)).toEqual(spoken);
@@ -271,7 +271,7 @@ describe("nextTurnDetailAnnouncement", () => {
         frame("Running git", [said("first")]),
         frame("Reading a.ts", [said("first"), said("second", true, true)]),
       ]),
-    ).toEqual(["Mode:second", "Reading a.ts"]);
+    ).toEqual(["Mode: second", "Reading a.ts"]);
   });
 
   it("stays silent about history loaded above the messages it knows", () => {
@@ -294,7 +294,7 @@ describe("nextTurnDetailAnnouncement", () => {
         frame(null),
         frame(null, [first, { ...said("empty", true, true), text: "<!-- note -->" }]),
       ]),
-    ).toEqual(["Mode:Tests pass in web. See the docs"]);
+    ).toEqual(["Mode: Tests pass in web. See the docs"]);
   });
 
   it("says a step again after waiting on the user", () => {

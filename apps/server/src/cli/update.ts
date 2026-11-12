@@ -10,6 +10,7 @@ import {
   updateFeedFileName,
   type CliReleaseChannel,
 } from "@t3tools/shared/cliRelease";
+import { FORK_UPDATES_ENABLED, FORK_UPDATES_OFF_MESSAGE } from "@t3tools/contracts";
 import * as Console from "effect/Console";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -280,6 +281,9 @@ export const updateCommand = Command.make("update", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
+      if (!FORK_UPDATES_ENABLED) {
+        return yield* new CliUpdateError({ reason: FORK_UPDATES_OFF_MESSAGE });
+      }
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveCliAuthConfig(flags, logLevel);
       return yield* runUpdate({

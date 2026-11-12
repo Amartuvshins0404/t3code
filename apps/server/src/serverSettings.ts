@@ -8,7 +8,6 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceMutation,
   defaultInstanceIdForDriver,
-  formatAppBaseName,
   isProviderDriverKind,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -48,6 +47,7 @@ import { setAppBaseName } from "@t3tools/shared/appName";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
 import * as ServerConfig from "./config.ts";
+import { formatOwnerAppBaseName } from "./cli/savedAppName.ts";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
 import {
@@ -695,7 +695,7 @@ const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
 
   const syncAppBaseName = (settings: ServerSettings) =>
-    Effect.sync(() => setAppBaseName(formatAppBaseName(settings.ownerName)));
+    Effect.sync(() => setAppBaseName(formatOwnerAppBaseName(settings.ownerName)));
 
   const emitChange = (settings: ServerSettings) =>
     syncAppBaseName(settings).pipe(
