@@ -65,6 +65,8 @@
     "@coderabbitai/config": "1.2.0",
     "@effect/tsgo": "0.67.1",
     "@shadcn/lint": "0.1.5",
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/vitest-runner": "10.1.1",
     "@types/node": "catalog:",
     "knip": "6.34.0",
     "vite-plus": "catalog:"

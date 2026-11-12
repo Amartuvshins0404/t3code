@@ -17,7 +17,7 @@ jobs:
     name: Blind checks
     if: github.repository == 'Amartuvshins0404/t3code'
     runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    timeout-minutes: 15
+    timeout-minutes: 22
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -104,3 +104,30 @@ jobs:
       - name: Judge
         if: steps.plan.outputs.run == 'true'
         run: node "$RUNNER_TEMP/judge/.github/scripts/blind-checks.cjs" judge --dir "$RUNNER_TEMP/proof"
+
+      - name: Measure test strength
+        id: strength
+        if: steps.plan.outputs.run == 'true'
+        continue-on-error: true
+        timeout-minutes: 6
+        shell: bash
+        env:
+          FIRST_SHA: ${{ steps.fetch.outputs.first }}
+          TEST_STRENGTH_MODE: ${{ vars.TEST_STRENGTH_MODE }}
+        run: |
+          runner="$RUNNER_TEMP/judge/.github/scripts/test-strength.cjs"
+          if [[ ! -f "$runner" ]]; then
+            printf '### Test strength: skipped\n\nThe base branch has no test-strength check yet.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node "$runner" measure --first "$FIRST_SHA" --head "$HEAD_SHA" --out "$RUNNER_TEMP/strength"
+
+      - name: Upload the test strength measurement
+        if: always() && steps.strength.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-strength
+          path: ${{ runner.temp }}/strength/measurement.json
+          if-no-files-found: ignore
+          retention-days: 14

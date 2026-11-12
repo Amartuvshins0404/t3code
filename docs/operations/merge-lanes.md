@@ -10,7 +10,7 @@ The rules and the reason behind each label are in [merge-lane.cjs](../../.github
 
 ## What is easy to get wrong
 
-- **The base branch judges.** The workflow runs on `pull_request_target`, checks out the base commit, and reads the PR's files and patches from the GitHub API. It never checks out or runs PR code. A PR that edits the rules is judged by the old rules, so a rule change takes effect only after it merges. It also means the workflow first runs on the PR after the one that adds it.
+- **The base branch judges.** The workflow runs on `pull_request_target`, and again from `amaraa-mode` when Blind Checks finishes. It checks out base branch code and reads the PR's files and patches from the GitHub API. It never checks out or runs PR code. A PR that edits the rules is judged by the old rules, so a rule change takes effect only after it merges. It also means the workflow first runs on the PR after the one that adds it.
 - **Unknown is red.** A path no rule matches is red, and so is a code file GitHub sends without a patch, since a loosened check cannot be ruled out. When a new top-level directory or config file appears, add a rule for it, or every PR that touches it stays red.
 - **It only reports.** The label is not a required check. Nothing merges, blocks, closes or reverts because of it, unless the switch in [Locked checks](#locked-checks-and-repairs-lines) is on. The workflow does not run outside `Amartuvshins0404/t3code`.
 - **Suppressions make a change red, except the two the repo requires.** An added `oxlint-disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `@effect-diagnostics` line counts as loosening a gate. Two forms pass: the `t3code/no-unreasoned-state-sync` comment with its reason, and `@effect-diagnostics nodeBuiltinImport:off` alone in a test file or a `scripts/` directory. A reason on any other suppression changes nothing, because whoever wrote the change can always write one.
@@ -56,6 +56,37 @@ Green pull requests are exempt from the checks rules. A red one gets them only w
 - That the markers are honest. An agent with the owner's token can write a `Blind-checks:` trailer, edit the bot's comment, remove a label or loosen the ruleset. Each leaves a trail in the commit, the comment's edit history or the audit log, and none of them can be stopped.
 - That the code is general. The coder can special-case the test inputs, or change code under `src/` that the tests rely on.
 - That the lock came early. A draft pull request opened late lets the lock record checks that were already rewritten.
+
+### Test strength
+
+After the proof, the Blind Checks job breaks the JavaScript and TypeScript lines the pull request changed, one small change at a time, with [Stryker](https://stryker-mutator.io), and runs the tests after each break. The tests are the pull request's test files plus same-name test files next to changed code, in any package. Browser tests are not run. Only breaks that change a decision count; the kinds are `BREAK_WORDING` in [test-strength.cjs](../../.github/scripts/test-strength.cjs). A break on a line no test ran counts as not noticed. Above 800 changed code lines it measures an even sample of 800, the same for the same commit, and it stops after 5 minutes.
+
+When Blind Checks finishes, the lane bot reads the measurement as data, judges it again with the base branch's rules, adds a "Test strength" section to its comment, and keeps one label:
+
+- `strength:strong`: the tests noticed every counted break, and at least one was tried.
+- `strength:weak`: the tests missed at least one. The section gives the counts and up to 3 examples in fixed wording.
+- `strength:unmeasured`: not measured, with the reason: no checks commit, no test needed, no JavaScript or TypeScript changed, only browser tests, the tests failed, no counted break could be made, it ran out of time, or Blind Checks has not finished or left no measurement.
+
+It reports until the repository variable `TEST_STRENGTH_MODE` is `required`. Then weak, and not measured on a pull request that has tests, turn the lane red. `BLIND_CHECKS_MODE` does not change it.
+
+Measure a change locally from a clean tree, with a checks commit first:
+
+```sh
+node .github/scripts/test-strength.cjs measure --first <checks commit> --head HEAD --out ../strength
+```
+
+#### What is easy to get wrong
+
+- **Stryker edits files in place.** It puts them back when it ends or is stopped, and the runner checks `git status` after each run. Its type-check step is off and it reads only the planned files, because that step rewrote files across the repo, `.repos/` included, and lost their exec bits.
+- **The runner never passes Stryker's `testFiles` option.** In 10.1.1 it makes a break in code that runs while a file loads, such as a pattern at the top of a file, look unnoticed. The runner narrows each package's own test config to the chosen tests instead, with one Stryker run per config.
+
+#### What it cannot prove
+
+- That the code does what the request asked. It checks that the tests pin the code's decisions, not that the decisions are right.
+- What is missing. It only breaks code that exists, so a missing guard or case shows nothing.
+- That a missed break matters. About 1 in 4 counted breaks change nothing real (32 checked by hand).
+- That the measurement is honest. Pull request code runs in the job that writes it, so it can notice Stryker and fail on purpose, or overwrite the file. The bot shows only counts, paths and fixed wording, but cannot spot a forged count.
+- Logic kept in data files, other languages or test-support paths, which it never breaks. Tests that snapshot whole outputs notice every break and look strong while being brittle.
 
 ## Outcome ledger
 
