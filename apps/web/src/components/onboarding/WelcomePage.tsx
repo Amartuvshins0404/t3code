@@ -43,7 +43,11 @@ import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
 import { MOBILE_APP_URL } from "../../branding";
 import { isElectron } from "../../env";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
-import { usePersistEnvironmentProviderInstanceMutation } from "../../hooks/useSettings";
+import {
+  useEnvironmentSettings,
+  usePersistEnvironmentProviderInstanceMutation,
+  useUpdateEnvironmentSettings,
+} from "../../hooks/useSettings";
 import { useCloudLinkState } from "../../cloud/cloudLinkState";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
@@ -86,7 +90,9 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { managedTelemetryOffMessage, useManagedPolicy } from "../../state/managedPolicy";
 import { useProjectScans } from "../../onboarding/useProjectScans";
 import { projectEnvironment } from "../../state/projects";
+import { useAppBaseName } from "../../state/appBranding";
 import { serverEnvironment } from "../../state/server";
+import { OwnerLogoPicker, OwnerNameInput } from "../OwnerBranding";
 import {
   readEnvironmentScope,
   useEnvironmentScope,
@@ -129,6 +135,7 @@ export function WelcomePage({
   readonly onDone: (projectRef?: ScopedProjectRef) => void | Promise<void>;
 }) {
   const { environments } = useEnvironments();
+  const appBaseName = useAppBaseName();
   const label =
     environments.find((environment) => environment.environmentId === environmentId)?.label ??
     "this computer";
@@ -271,12 +278,13 @@ export function WelcomePage({
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
           <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-6 pt-12 pb-8 sm:pt-20">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              Welcome to T3 Code
+              Welcome to {appBaseName}
             </h1>
             <p className="mt-1.5 text-sm text-muted-foreground">
               Setting up <span className="text-foreground">{label}</span>.
             </p>
             <div className="mt-10 border-t border-border/60">
+              <OwnerSection environmentId={environmentId} />
               <AgentsSection
                 environmentId={environmentId}
                 label={label}
@@ -355,6 +363,35 @@ function WelcomeSection({
       <h2 className="text-sm leading-10 text-muted-foreground">{title}</h2>
       <div className="min-w-0">{children}</div>
     </section>
+  );
+}
+
+function OwnerSection({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const supported =
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.environment.capabilities
+      .ownerBranding === true;
+  const ownerName = useEnvironmentSettings(environmentId, (settings) => settings.ownerName);
+  const ownerLogo = useEnvironmentSettings(environmentId, (settings) => settings.ownerLogo);
+  const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  if (!supported) return null;
+  return (
+    <WelcomeSection title="You">
+      <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-2">
+        <OwnerNameInput
+          className="w-full sm:w-56"
+          value={ownerName}
+          onCommit={(next) => updateSettings({ ownerName: next })}
+        />
+        <OwnerLogoPicker
+          logo={ownerLogo}
+          ownerName={ownerName}
+          onChange={(next) => updateSettings({ ownerLogo: next })}
+        />
+      </div>
+      <p className="pb-1 text-xs text-muted-foreground">
+        The app is named after you. Leave the name empty to call it Mode.
+      </p>
+    </WelcomeSection>
   );
 }
 

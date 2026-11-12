@@ -23,6 +23,7 @@ import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses
 import { tailwindPlugins } from "./vite/tailwind";
 import { warmBundledDevPlugin } from "./vite/warmBundledDev";
 import { formatAppDisplayName, resolveWebAppStageLabel } from "./src/branding.logic";
+import { formatAppBaseName } from "@t3tools/contracts/appName";
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -51,6 +52,7 @@ const configuredDesktopUpdateRepository =
   process.env.GITHUB_REPOSITORY?.trim() ||
   "";
 const configuredFeatureSecrets = process.env.T3CODE_FEATURE_SECRETS?.trim() || "";
+const configuredOwnerName = process.env.T3CODE_OWNER_NAME?.trim() || "";
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
   if (explicitHostedAppUrl) {
@@ -263,7 +265,10 @@ function bootstrapTitlePlugin(): Plugin {
         hostedAppChannel: configuredHostedAppChannel,
         development,
       });
-      const title = formatAppDisplayName({ baseName: "T3 Code", stageLabel });
+      const title = formatAppDisplayName({
+        baseName: formatAppBaseName(configuredOwnerName),
+        stageLabel,
+      });
       return html.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`);
     },
   };
@@ -344,6 +349,7 @@ export default defineConfig(() => {
       "import.meta.env.T3CODE_FEATURE_SECRETS": JSON.stringify(configuredFeatureSecrets),
       "import.meta.env.VITE_RELEASE_CHANNEL": JSON.stringify(configuredReleaseChannel),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
+      "import.meta.env.APP_OWNER_NAME": JSON.stringify(configuredOwnerName),
     },
     resolve: {
       tsconfigPaths: true,

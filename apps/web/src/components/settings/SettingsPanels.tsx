@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { NotificationSettings } from "./NotificationSettings";
+import { OwnerBrandingSettings } from "./OwnerBrandingSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
 import { msg, T, useGT, useMessages } from "gt-react";
@@ -789,6 +790,7 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <OwnerBrandingSettings />
       <SettingsSection id="notifications" title={gt("Notifications")}>
         <NotificationSettings />
         <SettingsRow

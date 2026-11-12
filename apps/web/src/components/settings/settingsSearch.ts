@@ -797,6 +797,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["new worktrees start remote origin latest fetched branch local"],
   },
   {
+    id: "owner-name",
+    title: "Your name",
+    to: "/settings/general",
+    searchTerms: ["app name mode brand rename title owner"],
+  },
+  {
+    id: "owner-logo",
+    title: "Picture",
+    to: "/settings/general",
+    searchTerms: ["app logo icon avatar image brand owner"],
+  },
+  {
     id: "add-project-starts-in",
     title: "Add project starts in",
     to: "/settings/threads",

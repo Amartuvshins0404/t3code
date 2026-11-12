@@ -36,22 +36,6 @@ export function resolveServerBackedAppStageLabel(input: {
     : input.fallbackStageLabel;
 }
 
-export function resolveServerBackedAppDisplayName(input: {
-  readonly baseName: string;
-  readonly fallbackDisplayName: string;
-  readonly fallbackStageLabel: string;
-  readonly primaryServerVersion: string | null | undefined;
-}): string {
-  const stageLabel = resolveServerBackedAppStageLabel({
-    primaryServerVersion: input.primaryServerVersion,
-    fallbackStageLabel: input.fallbackStageLabel,
-  });
-
-  return stageLabel === input.fallbackStageLabel
-    ? input.fallbackDisplayName
-    : formatAppDisplayName({ baseName: input.baseName, stageLabel });
-}
-
 /**
  * Names the open thread: `project / thread` on desktop, where the OS already
  * shows the app, with the app name appended in browser tabs.

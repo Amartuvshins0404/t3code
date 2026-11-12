@@ -26,8 +26,7 @@ import { startDesktopUpdateLaunchNotice } from "./components/sidebar/updateEvery
 import { startSlowRpcRequestToasts } from "./components/SlowRpcRequestToastCoordinator";
 import { startThreadNotifications } from "./components/ThreadNotificationCoordinator";
 import { startGuideRunNotifications } from "./components/pullRequest/guide/PullRequestGuideRunCoordinator";
-import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "./branding";
-import { resolveServerBackedAppDisplayName, resolveWindowTitle } from "./branding.logic";
+import { resolveWindowTitle } from "./branding.logic";
 import { isElectron } from "./env";
 import {
   subscribeComposerDraftModelReconciliation,
@@ -54,6 +53,7 @@ import { startProviderAuthDelivery } from "./providerAuthDelivery";
 import { getRouter, type AppRouter } from "./router";
 import { appAtomRegistry } from "./rpc/atomRegistry";
 import { environmentProjects } from "./state/projects";
+import { appDisplayNameAtom } from "./state/appBranding";
 import { primaryServerConfigAtom } from "./state/server";
 import { environmentShell } from "./state/shell";
 import { installChatRouteCommands } from "./shortcuts/chatRouteCommands";
@@ -154,13 +154,7 @@ function startDocumentTitle(router: AppRouter): void {
             ),
           );
     const title = resolveWindowTitle({
-      appDisplayName: resolveServerBackedAppDisplayName({
-        baseName: APP_BASE_NAME,
-        fallbackDisplayName: APP_DISPLAY_NAME,
-        fallbackStageLabel: APP_STAGE_LABEL,
-        primaryServerVersion:
-          appAtomRegistry.get(primaryServerConfigAtom)?.environment.serverVersion ?? null,
-      }),
+      appDisplayName: appAtomRegistry.get(appDisplayNameAtom),
       projectTitle: project?.title ?? null,
       threadTitle: thread?.title ?? null,
       desktop: isElectron,

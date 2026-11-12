@@ -1339,6 +1339,15 @@ export const CloudSpeechCredentials = Schema.Struct({
   openrouter: CloudSpeechCredential,
 });
 
+export const OWNER_NAME_MAX_LENGTH = 40;
+export const OWNER_LOGO_MAX_LENGTH = 64_000;
+
+const OwnerName = TrimmedString.check(Schema.isMaxLength(OWNER_NAME_MAX_LENGTH));
+const OwnerLogo = Schema.String.check(
+  Schema.isPattern(/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/),
+  Schema.isMaxLength(OWNER_LOGO_MAX_LENGTH),
+);
+
 export const ServerSettings = Schema.Struct({
   // Null means unmigrated; empty is authoritative and must not resurrect cleared preferences.
   favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -1479,6 +1488,10 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("")),
   ),
   environmentIcon: ForwardCompatibleNullable(EnvironmentMachineKind).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  ownerName: OwnerName.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  ownerLogo: ForwardCompatibleNullable(OwnerLogo).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   /** Null inherits t3.json, then local; omit it on the wire for older clients requiring a literal. */
@@ -1884,6 +1897,8 @@ export const ServerSettingsPatch = Schema.Struct({
   providerHealthRefreshInterval: Schema.optionalKey(Schema.DurationFromMillis),
   backgroundActivityProfile: Schema.optionalKey(BackgroundActivityProfile),
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
+  ownerName: Schema.optionalKey(OwnerName),
+  ownerLogo: Schema.optionalKey(Schema.NullOr(OwnerLogo)),
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
