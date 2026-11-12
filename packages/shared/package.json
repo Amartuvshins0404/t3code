@@ -147,6 +147,10 @@
       "types": "./src/favicon.ts",
       "import": "./src/favicon.ts"
     },
+    "./macAppIcon": {
+      "types": "./src/macAppIcon.ts",
+      "import": "./src/macAppIcon.ts"
+    },
     "./Struct": {
       "types": "./src/Struct.ts",
       "import": "./src/Struct.ts"

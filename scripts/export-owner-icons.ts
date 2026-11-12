@@ -9,6 +9,11 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/cli";
 import sharp from "sharp";
+import {
+  composeMacAppIcon,
+  MAC_APP_ICON_SIZE,
+  MAC_APP_ICON_TILE_SIZE,
+} from "@t3tools/shared/macAppIcon";
 
 import {
   BRAND_ASSET_PATHS,
@@ -23,9 +28,6 @@ import { encodePngIco, WINDOWS_ICON_SIZES } from "./lib/icon-export.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
 
 const MASTER_SIZE = 1024;
-const MAC_BODY_SIZE = 824;
-const MAC_BODY_INSET = 100;
-const MAC_BODY_RADIUS = 185;
 const ANDROID_ADAPTIVE_SIZE = 432;
 const ANDROID_SPLASH_SIZE = 1152;
 const ANDROID_NOTIFICATION_SIZE = 96;
@@ -154,22 +156,15 @@ const renderOutputs = Effect.fn("ownerIcons.renderOutputs")(function* (master: B
         .toBuffer();
     });
   const macos = render("macOS", async () => {
-    const roundedMask = Buffer.from(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${MAC_BODY_SIZE}" height="${MAC_BODY_SIZE}"><rect width="${MAC_BODY_SIZE}" height="${MAC_BODY_SIZE}" rx="${MAC_BODY_RADIUS}" fill="#FFFFFF"/></svg>`,
-    );
-    const body = await sharp(master)
-      .resize(MAC_BODY_SIZE, MAC_BODY_SIZE)
-      .composite([{ input: roundedMask, blend: "dest-in" }])
-      .png()
+    const tile = await sharp(master)
+      .resize(MAC_APP_ICON_TILE_SIZE, MAC_APP_ICON_TILE_SIZE)
+      .ensureAlpha()
+      .raw()
       .toBuffer();
-    return sharp(body)
-      .extend({
-        top: MAC_BODY_INSET,
-        bottom: MAC_BODY_INSET,
-        left: MAC_BODY_INSET,
-        right: MAC_BODY_INSET,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      })
+    const icon = composeMacAppIcon(tile, { channelOrder: "rgba", premultiplied: false });
+    return sharp(icon, {
+      raw: { width: MAC_APP_ICON_SIZE, height: MAC_APP_ICON_SIZE, channels: 4 },
+    })
       .png()
       .toBuffer();
   });

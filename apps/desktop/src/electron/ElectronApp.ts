@@ -1,4 +1,9 @@
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import {
+  composeMacAppIcon,
+  MAC_APP_ICON_SIZE,
+  MAC_APP_ICON_TILE_SIZE,
+} from "@t3tools/shared/macAppIcon";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -95,6 +100,26 @@ const addScopedAppListener = <Args extends ReadonlyArray<unknown>>(
         Electron.app.removeListener(eventName as any, listener as any);
       }),
   ).pipe(Effect.asVoid);
+
+const toMacAppIcon = (image: Electron.NativeImage): Electron.NativeImage => {
+  const { width, height } = image.getSize();
+  const side = Math.min(width, height);
+  const tile = image
+    .crop({
+      x: Math.floor((width - side) / 2),
+      y: Math.floor((height - side) / 2),
+      width: side,
+      height: side,
+    })
+    .resize({ width: MAC_APP_ICON_TILE_SIZE, height: MAC_APP_ICON_TILE_SIZE, quality: "best" })
+    .toBitmap();
+  if (tile.length !== MAC_APP_ICON_TILE_SIZE * MAC_APP_ICON_TILE_SIZE * 4) return image;
+  const icon = composeMacAppIcon(tile, { channelOrder: "bgra", premultiplied: true });
+  return Electron.nativeImage.createFromBitmap(Buffer.from(icon.buffer), {
+    width: MAC_APP_ICON_SIZE,
+    height: MAC_APP_ICON_SIZE,
+  });
+};
 
 export function toSystemLocaleTag(identifier: string, hourCycle?: "h12" | "h23"): string {
   const [base = "", keywords = ""] = identifier.split("@");
@@ -226,7 +251,7 @@ export const make = ElectronApp.of({
   setDockIconFromDataUrl: Effect.fn("ElectronApp.setDockIconFromDataUrl")(function (dataUrl) {
     return Effect.sync(() => {
       const image = Electron.nativeImage.createFromDataURL(dataUrl);
-      if (!image.isEmpty()) Electron.app.dock?.setIcon(image);
+      if (!image.isEmpty()) Electron.app.dock?.setIcon(toMacAppIcon(image));
     });
   }),
   appendCommandLineSwitch: Effect.fn("ElectronApp.appendCommandLineSwitch")(
