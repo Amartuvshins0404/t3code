@@ -341,6 +341,65 @@ describe("merge ledger", () => {
     }
   });
 
+  it.each([
+    { near: 569, far: 1290 },
+    { near: 600, far: 603 },
+  ])(
+    "names the closer of two fixes as the escape when they land $near and $far seconds after the change",
+    async ({ near, far }) => {
+      const repo = makeRepo();
+      try {
+        const commitAt = (message: string, seconds: number, text: string) => {
+          NodeFS.mkdirSync(NodePath.join(repo.dir, "src"), { recursive: true });
+          NodeFS.writeFileSync(NodePath.join(repo.dir, "src/limits.ts"), text);
+          repo.run(["add", "-A"]);
+          repo.run(["commit", "-q", "-m", message], START + seconds);
+          return repo.run(["rev-parse", "HEAD"]);
+        };
+        repo.commit("feat: base (#0)", -1, { "src/base.ts": lines("export const base = 1;") });
+        const change = commitAt(
+          "feat: limits (#1)",
+          0,
+          lines("export const low = 1;", "export const high = 9;"),
+        );
+        let closer = "";
+        let farther = "";
+        for (let nonce = 2; nonce < 66 && closer <= farther; nonce += 1) {
+          repo.run(["reset", "-q", "--hard", change]);
+          closer = commitAt(
+            "fix: low limit (#2)",
+            near,
+            lines(`export const low = ${nonce};`, "export const high = 9;"),
+          );
+          farther = commitAt(
+            "fix: high limit (#3)",
+            far,
+            lines(`export const low = ${nonce};`, "export const high = 99;"),
+          );
+        }
+        expect(closer > farther).toBe(true);
+
+        const ledger = await buildLedger({
+          cwd: repo.dir,
+          branch: "main",
+          since: "2025-12-01",
+          until: "2026-03-01",
+          packageDirs: [],
+        });
+
+        expect(
+          ledger.links.filter((link) => link.change === change).map((link) => link.by),
+        ).toEqual(expect.arrayContaining([closer, farther]));
+        expect(ledger.changes.find((entry) => entry.sha === change)?.escape).toMatchObject({
+          kind: "fix",
+          by: closer,
+        });
+      } finally {
+        repo.cleanup();
+      }
+    },
+  );
+
   it("reads the writer model from trailers or the repo's last-line convention", () => {
     expect(writerModel("Body\n\nCo-authored-by: GPT-6.1 Sol <noreply@openai.com>")).toBe(
       "GPT 6.1 Sol",
