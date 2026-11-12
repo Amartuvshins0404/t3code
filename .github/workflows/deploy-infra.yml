@@ -1,0 +1,137 @@
+name: Deploy self-hosted infra
+
+on:
+  push:
+    branches:
+      - amaraa-mode
+    paths:
+      - infra/auth/**
+      - infra/deploy/**
+      - .github/workflows/deploy-infra.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: t3-infra-deploy
+  cancel-in-progress: false
+
+env:
+  AUTH_IMAGE: ghcr.io/amartuvshins0404/t3-auth
+
+jobs:
+  build:
+    name: Build auth image
+    if: github.repository == 'Amartuvshins0404/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        run: |
+          docker buildx create --use
+          docker buildx build \
+            --platform linux/amd64 \
+            --file infra/auth/Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            --cache-from type=registry,ref=$AUTH_IMAGE:buildcache \
+            --cache-to type=registry,ref=$AUTH_IMAGE:buildcache,mode=max \
+            --tag $AUTH_IMAGE:${{ github.sha }} \
+            --push \
+            .
+
+  deploy:
+    name: Deploy to server
+    needs: build
+    if: github.repository == 'Amartuvshins0404/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: infra/deploy
+
+      - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' \
+            "Host deploy-target" \
+            "  HostName $DEPLOY_HOST" \
+            "  User deploy" \
+            "  IdentityFile ~/.ssh/deploy_key" \
+            "  IdentitiesOnly yes" \
+            "  StrictHostKeyChecking yes" > ~/.ssh/config
+
+      - name: Copy deploy files
+        run: |
+          ssh deploy-target 'find /opt/t3-infra -mindepth 1 -maxdepth 1 ! -name .env -exec rm -rf {} +'
+          tar -C infra/deploy -cf - . | ssh deploy-target 'tar -C /opt/t3-infra -xf -'
+
+      - name: Write environment file
+        env:
+          AUTH_TAG: ${{ github.sha }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GH_OAUTH_CLIENT_ID: ${{ vars.GH_OAUTH_CLIENT_ID }}
+          GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
+        run: |
+          printf '%s\n' \
+            "AUTH_TAG=$AUTH_TAG" \
+            "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+            "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET" \
+            "GH_OAUTH_CLIENT_ID=$GH_OAUTH_CLIENT_ID" \
+            "GH_OAUTH_CLIENT_SECRET=$GH_OAUTH_CLIENT_SECRET" \
+            | ssh deploy-target 'umask 077 && cat > /opt/t3-infra/.env.next && mv /opt/t3-infra/.env.next /opt/t3-infra/.env && chmod 600 /opt/t3-infra/.env'
+
+      - name: Pull and start services
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh deploy-target '
+            set -eu
+            export DOCKER_CONFIG="$(mktemp -d)"
+            trap "rm -rf \"$DOCKER_CONFIG\"" EXIT
+            docker login ghcr.io -u "${{ github.actor }}" --password-stdin > /dev/null
+            cd /opt/t3-infra
+            docker compose pull
+            docker compose up -d --wait --remove-orphans
+            sudo -n /usr/local/sbin/t3-infra-apply-ingress
+            docker compose ps
+          '
+
+      - name: Check health
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS https://auth.amartuvshin.com/api/auth/ok | grep -q '"ok":true'; then
+              curl -fsS https://auth.amartuvshin.com/api/auth/jwks | grep -q '"kty":"OKP"' && exit 0
+            fi
+            sleep 4
+          done
+          echo "auth.amartuvshin.com did not answer /api/auth/ok and /api/auth/jwks" >&2
+          exit 1

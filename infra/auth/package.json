@@ -1,0 +1,26 @@
+{
+  "name": "t3code-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "migrations:generate": "auth generate --config src/instance.ts --yes --output",
+    "test": "vp test run --config ../../vite.config.ts --dir .",
+    "typecheck": "effect-tsgo tsrs --noEmit"
+  },
+  "dependencies": {
+    "@better-auth/expo": "catalog:",
+    "@better-auth/passkey": "catalog:",
+    "better-auth": "catalog:",
+    "pg": "catalog:"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.13",
+    "@electric-sql/pglite-socket": "0.2.16",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "auth": "catalog:",
+    "jose": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

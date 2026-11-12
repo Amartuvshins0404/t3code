@@ -1,0 +1,14 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.pnpmfile.cjs
+!vite.config.ts
+!tsconfig.base.json
+!tsconfig.effect.json
+!patches
+!scripts/lib/cached-tests.ts
+!infra/task-cache/src/remoteCache.ts
+!infra/auth
+infra/auth/node_modules
+infra/auth/dist
