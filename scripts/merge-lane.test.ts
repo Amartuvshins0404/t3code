@@ -1,3 +1,5 @@
+import { it as effectIt } from "@effect/vitest";
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import { judge, type TestResult } from "../.github/scripts/blind-checks.cjs";
@@ -8,7 +10,9 @@ import {
   judgeRepairs,
   parseGitDiff,
   parseRepairs,
+  pullRequestForRun,
   readLock,
+  renderBotComment,
   renderChanges,
   renderLockComment,
   type ApiFile,
@@ -369,6 +373,57 @@ const checked = {
 };
 const originalLock = judgeChecks(checked).lock;
 
+const docsOnly = commit("b", "docs(user): slugs guide");
+const docsEdit: ApiFile = {
+  filename: "docs/user/slugs.md",
+  status: "modified",
+  patch: "@@ -1,1 +1,1 @@\n-Slugs.\n+Slugs keep letters.",
+};
+const lockedNames = ["keeps letters", "drops spaces", "ends a comment -->"] as const;
+const lockedFile = (names: ReadonlyArray<string>): ApiFile => ({
+  filename: slugTest.filename,
+  status: "added",
+  patch: [
+    `@@ -0,0 +1,${names.length} @@`,
+    ...names.map((name) => `+it(${JSON.stringify(name)}, () => {});`),
+  ].join("\n"),
+});
+const historyNames = [
+  "checked",
+  "rebased",
+  "docs only",
+  "checks gone",
+  "rewritten",
+  "revised",
+] as const;
+const histories: Record<
+  (typeof historyNames)[number],
+  (file: ApiFile) => Pick<typeof checked, "commits" | "firstFiles" | "prFiles">
+> = {
+  checked: (file) => ({ commits: [checks, code], firstFiles: [file], prFiles: [file, slugSource] }),
+  rebased: (file) => ({
+    commits: [rebased, code],
+    firstFiles: [file],
+    prFiles: [file, slugSource],
+  }),
+  "docs only": () => ({ commits: [docsOnly], firstFiles: [docsEdit], prFiles: [docsEdit] }),
+  "checks gone": () => ({ commits: [code], firstFiles: [], prFiles: [slugSource] }),
+  rewritten: () => ({
+    commits: [rebased, code],
+    firstFiles: [editedSlugTest],
+    prFiles: [editedSlugTest, slugSource],
+  }),
+  revised: (file) => ({
+    commits: [checks, revision, code],
+    firstFiles: [file],
+    prFiles: [editedSlugTest, slugSource],
+  }),
+};
+const strengthSections = [
+  "### Test strength: strong\n\nThe tests noticed all 3 breaks tried.",
+  "### Test strength: not measured\n\nBlind checks has not finished for this commit yet.",
+] as const;
+
 const checksCases: ReadonlyArray<{
   readonly name: string;
   readonly input: Partial<typeof checked>;
@@ -604,6 +659,127 @@ describe("locked checks", () => {
     const lock = verdict.lock!;
     expect(lock.files[0]?.tests).toEqual(["ends a comment -->"]);
     expect(readLock(renderLockComment(lock, verdict))).toEqual(lock);
+  });
+
+  it("still calls a weaker checks commit rewritten after a green docs-only run", () => {
+    const locked = renderBotComment({
+      previous: null,
+      checks: judgeChecks(checked),
+      strength: null,
+    });
+    const green = judgeChecks({ ...checked, ...histories["docs only"](slugTest), lane: "green" });
+    const afterGreen = renderBotComment({
+      previous: locked,
+      checks: green,
+      strength: strengthSections[1],
+    });
+    expect(readLock(afterGreen)).toEqual(originalLock);
+    const weaker = judgeChecks({
+      ...checked,
+      ...histories.rewritten(slugTest),
+      lock: readLock(afterGreen),
+    });
+    expect(weaker.reasons.map((reason) => reason.rule)).toEqual(["checks-rewritten"]);
+    expect(weaker.state).toBe("checks revised");
+  });
+
+  effectIt.prop(
+    "keeps the saved lock in its one comment on every later run",
+    {
+      names: Schema.NonEmptyArray(Schema.Literals(lockedNames)),
+      firstStrength: Schema.NullOr(Schema.Literals(strengthSections)),
+      writtenBefore: Schema.Boolean,
+      runs: Schema.Array(
+        Schema.Struct({
+          lane: Schema.Literals(["green", "amber", "red"]),
+          history: Schema.Literals(historyNames),
+          strength: Schema.NullOr(Schema.Literals(strengthSections)),
+        }),
+      ),
+    },
+    ({ names, firstStrength, writtenBefore, runs }) => {
+      const file = lockedFile(names);
+      const first = judgeChecks({ ...checked, ...histories.checked(file) });
+      const saved = first.lock;
+      expect(saved).not.toBeNull();
+      let comment = writtenBefore
+        ? renderLockComment(saved!, first)
+        : renderBotComment({ previous: null, checks: first, strength: firstStrength });
+      expect(readLock(comment)).toEqual(saved);
+      for (const run of runs) {
+        const now = judgeChecks({
+          ...checked,
+          ...histories[run.history](file),
+          lane: run.lane,
+          lock: readLock(comment),
+        });
+        comment = renderBotComment({ previous: comment, checks: now, strength: run.strength });
+        expect(readLock(comment)).toEqual(saved);
+      }
+    },
+  );
+});
+
+const head = "1".repeat(40);
+const moved = "2".repeat(40);
+const openPull = (number: number, sha: string, base = "amaraa-mode") => ({
+  number,
+  head: { sha },
+  base: { ref: base },
+});
+const runCases: ReadonlyArray<{
+  readonly name: string;
+  readonly linked: ReadonlyArray<{ readonly number: number }>;
+  readonly open: ReadonlyArray<ReturnType<typeof openPull>>;
+  readonly writes: number | null;
+}> = [
+  {
+    name: "a pull request from a branch in this repository",
+    linked: [{ number: 11 }],
+    open: [openPull(9, moved), openPull(11, head)],
+    writes: 11,
+  },
+  {
+    name: "a pull request from another fork, which the run does not link",
+    linked: [],
+    open: [openPull(9, moved), openPull(12, head)],
+    writes: 12,
+  },
+  {
+    name: "a fork pull request that moved on to a newer commit",
+    linked: [],
+    open: [openPull(12, moved)],
+    writes: null,
+  },
+  {
+    name: "a linked pull request that moved on to a newer commit",
+    linked: [{ number: 11 }],
+    open: [openPull(11, moved)],
+    writes: null,
+  },
+  {
+    name: "an open pull request at that commit into another branch",
+    linked: [],
+    open: [openPull(14, head, "release")],
+    writes: null,
+  },
+  {
+    name: "no open pull request at all",
+    linked: [],
+    open: [],
+    writes: null,
+  },
+];
+
+describe("which pull request a finished Blind Checks run writes to", () => {
+  it.each(runCases)("$name -> $writes", ({ linked, open, writes }) => {
+    expect(
+      pullRequestForRun({
+        run: { head_sha: head, pull_requests: linked },
+        open,
+        defaultBranch: "amaraa-mode",
+      }),
+    ).toBe(writes);
   });
 });
 

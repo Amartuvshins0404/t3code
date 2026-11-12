@@ -1,5 +1,8 @@
 const { execFileSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const { readWorkspace } = require("./ci-changes.cjs");
 const { countTestDelta, TEST_CASE } = require("./test-delta.cjs");
@@ -26,7 +29,7 @@ const PATH_RULES = [
     lane: "red",
     why: "Changes the lane rules or the merge ledger",
     paths: [
-      /^\.github\/scripts\/(merge-(lane|ledger)|blind-checks)/,
+      /^\.github\/scripts\/(merge-(lane|ledger)|blind-checks|test-strength)/,
       /^\.github\/workflows\/(merge-lane|blind-checks)\.ya?ml$/,
       /^scripts\/merge-(lane|ledger)/,
     ],
@@ -241,6 +244,20 @@ const TEST_NAME =
   /^\s*(?:it|test)(?:\.\w+)*(?:<[^>]*>)?\s*\((?:[^"'`()]*\)\s*\()?\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/;
 const NAMELESS_TEST = "a test whose name is not on its first line";
 const LOCK_MARKER = "<!-- merge-lane-lock";
+const STRENGTH_MARKER = "<!-- test-strength -->";
+const MAX_ARTIFACT_BYTES = 1024 * 1024;
+const MAX_MEASUREMENT_BYTES = 4 * 1024 * 1024;
+const STRENGTH_LABEL_LOOK = {
+  "strength:strong": {
+    color: "1f883d",
+    description: "The tests noticed every break in the changed code",
+  },
+  "strength:weak": {
+    color: "d1242f",
+    description: "The tests missed some breaks in the changed code",
+  },
+  "strength:unmeasured": { color: "cfd3d7", description: "Test strength was not measured" },
+};
 const LANE_BOT = "github-actions[bot]";
 const SCRIPT_FILE = /(?:^|\/)scripts\//;
 const REQUIRED_SUPPRESSIONS = [
@@ -358,6 +375,7 @@ const RULE_ORDER = [
   UNKNOWN_RULE.id,
   ...Object.keys(CONTENT_RULES),
   ...Object.keys(CHECKS_RULES),
+  "test-strength",
 ];
 
 function withReasons(result, extra) {
@@ -589,11 +607,9 @@ function renderChanges(changes) {
 }
 
 function readLock(body) {
-  const start = body.indexOf(LOCK_MARKER);
-  if (start === -1) return null;
-  const end = body.indexOf("-->", start);
+  if (!body.startsWith(LOCK_MARKER)) return null;
   try {
-    return JSON.parse(body.slice(start + LOCK_MARKER.length, end));
+    return JSON.parse(body.slice(LOCK_MARKER.length, body.indexOf("-->")));
   } catch {
     return null;
   }
@@ -621,6 +637,25 @@ function renderLockComment(lock, checks) {
     "",
     "The lane bot wrote this lock the first time it saw the checks commit, and keeps it. An edit to this comment shows in its edit history.",
   ].join("\n");
+}
+
+function renderBotComment({ previous, checks, strength }) {
+  const split = previous?.lastIndexOf(`\n\n${STRENGTH_MARKER}\n`) ?? -1;
+  const kept = previous?.startsWith(LOCK_MARKER)
+    ? previous.slice(0, split === -1 ? undefined : split)
+    : null;
+  const lockBlock = checks.lock ? renderLockComment(checks.lock, checks) : kept;
+  return [
+    ...(lockBlock ? [lockBlock] : []),
+    ...(strength === null ? [] : [`${STRENGTH_MARKER}\n${strength}`]),
+  ].join("\n\n");
+}
+
+function isBotComment(comment) {
+  return (
+    comment.user?.login === LANE_BOT &&
+    Boolean(comment.body?.startsWith(LOCK_MARKER) || comment.body?.startsWith(STRENGTH_MARKER))
+  );
 }
 
 function isRequired(env = process.env) {
@@ -828,9 +863,8 @@ async function judgePullRequest(api, repoPath, pr, listed) {
   if (base.lane !== "green") {
     const comments = await api.all(`${repoPath}/issues/${pr.number}/comments`);
     lockComment =
-      comments.find(
-        (comment) => comment.user?.login === LANE_BOT && comment.body?.includes(LOCK_MARKER),
-      ) ?? null;
+      comments.find((comment) => isBotComment(comment) && comment.body.startsWith(LOCK_MARKER)) ??
+      null;
     const firstFiles =
       commits[0] && checksMarker(commits[0].message)
         ? ((await api.get(`${repoPath}/commits/${commits[0].sha}`)).files ?? [])
@@ -870,32 +904,172 @@ function fetchPullRequestFiles(repo, number) {
   return { pr, listed, changedFiles: pr.changed_files };
 }
 
-async function syncLockComment(github, { owner, repo, number }, checks, lockComment) {
-  if (!checks.lock) return;
-  const body = renderLockComment(checks.lock, checks);
-  if (!lockComment) {
+async function syncComment(github, { owner, repo, number }, checks, comment, strengthText) {
+  const body = renderBotComment({
+    previous: comment?.body ?? null,
+    checks,
+    strength: strengthText,
+  });
+  if (!comment) {
     await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
-  } else if (lockComment.body !== body) {
-    await github.rest.issues.updateComment({ owner, repo, comment_id: lockComment.id, body });
+  } else if (comment.body !== body) {
+    await github.rest.issues.updateComment({ owner, repo, comment_id: comment.id, body });
+  }
+}
+
+function pullRequestForRun({ run, open, defaultBranch }) {
+  const matching = open
+    .filter((pr) => pr.head.sha === run.head_sha && pr.base.ref === defaultBranch)
+    .map((pr) => pr.number);
+  const linked = (run.pull_requests ?? []).map((entry) => entry.number);
+  return matching.find((number) => linked.includes(number)) ?? matching[0] ?? null;
+}
+
+async function pullRequestFor(github, context) {
+  if (context.payload.pull_request) return context.payload.pull_request;
+  const finished = context.payload.workflow_run;
+  if (finished?.event !== "pull_request") return null;
+  const { owner, repo } = context.repo;
+  const defaultBranch = context.payload.repository.default_branch;
+  const open = await github.paginate(github.rest.pulls.list, {
+    owner,
+    repo,
+    state: "open",
+    base: defaultBranch,
+    per_page: 100,
+  });
+  const number = pullRequestForRun({ run: finished, open, defaultBranch });
+  if (number === null) return null;
+  const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+  return pr.state === "open" && pullRequestForRun({ run: finished, open: [pr], defaultBranch })
+    ? pr
+    : null;
+}
+
+async function readMeasurement(github, { owner, repo }, sha) {
+  const { data } = await github.rest.actions.listWorkflowRuns({
+    owner,
+    repo,
+    workflow_id: "blind-checks.yml",
+    head_sha: sha,
+    event: "pull_request",
+    per_page: 20,
+  });
+  const latest = data.workflow_runs.sort(
+    (a, b) => b.run_number - a.run_number || b.run_attempt - a.run_attempt,
+  )[0];
+  if (!latest || latest.status !== "completed") return { state: "pending" };
+  const { data: listed } = await github.rest.actions.listWorkflowRunArtifacts({
+    owner,
+    repo,
+    run_id: latest.id,
+    name: "test-strength",
+  });
+  const artifact = listed.artifacts.find((entry) => !entry.expired);
+  if (!artifact || artifact.size_in_bytes > MAX_ARTIFACT_BYTES) return { state: "missing" };
+  const { data: zip } = await github.rest.actions.downloadArtifact({
+    owner,
+    repo,
+    artifact_id: artifact.id,
+    archive_format: "zip",
+  });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "strength-"));
+  try {
+    const file = path.join(dir, "measurement.zip");
+    fs.writeFileSync(file, Buffer.from(zip));
+    const measurement = JSON.parse(
+      execFileSync("unzip", ["-p", file, "measurement.json"], {
+        encoding: "utf8",
+        maxBuffer: MAX_MEASUREMENT_BYTES,
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    );
+    return measurement?.head === sha ? { state: "measured", measurement } : { state: "missing" };
+  } catch {
+    return { state: "missing" };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function judgeStrengthOf(github, api, repoPath, ids, pr, listed) {
+  const { judgeStrength, planStrength } = require("./test-strength.cjs");
+  const found = await readMeasurement(github, ids, pr.head.sha);
+  const measurement = found.state === "measured" ? found.measurement : null;
+  const commits = await api.all(`${repoPath}/pulls/${pr.number}/commits`);
+  const plan = planStrength({
+    firstMessage: commits[0]?.commit?.message ?? null,
+    commit: pr.head.sha,
+    files: listed,
+    repoFiles: Array.isArray(measurement?.tests)
+      ? measurement.tests.filter((file) => typeof file === "string").slice(0, 1000)
+      : [],
+  });
+  if (plan.run && !measurement) {
+    return {
+      result: "not measured",
+      reason: found.state,
+      tried: 0,
+      missed: 0,
+      missedLines: 0,
+      uncovered: 0,
+      examples: [],
+    };
+  }
+  return judgeStrength({
+    plan,
+    testsPassed: measurement?.testsPassed === true,
+    reports: Array.isArray(measurement?.reports) ? measurement.reports : [],
+    outOfTime: measurement?.outOfTime || undefined,
+  });
+}
+
+async function ensureLabel(github, { owner, repo }, name) {
+  try {
+    await github.rest.issues.getLabel({ owner, repo, name });
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    try {
+      await github.rest.issues.createLabel({ owner, repo, name, ...STRENGTH_LABEL_LOOK[name] });
+    } catch (created) {
+      if (created.status !== 422) throw created;
+    }
   }
 }
 
 async function syncPullRequest({ github, context, core }) {
-  const pr = context.payload.pull_request;
+  const {
+    isStrengthRequired,
+    renderStrength,
+    strengthLabelChanges,
+    strengthReasons,
+  } = require("./test-strength.cjs");
+  const pr = await pullRequestFor(github, context);
+  if (!pr) {
+    core.info("No open pull request has this commit as its head, so nothing was written.");
+    return null;
+  }
   const { owner, repo } = context.repo;
+  const api = octokitApi(github);
+  const repoPath = `/repos/${owner}/${repo}`;
   const listed = await github.paginate(github.rest.pulls.listFiles, {
     owner,
     repo,
     pull_number: pr.number,
     per_page: 100,
   });
-  const { result, checks, lockComment } = await judgePullRequest(
-    octokitApi(github),
-    `/repos/${owner}/${repo}`,
-    pr,
-    listed,
+  const judged = await judgePullRequest(api, repoPath, pr, listed);
+  const { checks, lockComment } = judged;
+  const strength = await judgeStrengthOf(github, api, repoPath, { owner, repo }, pr, listed);
+  const strengthRequired = isStrengthRequired();
+  const result = withReasons(
+    judged.result,
+    strengthReasons(strength, { required: strengthRequired }),
   );
-  await syncLockComment(github, { owner, repo, number: pr.number }, checks, lockComment);
+  const strengthText = renderStrength(strength, { required: strengthRequired });
+  const comment =
+    lockComment ?? (await api.all(`${repoPath}/issues/${pr.number}/comments`)).find(isBotComment);
+  await syncComment(github, { owner, repo, number: pr.number }, checks, comment, strengthText);
   const wanted = `lane:${result.lane}`;
 
   const current = await github.paginate(github.rest.issues.listLabelsOnIssue, {
@@ -904,29 +1078,36 @@ async function syncPullRequest({ github, context, core }) {
     issue_number: pr.number,
     per_page: 100,
   });
-  for (const label of current) {
-    if (!label.name.startsWith("lane:") || label.name === wanted) continue;
+  const labels = strengthLabelChanges(
+    current.map((label) => label.name),
+    strength.result,
+  );
+  const remove = [
+    ...current
+      .map((label) => label.name)
+      .filter((name) => name.startsWith("lane:") && name !== wanted),
+    ...labels.remove,
+  ];
+  for (const name of remove) {
     try {
-      await github.rest.issues.removeLabel({
-        owner,
-        repo,
-        issue_number: pr.number,
-        name: label.name,
-      });
+      await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name });
     } catch (error) {
       if (error.status !== 404) throw error;
     }
   }
-  if (!current.some((label) => label.name === wanted)) {
-    await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: [wanted] });
+  for (const name of labels.add) await ensureLabel(github, { owner, repo }, name);
+  const add = [...(current.some((label) => label.name === wanted) ? [] : [wanted]), ...labels.add];
+  if (add.length > 0) {
+    await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: add });
   }
 
   core.info(
-    `PR #${pr.number}: ${wanted} (${result.reasons.map((reason) => reason.rule).join(", ")})`,
+    `PR #${pr.number}: ${wanted}, strength ${strength.result} (${result.reasons.map((reason) => reason.rule).join(", ")})`,
   );
   const required = isRequired();
   await core.summary
     .addRaw(summarize(result, { maxFiles: 10, required, changes: checks.changes }))
+    .addRaw(`\n\n${strengthText}\n`)
     .write();
   const broken = result.reasons.filter((entry) => entry.rule in CHECKS_RULES);
   if (required && broken.length > 0) {
@@ -1003,6 +1184,8 @@ module.exports = {
   renderChanges,
   renderLockComment,
   readLock,
+  renderBotComment,
+  pullRequestForRun,
   syncPullRequest,
 };
 

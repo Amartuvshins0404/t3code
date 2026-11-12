@@ -4,27 +4,33 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, edited]
     branches: [amaraa-mode]
+  workflow_run:
+    workflows: [Blind Checks]
+    types: [completed]
 
 permissions: {}
 
 jobs:
   lane:
     name: Merge lane
-    if: github.repository == 'Amartuvshins0404/t3code'
+    if: github.repository == 'Amartuvshins0404/t3code' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: read
       issues: read
       pull-requests: write
     concurrency:
-      group: merge-lane-${{ github.event.pull_request.number }}
+      group: merge-lane-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha }}
       cancel-in-progress: true
+    env:
+      TEST_STRENGTH_MODE: ${{ vars.TEST_STRENGTH_MODE }}
     steps:
       - name: Checkout base branch rules without the vendored .repos tree
         shell: bash
         env:
-          CHECKOUT_REF: ${{ github.event.pull_request.base.sha }}
+          CHECKOUT_REF: ${{ github.event.pull_request.base.sha || github.sha }}
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
@@ -34,7 +40,7 @@ jobs:
           git sparse-checkout set --no-cone '/*' '!/.repos/'
           git checkout --detach FETCH_HEAD
 
-      - name: Judge the lane and sync its label
+      - name: Judge the lane and test strength, and sync the labels
         uses: actions/github-script@v8
         with:
           script: |
