@@ -1,5 +1,4 @@
-import * as Alchemy from "alchemy";
-import * as Cloudflare from "@alchemy.run/cloudflare";
+import type * as Cloudflare from "@alchemy.run/cloudflare";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -209,23 +208,3 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(ApnsDeliveryQueue, make);
-
-export const layerCloudflareQueues = (
-  sender: Cloudflare.Queues.WriteQueueClient,
-  alchemyRuntimeContext: Alchemy.BaseRuntimeContext,
-) =>
-  layer.pipe(
-    Layer.provide(
-      Layer.succeed(
-        ApnsDeliveryQueueSender,
-        ApnsDeliveryQueueSender.of({
-          send: Effect.fn("ApnsDeliveryQueueSender.send")(
-            function* (body) {
-              return yield* sender.send(body);
-            },
-            Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-          ),
-        }),
-      ),
-    ),
-  );

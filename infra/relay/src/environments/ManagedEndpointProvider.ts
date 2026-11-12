@@ -1,6 +1,5 @@
 import * as CloudflareRetry from "@distilled.cloud/cloudflare/Retry";
-import * as Alchemy from "alchemy";
-import * as Cloudflare from "@alchemy.run/cloudflare";
+import type * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -484,7 +483,7 @@ const CLOUDFLARE_PAUSE_REFRESH_MILLIS = 5_000;
  * call is too, from any isolate. Failing them without a request leaves the
  * account room to recover instead of extending the limit.
  */
-const makeCloudflareApiGate = (alchemyRuntimeContext: Alchemy.BaseRuntimeContext) => {
+const makeCloudflareApiGate = <R>(provide: ProvideCloudflareRequirements<R>) => {
   let pausedUntilMillis = 0;
   let checkedAtMillis = Number.NEGATIVE_INFINITY;
   return (pause: CloudflareApiPause.CloudflareApiPause["Service"]) => {
@@ -498,7 +497,7 @@ const makeCloudflareApiGate = (alchemyRuntimeContext: Alchemy.BaseRuntimeContext
       yield* pause.pauseUntil(until);
     });
     return <A, E>(
-      call: Effect.Effect<A, E, Alchemy.RuntimeContext>,
+      call: Effect.Effect<A, E, R>,
     ): Effect.Effect<A, E | CloudflareApiPaused | Cause.TimeoutError> =>
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
@@ -515,13 +514,12 @@ const makeCloudflareApiGate = (alchemyRuntimeContext: Alchemy.BaseRuntimeContext
             Effect.withSpan("relay.cloudflare_api_pause.rejected"),
           );
         }
-        return yield* call.pipe(
+        return yield* provide(call).pipe(
           Effect.provideService(CloudflareRetry.Retry, withoutRateLimitRetries),
           Effect.timeout("8 seconds"),
           Effect.tapError((cause) =>
             isCloudflareRateLimited(cause) ? recordRateLimit(cause) : Effect.void,
           ),
-          Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
         );
       });
   };
@@ -1576,13 +1574,41 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(ManagedEndpointProvider, make);
 
-export const layerCloudflareBindings = (
-  tunnelClient: Cloudflare.Tunnel.ReadWriteTunnelClient,
-  dnsClient: Cloudflare.DNS.ReadWriteDnsClient,
-  alchemyRuntimeContext: Alchemy.BaseRuntimeContext,
+type ProvideCloudflareRequirements<R> = <A, E>(
+  effect: Effect.Effect<A, E, R>,
+) => Effect.Effect<A, E>;
+
+type CloudflareApi<Client, R> = {
+  readonly [K in keyof Client]: Client[K] extends (
+    ...args: infer Args
+  ) => Effect.Effect<infer A, infer E, infer _R>
+    ? (...args: Args) => Effect.Effect<A, E, R>
+    : never;
+};
+
+export type CloudflareTunnelApi<R> = CloudflareApi<
+  Pick<
+    Cloudflare.Tunnel.ReadWriteTunnelClient,
+    "get" | "list" | "create" | "putConfiguration" | "getConfiguration" | "getToken" | "delete"
+  >,
+  R
+>;
+
+export type CloudflareDnsApi<R> = CloudflareApi<
+  Pick<
+    Cloudflare.DNS.ReadWriteDnsClient,
+    "listDnsRecords" | "createDnsRecord" | "updateDnsRecord" | "deleteDnsRecord"
+  >,
+  R
+>;
+
+export const layerCloudflareClients = <R>(
+  tunnelClient: CloudflareTunnelApi<R>,
+  dnsClient: CloudflareDnsApi<R>,
+  provide: ProvideCloudflareRequirements<R>,
 ) => {
   // Created once per isolate so its cached pause survives layer rebuilds.
-  const cloudflare = makeCloudflareApiGate(alchemyRuntimeContext);
+  const cloudflare = makeCloudflareApiGate(provide);
   return layer.pipe(
     Layer.provideMerge(
       Layer.unwrap(
