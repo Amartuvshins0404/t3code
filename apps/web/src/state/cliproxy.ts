@@ -52,3 +52,49 @@ export const cliproxyDisconnect = createEnvironmentRpcCommand(connectionAtomRunt
   tag: WS_METHODS.cliproxyDisconnect,
   concurrency: singleFlight,
 });
+
+export const cliproxyAccounts = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:accounts",
+  tag: WS_METHODS.cliproxyAccountsList,
+  staleTimeMs: 30_000,
+  idleTtlMs: 5 * 60_000,
+});
+
+export const cliproxyRouting = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:routing",
+  tag: WS_METHODS.cliproxyRoutingGet,
+  staleTimeMs: 30_000,
+  idleTtlMs: 5 * 60_000,
+});
+
+export const cliproxySignInStart = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:sign-in-start",
+  tag: WS_METHODS.cliproxyAccountsSignInStart,
+  concurrency: singleFlight,
+});
+
+export const cliproxySignInStatus = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:sign-in-status",
+  tag: WS_METHODS.cliproxyAccountsSignInStatus,
+});
+
+export const cliproxySignInCancel = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:sign-in-cancel",
+  tag: WS_METHODS.cliproxyAccountsSignInCancel,
+});
+
+export const cliproxyRemoveAccount = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:remove-account",
+  tag: WS_METHODS.cliproxyAccountsRemove,
+});
+
+export const cliproxySetAccountEnabled = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:set-account-enabled",
+  tag: WS_METHODS.cliproxyAccountsSetEnabled,
+});
+
+export const cliproxySetRouting = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:cliproxy:set-routing",
+  tag: WS_METHODS.cliproxyRoutingSet,
+  concurrency: singleFlight,
+});

@@ -1067,6 +1067,8 @@ export function EnvironmentProviderSettings({
                 {rows.map((row) => renderProviderInstance(row, "list"))}
                 {cliproxy ? (
                   <CliProxyProviderRow
+                    environmentId={environmentId}
+                    sourceId={UsageLimitSourceId.make(cliproxy[0])}
                     source={cliproxy[1]}
                     selected={cliproxySelected}
                     onSelect={() => setSelectedInstanceId(CLIPROXY_ROW)}
@@ -1088,14 +1090,16 @@ export function EnvironmentProviderSettings({
 
           <div data-provider-detail className="min-w-0 @min-[48rem]/providers:min-h-0">
             {cliproxySelected ? (
-              <div className="py-4">
-                <CliProxyDetails
-                  environmentId={environmentId}
-                  sourceId={UsageLimitSourceId.make(cliproxy[0])}
-                  source={cliproxy[1]}
-                  providerNames={cliproxyProviderNames}
-                />
-              </div>
+              <ScrollArea scrollFade chainVerticalScroll className="@min-[48rem]/providers:h-full">
+                <div className="py-4">
+                  <CliProxyDetails
+                    environmentId={environmentId}
+                    sourceId={UsageLimitSourceId.make(cliproxy[0])}
+                    source={cliproxy[1]}
+                    providerNames={cliproxyProviderNames}
+                  />
+                </div>
+              </ScrollArea>
             ) : selectedRow ? (
               <ScrollArea scrollFade chainVerticalScroll className="@min-[48rem]/providers:h-full">
                 {/* Flat sections run dividers edge to edge and inset text like the list beside them. */}

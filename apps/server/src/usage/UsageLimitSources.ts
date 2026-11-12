@@ -1,11 +1,21 @@
 import {
   CLIPROXY_CLAUDE_INSTANCE_ID,
   CLIPROXY_CODEX_INSTANCE_ID,
+  type CliproxyAccount,
+  type CliproxyAccountInput,
   type CliproxyAddProvidersInput,
   type CliproxyAddProvidersResult,
   CliproxyLocalError,
   type CliproxyConnectLocalInput,
   type CliproxyLocalStatus,
+  CliproxyManageError,
+  type CliproxyRouting,
+  type CliproxySetAccountEnabledInput,
+  type CliproxySetRoutingInput,
+  type CliproxySignIn,
+  type CliproxySignInInput,
+  type CliproxySignInStartInput,
+  type CliproxySignInStatus,
   DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL,
   ProviderDriverKind,
   type ProviderInstanceConfig,
@@ -65,6 +75,28 @@ export class UsageLimitSources extends Context.Service<
     readonly revealManagementKey: (
       sourceId: UsageLimitSourceId,
     ) => Effect.Effect<string, UsageLimitSourceError>;
+    readonly listAccounts: (
+      sourceId: UsageLimitSourceId,
+    ) => Effect.Effect<ReadonlyArray<CliproxyAccount>, CliproxyManageError>;
+    readonly startSignIn: (
+      input: CliproxySignInStartInput,
+    ) => Effect.Effect<CliproxySignIn, CliproxyManageError>;
+    readonly signInStatus: (
+      input: CliproxySignInInput,
+    ) => Effect.Effect<CliproxySignInStatus, CliproxyManageError>;
+    readonly cancelSignIn: (input: CliproxySignInInput) => Effect.Effect<void, CliproxyManageError>;
+    readonly removeAccount: (
+      input: CliproxyAccountInput,
+    ) => Effect.Effect<void, CliproxyManageError>;
+    readonly setAccountEnabled: (
+      input: CliproxySetAccountEnabledInput,
+    ) => Effect.Effect<void, CliproxyManageError>;
+    readonly routing: (
+      sourceId: UsageLimitSourceId,
+    ) => Effect.Effect<CliproxyRouting, CliproxyManageError>;
+    readonly setRouting: (
+      input: CliproxySetRoutingInput,
+    ) => Effect.Effect<void, CliproxyManageError>;
   }
 >()("t3/usage/UsageLimitSources") {}
 
@@ -465,6 +497,66 @@ export const make = Effect.gen(function* () {
     Effect.withSpan("UsageLimitSources.disconnect"),
   );
 
+  const layerScope = yield* Effect.scope;
+  const refreshLater = refresh.pipe(Effect.forkIn(layerScope), Effect.asVoid);
+
+  const hubFor = Effect.fn("UsageLimitSources.hubFor")(function* (sourceId: UsageLimitSourceId) {
+    const { config, managementKey } = yield* readEnabledSource(sourceId).pipe(
+      Effect.mapError(() => new CliproxyManageError({ reason: "notConnected" })),
+    );
+    return { url: config.url, managementKey };
+  });
+
+  const listAccounts = Effect.fn("UsageLimitSources.listAccounts")(function* (
+    sourceId: UsageLimitSourceId,
+  ) {
+    return yield* api.listAccounts(yield* hubFor(sourceId));
+  });
+
+  const startSignIn = Effect.fn("UsageLimitSources.startSignIn")(function* (
+    input: CliproxySignInStartInput,
+  ) {
+    return yield* api.startSignIn(yield* hubFor(input.sourceId), input.provider);
+  });
+
+  const signInStatus = Effect.fn("UsageLimitSources.signInStatus")(function* (
+    input: CliproxySignInInput,
+  ) {
+    const status = yield* api.signInStatus(yield* hubFor(input.sourceId), input.state);
+    if (status.status === "done") yield* refreshLater;
+    return status;
+  });
+
+  const cancelSignIn = Effect.fn("UsageLimitSources.cancelSignIn")(function* (
+    input: CliproxySignInInput,
+  ) {
+    yield* api.cancelSignIn(yield* hubFor(input.sourceId), input.state);
+  });
+
+  const removeAccount = Effect.fn("UsageLimitSources.removeAccount")(function* (
+    input: CliproxyAccountInput,
+  ) {
+    yield* api.removeAccount(yield* hubFor(input.sourceId), input.name);
+    yield* refreshLater;
+  });
+
+  const setAccountEnabled = Effect.fn("UsageLimitSources.setAccountEnabled")(function* (
+    input: CliproxySetAccountEnabledInput,
+  ) {
+    yield* api.setAccountEnabled(yield* hubFor(input.sourceId), input.name, input.enabled);
+    yield* refreshLater;
+  });
+
+  const routing = Effect.fn("UsageLimitSources.routing")(function* (sourceId: UsageLimitSourceId) {
+    return yield* api.routing(yield* hubFor(sourceId));
+  });
+
+  const setRouting = Effect.fn("UsageLimitSources.setRouting")(function* (
+    input: CliproxySetRoutingInput,
+  ) {
+    yield* api.setRouting(yield* hubFor(input.sourceId), input.strategy);
+  });
+
   yield* settingsService.streamChanges.pipe(
     Stream.map((settings) => settings.usageLimitSources),
     Stream.changes,
@@ -505,6 +597,14 @@ export const make = Effect.gen(function* () {
     addLocalProviders,
     disconnect,
     revealManagementKey,
+    listAccounts,
+    startSignIn,
+    signInStatus,
+    cancelSignIn,
+    removeAccount,
+    setAccountEnabled,
+    routing,
+    setRouting,
     get streamChanges() {
       return Stream.unwrap(
         Effect.gen(function* () {

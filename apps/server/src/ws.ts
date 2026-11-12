@@ -2669,6 +2669,16 @@ export const layerWsRpc = (
         [WS_METHODS.cliproxyLocalRevealKey]: (input) =>
           usageLimitSources.revealManagementKey(input.sourceId),
         [WS_METHODS.cliproxyDisconnect]: (_input) => usageLimitSources.disconnect,
+        [WS_METHODS.cliproxyAccountsList]: (input) =>
+          usageLimitSources.listAccounts(input.sourceId),
+        [WS_METHODS.cliproxyAccountsSignInStart]: (input) => usageLimitSources.startSignIn(input),
+        [WS_METHODS.cliproxyAccountsSignInStatus]: (input) => usageLimitSources.signInStatus(input),
+        [WS_METHODS.cliproxyAccountsSignInCancel]: (input) => usageLimitSources.cancelSignIn(input),
+        [WS_METHODS.cliproxyAccountsRemove]: (input) => usageLimitSources.removeAccount(input),
+        [WS_METHODS.cliproxyAccountsSetEnabled]: (input) =>
+          usageLimitSources.setAccountEnabled(input),
+        [WS_METHODS.cliproxyRoutingGet]: (input) => usageLimitSources.routing(input.sourceId),
+        [WS_METHODS.cliproxyRoutingSet]: (input) => usageLimitSources.setRouting(input),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
           Stream.callback<RelayClientInstallProgressEvent, RelayClientInstallFailedError>((queue) =>

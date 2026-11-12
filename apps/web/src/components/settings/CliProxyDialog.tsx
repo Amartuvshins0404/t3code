@@ -1,15 +1,22 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import {
   CLIPROXY_INSTALL_URL,
+  type CliproxyAccount,
   CliproxyLocalError,
   type CliproxyLocalFailureReason,
   type CliproxyLocalStatus,
+  CliproxyManageError,
+  type CliproxyRoutingStrategy,
+  type CliproxySignIn,
+  type CliproxySignInProvider,
   type EnvironmentId,
   type SecretReference,
+  type ServerProviderUsageWindow,
   type UsageLimitSourceConfig,
   type UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { usageLimitSourceIdFromUrl } from "@t3tools/shared/serverSettings";
+import { remainingPercent } from "@t3tools/shared/usageLimits";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
@@ -18,24 +25,37 @@ import {
   CircleIcon,
   CopyIcon,
   ExternalLinkIcon,
+  PlusIcon,
   WaypointsIcon,
   XIcon,
 } from "lucide-react";
-import { useContext, useState } from "react";
+import { useContext, useRef, useState } from "react";
 
+import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { cn } from "~/lib/utils";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { ensureLocalApi } from "../../localApi";
 import {
+  cliproxyAccounts,
   cliproxyDisconnect,
   cliproxyLocalConnect,
   cliproxyLocalInstall,
   cliproxyLocalRevealKey,
   cliproxyLocalSetNewKey,
   cliproxyLocalStatus,
+  cliproxyRemoveAccount,
+  cliproxyRouting,
+  cliproxySetAccountEnabled,
+  cliproxySetRouting,
+  cliproxySignInCancel,
+  cliproxySignInStart,
+  cliproxySignInStatus,
 } from "../../state/cliproxy";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { AccountChip } from "../usage/UsageLimitsPooled";
+import { providerClients } from "./providerDriverMeta";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -57,6 +77,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { SecretInput } from "./SecretInput";
 import { SecretSourceInput, useSecretSources } from "./SecretSourceInput";
@@ -90,6 +111,56 @@ function useCopyProxyKey(environmentId: EnvironmentId) {
     else setCopyFailed(true);
   };
   return { canCopyKey, copyKey, isCopied, copyFailed };
+}
+
+const isManageError = Schema.is(CliproxyManageError);
+
+function cliproxyManageFailureMessage(cause: Cause.Cause<unknown>): string {
+  const error = Cause.squash(cause);
+  switch (isManageError(error) ? error.reason : null) {
+    case "notConnected":
+      return "The proxy isn't connected anymore. Connect it again.";
+    case "unreachable":
+      return "The proxy didn't answer. Check that it's running, then try again.";
+    case "keyRejected":
+      return "The proxy didn't accept the saved key. Disconnect, then connect again with the right key.";
+    case "lockedOut":
+      return "Too many wrong keys. The proxy blocks new tries for 30 minutes, or until it restarts.";
+    case "notFound":
+      return "The proxy doesn't have that account anymore. Refresh the list.";
+    case "refused":
+      return "The proxy refused the request. Check that its management API is on, then try again.";
+    case "unexpectedResponse":
+      return "The proxy sent an answer the app doesn't understand. Update CLIProxyAPI, then try again.";
+    case null:
+      return "Couldn't reach the proxy. Try again.";
+  }
+}
+
+const ROUTING_LABELS: Record<CliproxyRoutingStrategy, string> = {
+  "round-robin": "Spread evenly",
+  "fill-first": "Use one until it's full",
+  "weighted-round-robin": "Weighted",
+};
+
+function hubAddress(url: string): string {
+  try {
+    return new URL(url.includes("://") ? url : `http://${url}`).host || url;
+  } catch {
+    return url;
+  }
+}
+
+function cliproxyAccountName(account: CliproxyAccount): string {
+  return account.email ?? account.label ?? account.name;
+}
+
+function limitSummary(windows: ReadonlyArray<ServerProviderUsageWindow>): string | null {
+  const shown = (["session", "weekly"] as const).flatMap((kind) => {
+    const window = windows.find((entry) => entry.kind === kind);
+    return window ? [`${window.label} ${remainingPercent(window)}% left`] : [];
+  });
+  return shown.length > 0 ? shown.join(" · ") : null;
 }
 
 function CopyFailedNote() {
@@ -248,7 +319,6 @@ function LocalSetup({
   const install = useAtomCommand(cliproxyLocalInstall, { reportFailure: false });
   const connect = useAtomCommand(cliproxyLocalConnect, { reportFailure: false });
   const setNewKey = useAtomCommand(cliproxyLocalSetNewKey, { reportFailure: false });
-  const { canCopyKey, copyKey, isCopied, copyFailed } = useCopyProxyKey(environmentId);
   const [managementKey, setManagementKey] = useState("");
   const [busy, setBusy] = useState<Busy>(null);
   const [failure, setFailure] = useState<{ reason: CliproxyLocalFailureReason | null } | null>(
@@ -419,12 +489,9 @@ function LocalSetup({
           )}
           {connected ? (
             <p className="text-sm text-muted-foreground">
-              {canCopyKey
-                ? "Add Claude or Codex accounts in the proxy's panel. Sign in with the management key: use Copy key."
-                : "Add Claude or Codex accounts in the proxy's panel. Sign in there with the management key."}
+              Add Claude or Codex accounts in Settings, under Providers → CLI Proxy.
             </p>
           ) : null}
-          {copyFailed ? <CopyFailedNote /> : null}
           {error}
           {connected ? null : permissionNote}
           {connected ? null : remoteLink}
@@ -434,26 +501,7 @@ function LocalSetup({
         <Button variant="outline" onClick={onClose}>
           {connected ? "Close" : "Cancel"}
         </Button>
-        {sourceId !== undefined && canCopyKey ? (
-          <Button variant="outline" onClick={() => void copyKey(sourceId)}>
-            <CopyIcon className="size-3.5" aria-hidden />
-            {isCopied ? "Copied" : "Copy key"}
-          </Button>
-        ) : null}
-        {connected ? (
-          <Button
-            render={
-              <a
-                href={proxyPanelUrl(status.url) ?? undefined}
-                target="_blank"
-                rel="noreferrer noopener"
-              />
-            }
-          >
-            Open panel to add accounts
-            <ExternalLinkIcon className="size-3.5" aria-hidden />
-          </Button>
-        ) : status.autoInstall ? (
+        {connected ? null : status.autoInstall ? (
           <Button disabled={busy !== null || !canWrite} onClick={() => void run("install")}>
             {busy === "install" ? <Spinner /> : null}
             {busy === "install"
@@ -568,14 +616,21 @@ function RemoteHubForm({
 }
 
 export function CliProxyProviderRow({
+  environmentId,
+  sourceId,
   source,
   selected,
   onSelect,
 }: {
+  readonly environmentId: EnvironmentId;
+  readonly sourceId: UsageLimitSourceId;
   readonly source: UsageLimitSourceConfig;
   readonly selected: boolean;
   readonly onSelect: () => void;
 }) {
+  const accountCount = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+  )?.usageLimitSources?.find((snapshot) => snapshot.id === sourceId)?.accounts.length;
   return (
     <div
       data-slot="settings-row"
@@ -596,7 +651,10 @@ export function CliProxyProviderRow({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-foreground">CLI Proxy</span>
           <span className="mt-0.5 block truncate text-xs leading-normal text-muted-foreground/80">
-            Connected · {source.url}
+            Connected ·{" "}
+            {accountCount
+              ? `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`
+              : source.url}
           </span>
         </span>
       </div>
@@ -618,42 +676,327 @@ export function CliProxyDetails({
   const registry = useContext(RegistryContext);
   const { canCopyKey, copyKey, isCopied, copyFailed } = useCopyProxyKey(environmentId);
   const canDisconnect = useAtomValue(cliproxyDisconnect.permissionAtom(environmentId));
+  const canManage = useAtomValue(cliproxyRemoveAccount.permissionAtom(environmentId));
   const disconnect = useAtomCommand(cliproxyDisconnect);
+  const startSignIn = useAtomCommand(cliproxySignInStart, { reportFailure: false });
+  const readSignIn = useAtomCommand(cliproxySignInStatus, { reportFailure: false });
+  const cancelSignIn = useAtomCommand(cliproxySignInCancel, { reportFailure: false });
+  const removeAccount = useAtomCommand(cliproxyRemoveAccount, { reportFailure: false });
+  const setAccountEnabled = useAtomCommand(cliproxySetAccountEnabled, { reportFailure: false });
+  const setRouting = useAtomCommand(cliproxySetRouting, { reportFailure: false });
+  const accountsAtom = cliproxyAccounts({ environmentId, input: { sourceId } });
+  const routingAtom = cliproxyRouting({ environmentId, input: { sourceId } });
+  const accounts = useAtomValue(accountsAtom);
+  const routing = useAtomValue(routingAtom);
+  const local = AsyncResult.getOrElse(useAtomValue(statusAtom(environmentId)), () => null);
+  const limits = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+  )?.usageLimitSources?.find((snapshot) => snapshot.id === sourceId);
   const [confirming, setConfirming] = useState(false);
+  const [removing, setRemoving] = useState<CliproxyAccount | null>(null);
+  const [busyAccount, setBusyAccount] = useState<string | null>(null);
+  const [signIn, setSignIn] = useState<CliproxySignIn | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const activeSignIn = useRef<string | null>(null);
   const panelUrl = proxyPanelUrl(source.url);
+  const listed = AsyncResult.getOrElse(accounts, () => null);
+  const strategy = AsyncResult.getOrElse(routing, () => null)?.strategy;
+  const refreshing = accounts.waiting || routing.waiting;
+
+  const refresh = () => {
+    registry.refresh(accountsAtom);
+    registry.refresh(routingAtom);
+    registry.refresh(statusAtom(environmentId));
+  };
+
+  const addAccount = async (provider: CliproxySignInProvider) => {
+    setNotice(null);
+    const started = await startSignIn({ environmentId, input: { sourceId, provider } });
+    if (started._tag !== "Success") {
+      setNotice(cliproxyManageFailureMessage(started.cause));
+      return;
+    }
+    const { state, url } = started.value;
+    activeSignIn.current = state;
+    setSignIn(started.value);
+    void ensureLocalApi()
+      .shell.openExternal(url)
+      .catch(() => undefined);
+    while (activeSignIn.current === state) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (activeSignIn.current !== state) return;
+      const result = await readSignIn({ environmentId, input: { sourceId, state } });
+      if (activeSignIn.current !== state) return;
+      if (result._tag === "Success" && result.value.status === "waiting") continue;
+      activeSignIn.current = null;
+      setSignIn(null);
+      if (result._tag !== "Success") setNotice(cliproxyManageFailureMessage(result.cause));
+      else if (result.value.status === "failed") {
+        setNotice(`Sign-in didn't finish: ${result.value.error ?? "the proxy gave no reason"}.`);
+      }
+      registry.refresh(accountsAtom);
+    }
+  };
+
+  const stopSignIn = () => {
+    const state = activeSignIn.current;
+    activeSignIn.current = null;
+    setSignIn(null);
+    if (state !== null) void cancelSignIn({ environmentId, input: { sourceId, state } });
+  };
+
+  const changeAccount = async (account: CliproxyAccount, change: "toggle" | "remove") => {
+    setNotice(null);
+    setBusyAccount(account.name);
+    const input = { sourceId, name: account.name };
+    const result =
+      change === "remove"
+        ? await removeAccount({ environmentId, input })
+        : await setAccountEnabled({
+            environmentId,
+            input: { ...input, enabled: account.status === "off" },
+          });
+    setBusyAccount(null);
+    if (result._tag !== "Success") setNotice(cliproxyManageFailureMessage(result.cause));
+    registry.refresh(accountsAtom);
+  };
+
+  const changeRouting = async (next: CliproxyRoutingStrategy) => {
+    setNotice(null);
+    const result = await setRouting({ environmentId, input: { sourceId, strategy: next } });
+    if (result._tag !== "Success") setNotice(cliproxyManageFailureMessage(result.cause));
+    registry.refresh(routingAtom);
+  };
+
+  const proxyState =
+    local?.sourceId !== sourceId ? "Connected" : local.running ? "Running" : "Not running";
+  const routingChoices = (["round-robin", "fill-first", "weighted-round-robin"] as const).filter(
+    (value) => value !== "weighted-round-robin" || strategy === value,
+  );
 
   return (
-    <SettingsSection title="CLI Proxy" icon={<WaypointsIcon className="size-5" aria-hidden />}>
-      <SettingsRow
-        title="Connected"
-        description={<span className="break-all">{source.url}</span>}
-        status={copyFailed ? <CopyFailedNote /> : undefined}
-        control={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {canCopyKey ? (
-              <Button size="xs" variant="outline" onClick={() => void copyKey(sourceId)}>
-                <CopyIcon className="size-3.5" aria-hidden />
-                {isCopied ? "Copied" : "Copy key"}
-              </Button>
-            ) : null}
-            {panelUrl ? (
-              <Button
-                size="xs"
-                variant="outline"
-                render={<a href={panelUrl} target="_blank" rel="noreferrer noopener" />}
-              >
-                Open panel
-                <ExternalLinkIcon className="size-3.5" aria-hidden />
-              </Button>
-            ) : null}
-            {canDisconnect ? (
+    <div className="space-y-6">
+      <SettingsSection
+        title="CLI Proxy"
+        icon={<WaypointsIcon className="size-5" aria-hidden />}
+        headerAction={
+          <Button
+            size="icon-xs"
+            variant="ghost-muted"
+            disabled={refreshing}
+            aria-label="Refresh CLI Proxy"
+            onClick={refresh}
+          >
+            <RefreshIcon refreshing={refreshing} />
+          </Button>
+        }
+      >
+        <SettingsRow
+          title={<span className="break-all">{hubAddress(source.url)}</span>}
+          description={proxyState}
+          control={
+            canDisconnect ? (
               <Button size="xs" variant="destructive-outline" onClick={() => setConfirming(true)}>
                 Disconnect
               </Button>
-            ) : null}
-          </div>
+            ) : undefined
+          }
+        />
+        <SettingsRow
+          title="Routing"
+          description="How the proxy picks an account for each request."
+          status={
+            AsyncResult.isFailure(routing) ? (
+              <p className="text-sm text-destructive" role="alert">
+                {cliproxyManageFailureMessage(routing.cause)}
+              </p>
+            ) : undefined
+          }
+          control={
+            strategy ? (
+              <Select
+                items={routingChoices.map((value) => ({ value, label: ROUTING_LABELS[value] }))}
+                value={strategy}
+                disabled={!canManage}
+                onValueChange={(value) => {
+                  if (value !== null) void changeRouting(value);
+                }}
+              >
+                <SelectTrigger size="xs" className="w-48" aria-label="Routing">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {routingChoices.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {ROUTING_LABELS[value]}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            ) : undefined
+          }
+        />
+        {canCopyKey ? (
+          <SettingsRow
+            title="Management key"
+            description="••••••••"
+            status={copyFailed ? <CopyFailedNote /> : undefined}
+            control={
+              <Button size="xs" variant="outline" onClick={() => void copyKey(sourceId)}>
+                <CopyIcon className="size-3.5" aria-hidden />
+                {isCopied ? "Copied" : "Copy"}
+              </Button>
+            }
+          />
+        ) : null}
+      </SettingsSection>
+      <SettingsSection
+        title="Accounts"
+        headerAction={
+          canManage ? (
+            <div className="flex items-center gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={signIn !== null}
+                onClick={() => void addAccount("claude")}
+              >
+                <PlusIcon className="size-3.5" aria-hidden />
+                Add Claude
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={signIn !== null}
+                onClick={() => void addAccount("codex")}
+              >
+                <PlusIcon className="size-3.5" aria-hidden />
+                Add Codex
+              </Button>
+            </div>
+          ) : undefined
         }
-      />
+      >
+        {signIn ? (
+          <SettingsRow
+            title={
+              <span className="flex items-center gap-2">
+                <Spinner size="xs" tone="muted" />
+                Waiting for sign-in…
+              </span>
+            }
+            description="Finish in the browser on the computer that runs the proxy."
+            control={
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => void ensureLocalApi().shell.openExternal(signIn.url)}
+                >
+                  Open sign-in page
+                  <ExternalLinkIcon className="size-3.5" aria-hidden />
+                </Button>
+                <Button size="xs" variant="outline" onClick={stopSignIn}>
+                  Cancel
+                </Button>
+              </div>
+            }
+          />
+        ) : null}
+        {notice ? (
+          <SettingsRow
+            title={
+              <span className="text-destructive" role="alert">
+                {notice}
+              </span>
+            }
+          />
+        ) : null}
+        {listed ? (
+          listed.length === 0 ? (
+            <SettingsRow
+              title="No accounts yet"
+              description="Add a Claude or Codex account to start pooling."
+            />
+          ) : (
+            listed.map((account) => (
+              <CliProxyAccountRow
+                key={account.name}
+                account={account}
+                windows={
+                  limits?.accounts.find((entry) => entry.id === account.id)?.usageLimits.windows
+                }
+                canManage={canManage}
+                busy={busyAccount === account.name}
+                onToggle={() => void changeAccount(account, "toggle")}
+                onRemove={() => setRemoving(account)}
+              />
+            ))
+          )
+        ) : AsyncResult.isFailure(accounts) ? (
+          <SettingsRow
+            title={
+              <span className="text-destructive" role="alert">
+                {cliproxyManageFailureMessage(accounts.cause)}
+              </span>
+            }
+            control={
+              <Button size="xs" variant="outline" onClick={refresh}>
+                Try again
+              </Button>
+            }
+          />
+        ) : (
+          <SettingsRow
+            title={
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <Spinner size="xs" tone="muted" />
+                Loading accounts…
+              </span>
+            }
+          />
+        )}
+      </SettingsSection>
+      {panelUrl ? (
+        <Button
+          size="xs"
+          variant="link"
+          className="mx-3 sm:mx-4"
+          render={<a href={panelUrl} target="_blank" rel="noreferrer noopener" />}
+        >
+          Open the proxy's web panel
+        </Button>
+      ) : null}
+      <AlertDialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null);
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {removing ? cliproxyAccountName(removing) : "this account"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The proxy deletes its sign-in. You can add the account again later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const account = removing;
+                setRemoving(null);
+                if (account) void changeAccount(account, "remove");
+              }}
+            >
+              Remove
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogPopup>
           <AlertDialogHeader>
@@ -680,6 +1023,61 @@ export function CliProxyDetails({
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-    </SettingsSection>
+    </div>
+  );
+}
+
+function CliProxyAccountRow({
+  account,
+  windows,
+  canManage,
+  busy,
+  onToggle,
+  onRemove,
+}: {
+  readonly account: CliproxyAccount;
+  readonly windows: ReadonlyArray<ServerProviderUsageWindow> | undefined;
+  readonly canManage: boolean;
+  readonly busy: boolean;
+  readonly onToggle: () => void;
+  readonly onRemove: () => void;
+}) {
+  const provider =
+    (account.driver ? providerClients.get(account.driver)?.label : undefined) ?? account.provider;
+  const state =
+    account.status === "off"
+      ? "Turned off"
+      : account.status === "error"
+        ? "Error"
+        : windows
+          ? limitSummary(windows)
+          : null;
+  return (
+    <SettingsRow
+      title={
+        <span className="flex min-w-0 items-center gap-2">
+          {account.email ? <AccountChip email={account.email} /> : null}
+          <span className="truncate">{cliproxyAccountName(account)}</span>
+        </span>
+      }
+      description={[provider, account.plan, state].filter(Boolean).join(" · ")}
+      status={
+        account.statusMessage ? (
+          <p className="text-sm break-words text-destructive">{account.statusMessage}</p>
+        ) : undefined
+      }
+      control={
+        canManage ? (
+          <div className="flex items-center justify-end gap-2">
+            <Button size="xs" variant="outline" disabled={busy} onClick={onToggle}>
+              {account.status === "off" ? "Turn on" : "Turn off"}
+            </Button>
+            <Button size="xs" variant="destructive-outline" disabled={busy} onClick={onRemove}>
+              Remove
+            </Button>
+          </div>
+        ) : undefined
+      }
+    />
   );
 }

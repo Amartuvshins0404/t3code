@@ -181,8 +181,6 @@ at a time; connecting another replaces it.
   connects it for you. A new install only accepts connections from the same computer.
 - If a proxy is already running, enter its management key. If you lost it, choose
   **Set a new key**; tools that use the old key stop working until you update them.
-- Once connected, choose **Copy key**, then **Open panel to add accounts** and sign in with that
-  key to add accounts.
 - For a hub on another computer, choose **Use a proxy on another machine** and enter its URL and
   management key.
 
@@ -198,9 +196,15 @@ and choose **Add**. T3 connects the proxy first if needed, adds its own key to t
 **Claude (CLI Proxy)** and **Codex (CLI Proxy)**. Your usual Claude and Codex sign-ins stay as they
 are.
 
-Once connected, **CLI Proxy** appears in the Settings providers list with **Copy key**, **Open
-panel** and **Disconnect**. Disconnect forgets the proxy and removes **Claude (CLI Proxy)** and
-**Codex (CLI Proxy)**; the proxy itself keeps running with its key and accounts.
+Once connected, select **CLI Proxy** in the Settings providers list to manage it:
+
+- **Add Claude** or **Add Codex** opens the provider's sign-in page. Finish it in a browser on the
+  computer that runs the proxy; sign-in can't finish from another device.
+- **Turn off** keeps an account but stops routing to it. **Remove** deletes its sign-in from the
+  proxy.
+- **Routing** picks how requests spread: evenly across accounts, or one account until its limit.
+- **Disconnect** forgets the proxy and removes **Claude (CLI Proxy)** and **Codex (CLI Proxy)**;
+  the proxy itself keeps running with its key and accounts.
 
 ## Subscription usage widget
 

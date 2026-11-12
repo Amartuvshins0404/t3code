@@ -133,8 +133,8 @@ export const CliproxyConnectLocalInput = Schema.Struct({
 });
 export type CliproxyConnectLocalInput = typeof CliproxyConnectLocalInput.Type;
 
-export const CliproxyRevealKeyInput = Schema.Struct({ sourceId: UsageLimitSourceId });
-export type CliproxyRevealKeyInput = typeof CliproxyRevealKeyInput.Type;
+export const CliproxySourceInput = Schema.Struct({ sourceId: UsageLimitSourceId });
+export type CliproxySourceInput = typeof CliproxySourceInput.Type;
 
 export const CliproxyAddProvidersInput = Schema.Struct({
   claude: Schema.Boolean,
@@ -172,6 +172,94 @@ export class CliproxyLocalError extends Schema.TaggedError<CliproxyLocalError>()
 ) {
   override get message(): string {
     return `CLIProxyAPI setup failed (${this.reason}).`;
+  }
+}
+
+export const CliproxyAccount = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  provider: TrimmedNonEmptyString,
+  driver: Schema.optional(ProviderDriverKind),
+  email: Schema.optional(TrimmedNonEmptyString),
+  label: Schema.optional(TrimmedNonEmptyString),
+  plan: Schema.optional(TrimmedNonEmptyString),
+  status: Schema.Literals(["active", "off", "error"]),
+  statusMessage: Schema.optional(TrimmedNonEmptyString),
+});
+export type CliproxyAccount = typeof CliproxyAccount.Type;
+
+export const CliproxyAccountInput = Schema.Struct({
+  sourceId: UsageLimitSourceId,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
+});
+export type CliproxyAccountInput = typeof CliproxyAccountInput.Type;
+
+export const CliproxySetAccountEnabledInput = Schema.Struct({
+  ...CliproxyAccountInput.fields,
+  enabled: Schema.Boolean,
+});
+export type CliproxySetAccountEnabledInput = typeof CliproxySetAccountEnabledInput.Type;
+
+export const CliproxySignInProvider = Schema.Literals(["claude", "codex"]);
+export type CliproxySignInProvider = typeof CliproxySignInProvider.Type;
+
+export const CliproxySignInStartInput = Schema.Struct({
+  sourceId: UsageLimitSourceId,
+  provider: CliproxySignInProvider,
+});
+export type CliproxySignInStartInput = typeof CliproxySignInStartInput.Type;
+
+export const CliproxySignIn = Schema.Struct({
+  url: TrimmedNonEmptyString,
+  state: TrimmedNonEmptyString,
+});
+export type CliproxySignIn = typeof CliproxySignIn.Type;
+
+export const CliproxySignInInput = Schema.Struct({
+  sourceId: UsageLimitSourceId,
+  state: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+});
+export type CliproxySignInInput = typeof CliproxySignInInput.Type;
+
+export const CliproxySignInStatus = Schema.Struct({
+  status: Schema.Literals(["waiting", "done", "failed"]),
+  error: Schema.optional(TrimmedNonEmptyString),
+});
+export type CliproxySignInStatus = typeof CliproxySignInStatus.Type;
+
+export const CliproxyRoutingStrategy = Schema.Literals([
+  "round-robin",
+  "fill-first",
+  "weighted-round-robin",
+]);
+export type CliproxyRoutingStrategy = typeof CliproxyRoutingStrategy.Type;
+
+export const CliproxyRouting = Schema.Struct({ strategy: CliproxyRoutingStrategy });
+export type CliproxyRouting = typeof CliproxyRouting.Type;
+
+export const CliproxySetRoutingInput = Schema.Struct({
+  sourceId: UsageLimitSourceId,
+  strategy: CliproxyRoutingStrategy,
+});
+export type CliproxySetRoutingInput = typeof CliproxySetRoutingInput.Type;
+
+export const CliproxyManageFailureReason = Schema.Literals([
+  "notConnected",
+  "unreachable",
+  "keyRejected",
+  "lockedOut",
+  "notFound",
+  "refused",
+  "unexpectedResponse",
+]);
+export type CliproxyManageFailureReason = typeof CliproxyManageFailureReason.Type;
+
+export class CliproxyManageError extends Schema.TaggedError<CliproxyManageError>()(
+  "CliproxyManageError",
+  { reason: CliproxyManageFailureReason },
+) {
+  override get message(): string {
+    return `CLIProxyAPI management request failed (${this.reason}).`;
   }
 }
 

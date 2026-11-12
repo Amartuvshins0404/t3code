@@ -361,7 +361,17 @@ import {
   CliproxyConnectLocalInput,
   CliproxyLocalError,
   CliproxyLocalStatus,
-  CliproxyRevealKeyInput,
+  CliproxyAccount,
+  CliproxyAccountInput,
+  CliproxyManageError,
+  CliproxyRouting,
+  CliproxySetAccountEnabledInput,
+  CliproxySetRoutingInput,
+  CliproxySignIn,
+  CliproxySignInInput,
+  CliproxySignInStartInput,
+  CliproxySignInStatus,
+  CliproxySourceInput,
   UsageLimitSourceError,
   ProviderConsumeResetCreditInput,
   ProviderConsumeResetCreditResult,
@@ -584,6 +594,14 @@ export const WS_METHODS = {
   cliproxyLocalRevealKey: "cliproxy.local.revealKey",
   cliproxyLocalAddProviders: "cliproxy.local.addProviders",
   cliproxyDisconnect: "cliproxy.disconnect",
+  cliproxyAccountsList: "cliproxy.accounts.list",
+  cliproxyAccountsSignInStart: "cliproxy.accounts.signInStart",
+  cliproxyAccountsSignInStatus: "cliproxy.accounts.signInStatus",
+  cliproxyAccountsSignInCancel: "cliproxy.accounts.signInCancel",
+  cliproxyAccountsRemove: "cliproxy.accounts.remove",
+  cliproxyAccountsSetEnabled: "cliproxy.accounts.setEnabled",
+  cliproxyRoutingGet: "cliproxy.routing.get",
+  cliproxyRoutingSet: "cliproxy.routing.set",
 
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -1087,7 +1105,7 @@ const WsCliproxyLocalSetNewKeyRpc = Rpc.make(WS_METHODS.cliproxyLocalSetNewKey, 
 });
 
 const WsCliproxyLocalRevealKeyRpc = Rpc.make(WS_METHODS.cliproxyLocalRevealKey, {
-  payload: CliproxyRevealKeyInput,
+  payload: CliproxySourceInput,
   success: Schema.String,
   error: Schema.Union([UsageLimitSourceError, EnvironmentAuthorizationError]),
 });
@@ -1101,6 +1119,52 @@ const WsCliproxyLocalAddProvidersRpc = Rpc.make(WS_METHODS.cliproxyLocalAddProvi
 const WsCliproxyDisconnectRpc = Rpc.make(WS_METHODS.cliproxyDisconnect, {
   payload: Schema.Struct({}),
   error: CliproxyLocalRpcError,
+});
+
+const CliproxyManageRpcError = Schema.Union([CliproxyManageError, EnvironmentAuthorizationError]);
+
+const WsCliproxyAccountsListRpc = Rpc.make(WS_METHODS.cliproxyAccountsList, {
+  payload: CliproxySourceInput,
+  success: Schema.Array(CliproxyAccount),
+  error: CliproxyManageRpcError,
+});
+
+const WsCliproxyAccountsSignInStartRpc = Rpc.make(WS_METHODS.cliproxyAccountsSignInStart, {
+  payload: CliproxySignInStartInput,
+  success: CliproxySignIn,
+  error: CliproxyManageRpcError,
+});
+
+const WsCliproxyAccountsSignInStatusRpc = Rpc.make(WS_METHODS.cliproxyAccountsSignInStatus, {
+  payload: CliproxySignInInput,
+  success: CliproxySignInStatus,
+  error: CliproxyManageRpcError,
+});
+
+const WsCliproxyAccountsSignInCancelRpc = Rpc.make(WS_METHODS.cliproxyAccountsSignInCancel, {
+  payload: CliproxySignInInput,
+  error: CliproxyManageRpcError,
+});
+
+const WsCliproxyAccountsRemoveRpc = Rpc.make(WS_METHODS.cliproxyAccountsRemove, {
+  payload: CliproxyAccountInput,
+  error: CliproxyManageRpcError,
+});
+
+const WsCliproxyAccountsSetEnabledRpc = Rpc.make(WS_METHODS.cliproxyAccountsSetEnabled, {
+  payload: CliproxySetAccountEnabledInput,
+  error: CliproxyManageRpcError,
+});
+
+const WsCliproxyRoutingGetRpc = Rpc.make(WS_METHODS.cliproxyRoutingGet, {
+  payload: CliproxySourceInput,
+  success: CliproxyRouting,
+  error: CliproxyManageRpcError,
+});
+
+const WsCliproxyRoutingSetRpc = Rpc.make(WS_METHODS.cliproxyRoutingSet, {
+  payload: CliproxySetRoutingInput,
+  error: CliproxyManageRpcError,
 });
 
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
@@ -2223,6 +2287,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsCliproxyLocalRevealKeyRpc,
   WsCliproxyLocalAddProvidersRpc,
   WsCliproxyDisconnectRpc,
+  WsCliproxyAccountsListRpc,
+  WsCliproxyAccountsSignInStartRpc,
+  WsCliproxyAccountsSignInStatusRpc,
+  WsCliproxyAccountsSignInCancelRpc,
+  WsCliproxyAccountsRemoveRpc,
+  WsCliproxyAccountsSetEnabledRpc,
+  WsCliproxyRoutingGetRpc,
+  WsCliproxyRoutingSetRpc,
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsFilterOptionsRpc,

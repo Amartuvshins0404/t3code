@@ -1,4 +1,10 @@
 import {
+  type CliproxyAccount,
+  CliproxyManageError,
+  type CliproxyManageFailureReason,
+  CliproxyRoutingStrategy,
+  type CliproxySignInProvider,
+  type CliproxySignInStatus,
   ProviderDriverKind,
   UsageLimitSourceError,
   type ProviderConsumeResetCreditResult,
@@ -42,8 +48,12 @@ export interface CliproxyHub {
 const AuthFile = Schema.Struct({
   id: Schema.String,
   auth_index: Schema.String,
+  name: Schema.optional(Schema.String),
   provider: Schema.String,
   email: Schema.optional(Schema.String),
+  label: Schema.optional(Schema.NullOr(Schema.String)),
+  status: Schema.optional(Schema.String),
+  status_message: Schema.optional(Schema.NullOr(Schema.String)),
   disabled: Schema.optional(Schema.Boolean),
   project_id: Schema.optional(Schema.String),
   id_token: Schema.optional(
@@ -118,8 +128,17 @@ const CreditList = Schema.Struct({
 
 const RootResponse = Schema.Struct({ message: Schema.String });
 const ManagementRefusal = Schema.Struct({ error: Schema.String });
+const SignInStart = Schema.Struct({ url: Schema.String, state: Schema.String });
+const SignInStatus = Schema.Struct({
+  status: Schema.String,
+  error: Schema.optional(Schema.String),
+});
+const RoutingStrategy = Schema.Struct({ strategy: CliproxyRoutingStrategy });
 
 const decodeAuthFiles = Schema.decodeUnknownEffect(AuthFiles);
+const decodeSignInStart = Schema.decodeUnknownEffect(SignInStart);
+const decodeSignInStatus = Schema.decodeUnknownEffect(SignInStatus);
+const decodeRoutingStrategy = Schema.decodeUnknownEffect(RoutingStrategy);
 const decodeRootResponse = Schema.decodeUnknownEffect(RootResponse);
 const decodeManagementRefusal = Schema.decodeUnknownOption(ManagementRefusal);
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -130,6 +149,7 @@ const decodeCodexUsage = Schema.decodeUnknownEffect(Schema.fromJsonString(CodexU
 const decodeGrokUsage = Schema.decodeUnknownEffect(Schema.fromJsonString(GrokUsageResponse));
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const isUsageLimitSourceError = Schema.is(UsageLimitSourceError);
+const isCliproxyManageError = Schema.is(CliproxyManageError);
 
 // Extra CAs can fix untrusted chains; expiry/hostname failures report codes only.
 const UNTRUSTED_CERTIFICATE_CODES = new Set([
@@ -402,6 +422,59 @@ const HUB_PROVIDERS = new Map<string, HubProvider>([
   ],
 ]);
 
+const present = (value: string | null | undefined) => value?.trim() || undefined;
+
+const managedAccount = (file: AuthFile): CliproxyAccount => {
+  const driver = HUB_PROVIDERS.get(file.provider)?.driver;
+  const email = present(file.email);
+  const label = present(file.label);
+  const plan =
+    file.provider === "codex"
+      ? codexPlanLabel(file.id_token?.plan_type ?? file.id_token?.chatgpt_plan_type)
+      : undefined;
+  const status =
+    file.disabled || file.status === "disabled"
+      ? "off"
+      : file.status === "error"
+        ? "error"
+        : "active";
+  const statusMessage =
+    status === "error" ? present(present(file.status_message)?.slice(0, 300)) : undefined;
+  return {
+    id: file.id.trim(),
+    name: present(file.name) ?? file.id.trim(),
+    provider: file.provider.trim(),
+    ...(driver ? { driver } : {}),
+    ...(email ? { email } : {}),
+    ...(label && label !== email ? { label } : {}),
+    ...(plan ? { plan } : {}),
+    status,
+    ...(statusMessage ? { statusMessage } : {}),
+  };
+};
+
+const SIGN_IN_PATHS: Record<CliproxySignInProvider, string> = {
+  claude: "anthropic-auth-url",
+  codex: "codex-auth-url",
+};
+
+const isBanned = (response: HttpClientResponse.HttpClientResponse) =>
+  response.json.pipe(
+    Effect.map((body) => {
+      const refusal = decodeManagementRefusal(body);
+      return Option.isSome(refusal) && /banned/i.test(refusal.value.error);
+    }),
+    Effect.orElseSucceed(() => false),
+  );
+
+const isRefusal = (response: HttpClientResponse.HttpClientResponse) =>
+  response.json.pipe(
+    Effect.map((body) => Option.isSome(decodeManagementRefusal(body))),
+    Effect.orElseSucceed(() => false),
+  );
+
+const manageFailure = (reason: CliproxyManageFailureReason) => new CliproxyManageError({ reason });
+
 export const makeCliproxyApi = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient;
   const digest = yield* Digest.Digest;
@@ -598,12 +671,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
     const status = response.value.status;
     if (status >= 200 && status < 300) return "accepted" as const;
     if (status === 403) {
-      const refusal = decodeManagementRefusal(
-        yield* response.value.json.pipe(Effect.orElseSucceed(() => null)),
-      );
-      return Option.isSome(refusal) && /banned/i.test(refusal.value.error)
-        ? ("lockedOut" as const)
-        : ("rejected" as const);
+      return (yield* isBanned(response.value)) ? ("lockedOut" as const) : ("rejected" as const);
     }
     return status === 401 || status === 404 ? ("rejected" as const) : ("unreachable" as const);
   });
@@ -615,5 +683,128 @@ export const makeCliproxyApi = Effect.gen(function* () {
     yield* management(hub, "api-keys", { old: clientKey, new: clientKey }, "PATCH");
   });
 
-  return { readAccounts, consume, isRunning, checkKey, addClientKey };
+  const manage = Effect.fn("CliproxyApi.manage")(function* (
+    hub: CliproxyHub,
+    method: "GET" | "PUT" | "PATCH" | "DELETE",
+    path: string,
+    body?: unknown,
+  ) {
+    const url = yield* managementUrl(hub.url, path).pipe(
+      Effect.mapError(() => manageFailure("unreachable")),
+    );
+    const request = HttpClientRequest.make(method)(url).pipe(
+      HttpClientRequest.setHeader("Authorization", `Bearer ${hub.managementKey}`),
+    );
+    const response = yield* client
+      .execute(body === undefined ? request : request.pipe(HttpClientRequest.bodyJsonUnsafe(body)))
+      .pipe(
+        Effect.timeout("15 seconds"),
+        Effect.mapError(() => manageFailure("unreachable")),
+      );
+    const status = response.status;
+    if (status === 401) return yield* manageFailure("keyRejected");
+    if (status === 403) {
+      return yield* manageFailure((yield* isBanned(response)) ? "lockedOut" : "refused");
+    }
+    if (status === 404) {
+      return yield* manageFailure((yield* isRefusal(response)) ? "notFound" : "refused");
+    }
+    if (status < 200 || status >= 300) return yield* manageFailure("refused");
+    return yield* response.json.pipe(Effect.mapError(() => manageFailure("unexpectedResponse")));
+  });
+
+  const unexpected = Effect.mapError((error: CliproxyManageError | Schema.SchemaError) =>
+    isCliproxyManageError(error) ? error : manageFailure("unexpectedResponse"),
+  );
+
+  const listAccounts = Effect.fn("CliproxyApi.listAccounts")(function* (hub: CliproxyHub) {
+    const { files } = yield* manage(hub, "GET", "auth-files").pipe(
+      Effect.flatMap(decodeAuthFiles),
+      unexpected,
+    );
+    return files
+      .filter((file) => file.id.trim() !== "" && file.provider.trim() !== "")
+      .map(managedAccount);
+  });
+
+  const startSignIn = Effect.fn("CliproxyApi.startSignIn")(function* (
+    hub: CliproxyHub,
+    provider: CliproxySignInProvider,
+  ) {
+    const started = yield* manage(hub, "GET", `${SIGN_IN_PATHS[provider]}?is_webui=true`).pipe(
+      Effect.flatMap(decodeSignInStart),
+      unexpected,
+    );
+    const url = present(started.url);
+    const state = present(started.state);
+    if (!url?.startsWith("https://") || !state) return yield* manageFailure("unexpectedResponse");
+    return { url, state };
+  });
+
+  const signInStatus = Effect.fn("CliproxyApi.signInStatus")(function* (
+    hub: CliproxyHub,
+    state: string,
+  ): Effect.fn.Return<CliproxySignInStatus, CliproxyManageError> {
+    const reply = yield* manage(
+      hub,
+      "GET",
+      `get-auth-status?state=${encodeURIComponent(state)}`,
+    ).pipe(Effect.flatMap(decodeSignInStatus), unexpected);
+    if (reply.status === "ok") return { status: "done" };
+    if (reply.status === "wait") return { status: "waiting" };
+    const error = present(present(reply.error)?.slice(0, 300));
+    return { status: "failed", ...(error ? { error } : {}) };
+  });
+
+  const cancelSignIn = Effect.fn("CliproxyApi.cancelSignIn")(function* (
+    hub: CliproxyHub,
+    state: string,
+  ) {
+    yield* manage(hub, "DELETE", `oauth-session?state=${encodeURIComponent(state)}`);
+  });
+
+  const removeAccount = Effect.fn("CliproxyApi.removeAccount")(function* (
+    hub: CliproxyHub,
+    name: string,
+  ) {
+    yield* manage(hub, "DELETE", `auth-files?name=${encodeURIComponent(name)}`);
+  });
+
+  const setAccountEnabled = Effect.fn("CliproxyApi.setAccountEnabled")(function* (
+    hub: CliproxyHub,
+    name: string,
+    enabled: boolean,
+  ) {
+    yield* manage(hub, "PATCH", "auth-files/status", { name, disabled: !enabled });
+  });
+
+  const routing = Effect.fn("CliproxyApi.routing")(function* (hub: CliproxyHub) {
+    return yield* manage(hub, "GET", "routing/strategy").pipe(
+      Effect.flatMap(decodeRoutingStrategy),
+      unexpected,
+    );
+  });
+
+  const setRouting = Effect.fn("CliproxyApi.setRouting")(function* (
+    hub: CliproxyHub,
+    strategy: CliproxyRoutingStrategy,
+  ) {
+    yield* manage(hub, "PUT", "routing/strategy", { value: strategy });
+  });
+
+  return {
+    readAccounts,
+    consume,
+    isRunning,
+    checkKey,
+    addClientKey,
+    listAccounts,
+    startSignIn,
+    signInStatus,
+    cancelSignIn,
+    removeAccount,
+    setAccountEnabled,
+    routing,
+    setRouting,
+  };
 });

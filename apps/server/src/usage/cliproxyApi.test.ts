@@ -52,8 +52,12 @@ function fixture(
     accounts?: Array<{
       id: string;
       auth_index: string;
+      name?: string;
       provider: string;
       email?: string;
+      label?: string;
+      status?: string;
+      status_message?: string;
       disabled?: boolean;
       project_id?: string;
       id_token?: { chatgpt_account_id: string; plan_type?: string; chatgpt_plan_type?: string };
@@ -195,9 +199,91 @@ describe("CLIProxyAPI hub failures", () => {
       expect(error.detail).not.toContain("management-secret");
     }),
   );
+
+  it.effect.each([
+    {
+      status: 403,
+      body: { error: "IP banned due to too many failed attempts. Try again in 29m" },
+      reason: "lockedOut",
+    },
+    { status: 401, body: { error: "invalid management key" }, reason: "keyRejected" },
+    { status: 403, body: { error: "remote management disabled" }, reason: "refused" },
+    { status: 404, body: { error: "auth file not found" }, reason: "notFound" },
+  ])("asks the proxy once and reports $reason for HTTP $status", ({ status, body, reason }) =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const test = HttpClient.make((request) =>
+        Effect.sync(() => {
+          calls += 1;
+          return HttpClientResponse.fromWeb(request, Response.json(body, { status }));
+        }),
+      );
+      const api = yield* makeCliproxyApi.pipe(
+        Effect.provideService(HttpClient.HttpClient, test),
+        Effect.provide(NodeCrypto.layer),
+      );
+      const error = yield* Effect.flip(api.removeAccount(config, "first.json"));
+      expect(error.reason).toBe(reason);
+      expect(calls).toBe(1);
+    }),
+  );
 });
 
 describe("CLIProxyAPI built-in management API", () => {
+  it.effect("lists every account the proxy holds with its status", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        accounts: [
+          {
+            ...accounts[0]!,
+            name: "first.json",
+            id_token: { ...accounts[0]!.id_token, plan_type: "pro" },
+          },
+          { ...accounts[1]!, disabled: true, status: "disabled" },
+          {
+            id: "claude.json",
+            auth_index: "c",
+            provider: "claude",
+            label: "Work",
+            status: "error",
+            status_message: "unauthorized (refresh token invalid)",
+          },
+          { id: "kimi.json", auth_index: "d", provider: "kimi" },
+        ],
+      });
+      const api = yield* test.api;
+      expect(yield* api.listAccounts(config)).toEqual([
+        {
+          id: "first.json",
+          name: "first.json",
+          provider: "codex",
+          driver: "codex",
+          email: "first@example.com",
+          plan: "ChatGPT Pro 200 Subscription",
+          status: "active",
+        },
+        {
+          id: "second.json",
+          name: "second.json",
+          provider: "codex",
+          driver: "codex",
+          email: "second@example.com",
+          status: "off",
+        },
+        {
+          id: "claude.json",
+          name: "claude.json",
+          provider: "claude",
+          driver: "claudeAgent",
+          label: "Work",
+          status: "error",
+          statusMessage: "unauthorized (refresh token invalid)",
+        },
+        { id: "kimi.json", name: "kimi.json", provider: "kimi", status: "active" },
+      ]);
+    }),
+  );
+
   it.effect(
     "reads both accounts and their earliest unexpired credits without plugin endpoints",
     () =>

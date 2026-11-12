@@ -163,6 +163,10 @@ describe("command permissions", () => {
     { method: WS_METHODS.cliproxyLocalRevealKey, scope: AuthSettingsWriteScope },
     { method: WS_METHODS.cliproxyLocalAddProviders, scope: AuthProvidersManageScope },
     { method: WS_METHODS.cliproxyDisconnect, scope: AuthProvidersManageScope },
+    { method: WS_METHODS.cliproxyAccountsSignInStart, scope: AuthProvidersManageScope },
+    { method: WS_METHODS.cliproxyAccountsRemove, scope: AuthProvidersManageScope },
+    { method: WS_METHODS.cliproxyAccountsSetEnabled, scope: AuthProvidersManageScope },
+    { method: WS_METHODS.cliproxyRoutingSet, scope: AuthProvidersManageScope },
     { method: WS_METHODS.serverReclaimDatabaseSpace, scope: AuthEnvironmentMaintainScope },
   ])("requires the destination $scope grant for $method", ({ method, scope }) =>
     Effect.scoped(
