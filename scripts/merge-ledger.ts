@@ -500,14 +500,7 @@ export function keptEscape(candidates: ReadonlyArray<Escape>): Escape | null {
 }
 
 export function sortLinks(links: ReadonlyArray<Link>): Array<Link> {
-  return [...links].sort(
-    (a, b) =>
-      byText(a.by, b.by) ||
-      byText(a.change, b.change) ||
-      byText(a.kind, b.kind) ||
-      byText(a.source, b.source) ||
-      a.days - b.days,
-  );
+  return [...links].sort((a, b) => byText(a.by, b.by) || byText(a.change, b.change));
 }
 
 export function sortDisagreements(
@@ -570,7 +563,7 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
     links.push({ kind, source, by: by.change.sha, change: target.change.sha, days });
     candidates.set(target, [
       ...(candidates.get(target) ?? []),
-      { kind, by: by.change.sha, bySubject: by.change.subject, days },
+      { kind, by: by.change.sha, bySubject: by.change.subject, days: exact },
     ]);
   };
 
@@ -652,7 +645,10 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
     }
   });
 
-  for (const [target, escapes] of candidates) target.change.escape = keptEscape(escapes);
+  for (const [target, escapes] of candidates) {
+    const kept = keptEscape(escapes);
+    target.change.escape = kept && { ...kept, days: Math.round(kept.days * 10) / 10 };
+  }
   const changes = raws.map((raw) => raw.change);
   return {
     branch: options.branch,
