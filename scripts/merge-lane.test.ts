@@ -1,4 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
+import * as Arbitrary from "effect/Arbitrary";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -638,6 +639,75 @@ describe("locked checks", () => {
     expect(verdict.state).toBe(state);
   });
 
+  it.each(checksCases)("$name turns the lane red for every reason", ({ input, rules }) => {
+    const verdict = judgeChecks({ ...checked, ...input });
+    expect(verdict.reasons.map((reason) => [reason.rule, reason.lane])).toEqual(
+      rules.map((rule) => [rule, "red"]),
+    );
+  });
+
+  const fingerprintOf = (file: ApiFile) =>
+    judgeChecks({ ...checked, firstFiles: [file], prFiles: [file, slugSource] }).lock!.fingerprint;
+  const text = Arbitrary.array(Arbitrary.schema(Schema.Literals(["a", "-", "+", " ", "@", "1"])), {
+    maxLength: 8,
+  }).pipe(Arbitrary.map((chars) => chars.join("")));
+  const position = Arbitrary.schema(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 999 })),
+  );
+  const patchLines = Arbitrary.array(
+    Arbitrary.all({ kind: Arbitrary.schema(Schema.Literals(["+", "-", " "])), text, other: text }),
+    { minLength: 1, maxLength: 8 },
+  );
+  const patchOf = (
+    at: number,
+    lines: ReadonlyArray<{ readonly kind: string; readonly text: string; readonly other: string }>,
+    context: "text" | "other",
+  ) =>
+    [
+      `@@ -${at},${lines.length} +${at},${lines.length} @@`,
+      ...lines.map((line) => `${line.kind}${line.kind === " " ? line[context] : line.text}`),
+    ].join("\n");
+  const renamed = (from: string, patch: string): ApiFile => ({
+    ...slugTest,
+    status: "renamed",
+    previous_filename: from,
+    patch,
+  });
+
+  effectIt.prop(
+    "a rebase that moves the hunk or changes the lines around it keeps the lock",
+    [patchLines, position, position],
+    ([lines, before, after]) => {
+      expect(fingerprintOf(renamed("a.test.ts", patchOf(after, lines, "other")))).toBe(
+        fingerprintOf(renamed("a.test.ts", patchOf(before, lines, "text"))),
+      );
+    },
+    { arbitrary: { seed: 42 } },
+  );
+
+  effectIt.prop(
+    "rewriting an added or removed line, or the name a test file came from, breaks the lock",
+    [patchLines, Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 7 })))],
+    ([lines, pick]) => {
+      const original = fingerprintOf(renamed("a.test.ts", patchOf(1, lines, "text")));
+      expect(fingerprintOf(renamed("b.test.ts", patchOf(1, lines, "text")))).not.toBe(original);
+      const changed = lines.findIndex(
+        (line, index) => line.kind !== " " && index >= pick % lines.length,
+      );
+      if (changed === -1) return;
+      const rewritten = lines.map((line, index) =>
+        index === changed ? { ...line, text: `${line.text}x` } : line,
+      );
+      expect(fingerprintOf(renamed("a.test.ts", patchOf(1, rewritten, "text")))).not.toBe(original);
+    },
+    { arbitrary: { seed: 42 } },
+  );
+
+  it("locks a test file GitHub sent without a patch by its content", () => {
+    const blob = (sha: string): ApiFile => ({ ...slugTest, patch: null, sha });
+    expect(fingerprintOf(blob("1".repeat(40)))).not.toBe(fingerprintOf(blob("2".repeat(40))));
+  });
+
   it("tells the owner in plain words how a locked test changed", () => {
     const verdict = judgeChecks({ ...checked, prFiles: [editedSlugTest, slugHelper, slugSource] });
     expect(renderChanges(verdict.changes).split("\n").slice(2)).toEqual([
@@ -790,6 +860,18 @@ describe("Repairs: line", () => {
     ]);
   });
 
+  it.each(repairsCases)(
+    "$name turns the lane red for every reason",
+    ({ title, body, resolved, rules }) => {
+      expect(
+        judgeRepairs({ title, body, resolved, fixTime }).map((reason) => [
+          reason.rule,
+          reason.lane,
+        ]),
+      ).toEqual(rules.map((rule) => [rule, "red"]));
+    },
+  );
+
   it.each([
     ["Repairs: 6fceb557b2, 94e84eee32, bed3be36c1", ["6fceb557b2", "94e84eee32", "bed3be36c1"]],
     ["Text.\r\n\r\nRepairs: `12A233D6F9` and #5\r\n", ["12a233d6f9", "and", "#5"]],
@@ -878,4 +960,31 @@ describe("blind checks proof", () => {
       ok,
     );
   });
+
+  effectIt.prop(
+    "holds only when every test file holds",
+    [
+      Arbitrary.array(
+        Arbitrary.schema(
+          Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: proofCases.length - 1 })),
+        ),
+        { minLength: 1, maxLength: 6 },
+      ),
+    ],
+    ([picks]) => {
+      const cases = picks.map((pick, index) => {
+        const { file, before, after, ok } = proofCases[pick]!;
+        return { file: { ...file, file: `${index}/${file.file}` }, before, after, ok };
+      });
+      const report = (pick: (entry: (typeof cases)[number]) => TestResult | null) =>
+        new Map(cases.flatMap((entry) => (pick(entry) ? [[entry.file.file, pick(entry)!]] : [])));
+      const verdict = judge(
+        { commit: "c".repeat(40), files: cases.map((entry) => entry.file) },
+        report((entry) => entry.before),
+        report((entry) => entry.after),
+      );
+      expect(verdict.ok).toBe(cases.every((entry) => entry.ok));
+    },
+    { arbitrary: { seed: 42 } },
+  );
 });

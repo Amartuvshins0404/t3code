@@ -1,10 +1,12 @@
 import type { DesktopBridge, DesktopCliCommandState, DesktopUpdateState } from "@t3tools/contracts";
+import { formatAppBaseName } from "@t3tools/contracts/appName";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   type BootErrorEnvironment,
   buildErrorReport,
   resolveTriageCommand,
+  showBootError,
   updateActionFor,
 } from "./bootError";
 
@@ -129,5 +131,26 @@ describe("updateActionFor", () => {
       expect(updateActionFor(state(status))).toBeNull();
     }
     expect(updateActionFor(undefined)).toBeNull();
+  });
+});
+
+describe("showBootError", () => {
+  it("names the app from the desktop branding, and from the build on the web", () => {
+    using errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const buildName = formatAppBaseName(import.meta.env.APP_OWNER_NAME);
+    try {
+      vi.stubGlobal("document", { getElementById: () => null });
+      for (const [desktopBridge, name] of [
+        [undefined, buildName],
+        [{ getAppBranding: () => null }, buildName],
+        [{ getAppBranding: () => ({ baseName: "Amaraa Mode (Beta)" }) }, "Amaraa Mode (Beta)"],
+      ] as const) {
+        vi.stubGlobal("window", { desktopBridge });
+        showBootError(new Error("boom"));
+        expect(errors).toHaveBeenLastCalledWith(`${name} failed to start.`, expect.any(Error));
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

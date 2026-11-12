@@ -1,7 +1,7 @@
 import * as NodeModule from "node:module";
 
 import { assert, describe, it } from "@effect/vitest";
-import { DESKTOP_UPDATE_RESTART_MARKER_FILE } from "@t3tools/contracts";
+import { DESKTOP_UPDATE_RESTART_MARKER_FILE, ManagedUpdatesMode } from "@t3tools/contracts";
 import { computeReleaseNotes } from "electron-updater/out/providers/GitHubProvider.js";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -13,6 +13,7 @@ import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -1229,4 +1230,27 @@ describe("DesktopUpdates under a managed policy", () => {
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
+
+  it.prop(
+    "never lets the fork's app take a nightly build or another feed, whatever the policy says",
+    [
+      Schema.Struct({
+        mode: ManagedUpdatesMode,
+        feedUrl: Schema.UndefinedOr(Schema.String),
+        allowNightly: Schema.Boolean,
+        message: Schema.NullOr(Schema.String),
+      }),
+    ],
+    ([policy]) => {
+      const resolved = DesktopUpdatePolicy.resolveForkUpdatePolicy(policy);
+      assert.isFalse(resolved.allowNightly);
+      if (resolved.mode !== "off") {
+        assert.equal(
+          resolved.feedUrl,
+          "https://github.com/Amartuvshins0404/t3code/releases/latest/download",
+        );
+      }
+    },
+    { arbitrary: { seed: 42 } },
+  );
 });

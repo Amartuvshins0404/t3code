@@ -253,6 +253,181 @@ describe("merge ledger", () => {
     }
   });
 
+  it("follows the documented rules at their edges", async () => {
+    const repo = makeRepo();
+    const remove = (path: string) => NodeFS.rmSync(NodePath.join(repo.dir, path));
+    const old = Array.from({ length: 20 }, (_, index) => `export const o${index + 1} = 0;`);
+    try {
+      repo.commit("feat: old edge (#1)", -40, { "src/edge.ts": lines(...old) });
+      repo.commit("feat: early (#2)", -5, { "src/early.ts": lines("e1", "e2") });
+      repo.commit("chore: start (#3)", -1, { "src/start.ts": lines("s") });
+      const wide = repo.commit("feat: wide (#4)", 0, { "src/wide.ts": lines("w1", "w2") });
+
+      const edged = [...old];
+      edged.splice(11, 3, "r12", 'const header = "@@ -1 +1 @@";', "r14");
+      const edge = repo.commit("feat: edge (#5)", 1, { "src/edge.ts": lines(...edged) });
+      const fixed = [...edged];
+      fixed.splice(11, 3, "f12", "f13", "f14");
+      fixed[17] = "f18";
+      const edgeFix = repo.commit("fix: edge (#6)", 2, { "src/edge.ts": lines(...fixed) });
+      const earlyFix = repo.commit("fix: early (#7)\n\nRepairs: none, older than 14 days", 3, {
+        "src/early.ts": lines("e1 fixed", "e2"),
+      });
+
+      const tieA = repo.commit("feat: tie a (#8)", 3, { "src/tie.ts": lines("a", "b0") });
+      const tieB = repo.commit("feat: tie b (#9)", 4, { "src/tie.ts": lines("a", "b") });
+      const tieFix = repo.commit("fix: tie (#10)", 5, { "src/tie.ts": lines("a2", "b2") });
+
+      const pr = repo.commit("feat: pr (#11)", 6, { "src/pr.ts": lines("p1") });
+      const prFix = repo.commit("fix: pr (#12)\n\nRepairs: #11", 7, { "src/pr.ts": lines("p2") });
+      fixed[0] = "f1";
+      const unknownFix = repo.commit("fix: ghost (#13)\n\nRepairs: deadbeef00", 8, {
+        "src/edge.ts": lines(...fixed),
+      });
+
+      const partX = repo.commit("feat: part x (#14)", 9, { "src/part.ts": lines("x") });
+      const partZ = repo.commit("feat: part z (#15)", 10, { "src/part.ts": lines("x", "z") });
+      const partY = repo.commit("feat: part y (#16)", 10, { "src/py.ts": lines("y") });
+      const partFix = repo.commit("fix: part (#17)\n\nRepairs: #14, #16", 11, {
+        "src/part.ts": lines("x2", "z2"),
+      });
+
+      const aged = repo.commit("feat: aged (#18)", 12, { "src/aged.ts": lines("g") });
+      repo.commit("feat: limit (#19)", 13, { "src/limit.ts": lines("l1", "l2") });
+      const unlimit = repo.commit("feat: unlimit (#20)", 14, { "src/limit.ts": lines("l1") });
+      const relimit = repo.commit(
+        `revert: bring back the limit\n\nThis reverts commit ${unlimit}.`,
+        15,
+        { "src/limit.ts": lines("l1", "l2") },
+      );
+      const stale = repo.commit("feat: stale (#21)", 15, { "src/stale.ts": lines("s") });
+      const cap = repo.commit("feat: cap (#22)", 16, { "src/limit.ts": lines("l1") });
+      const uncap = repo.commit("revert: restore the cap (#23)\n\nUndoes #22.", 17, {
+        "src/limit.ts": lines("l1", "l2"),
+      });
+
+      const wideRecent = repo.commit("feat: wide recent (#24)", 18, {
+        "src/wide.ts": lines("w1", "w2", "w3"),
+      });
+      const most = repo.commit("feat: most (#25)", 19, { "src/many.ts": lines("m1", "m2") });
+      const least = repo.commit("feat: least (#26)", 19, {
+        "src/many.ts": lines("b1", "m1", "m2"),
+      });
+      const wideFix = repo.commit("fix: wide (#27)\n\nRepairs: #24", 20, {
+        "src/wide.ts": lines("w1x", "w2x", "w3x"),
+      });
+      remove("src/many.ts");
+      const unmany = repo.commit("revert(web): drop many (#28)", 21, {});
+
+      const flag = repo.commit("feat: flag (#29)", 22, {
+        "src/flag.ts": lines("on"),
+        "assets/flag.png": "\0\x01",
+      });
+      const flagFix = repo.commit("fix: flag (#30)", 23, {
+        "src/flag.ts": lines("on2"),
+        "assets/flag.png": "\0\x02",
+      });
+      remove("src/flag.ts");
+      remove("assets/flag.png");
+      const unflag = repo.commit(
+        `Revert "feat: flag (#29)"\n\nThis reverts commit ${flag}.`,
+        25,
+        {},
+      );
+      const agedFix = repo.commit("fix: aged (#31)\n\nRepairs: #18", 26, {
+        "src/note.ts": lines("n"),
+      });
+      const staleFix = repo.commit("fix: stale (#32)\n\nRepairs: #21", 30, {
+        "src/stale-note.ts": lines("n"),
+      });
+      const selfFix = repo.commit("fix: self (#33)\n\nRepairs: #33", 31, {
+        "src/self.ts": lines("n"),
+      });
+      const earlyClaim = repo.commit("fix: early claim (#34)\n\nRepairs: #35", 32, {
+        "src/claim.ts": lines("n"),
+      });
+      const later = repo.commit("feat: later (#35)", 33, { "src/later.ts": lines("n") });
+
+      const ledger = await buildLedger({
+        cwd: repo.dir,
+        branch: "main",
+        since: "2025-12-30",
+        until: "2026-03-01",
+        windowDays: 14,
+        packageDirs: [],
+      });
+      const escapeOf = (sha: string) => ledger.changes.find((change) => change.sha === sha)?.escape;
+      const linkedBy = (sha: string) =>
+        ledger.links
+          .filter((link) => link.by === sha)
+          .map((link) => link.change)
+          .sort();
+
+      expect(escapeOf(edge)).toMatchObject({ kind: "fix", by: edgeFix, days: 1 });
+      expect(linkedBy(tieFix)).toEqual([tieA, tieB].sort());
+      expect(linkedBy(prFix)).toEqual([pr]);
+      expect(escapeOf(aged)).toMatchObject({ kind: "fix", by: agedFix, days: 14 });
+      expect(escapeOf(stale)).toBeNull();
+      expect(linkedBy(earlyFix)).toEqual([]);
+      expect(escapeOf(unlimit)).toMatchObject({ kind: "revert", by: relimit });
+      expect(escapeOf(cap)).toMatchObject({ kind: "revert", by: uncap });
+      expect(escapeOf(most)).toMatchObject({ kind: "revert", by: unmany });
+      expect(escapeOf(least)).toBeNull();
+      expect(escapeOf(flag)).toMatchObject({ kind: "revert", by: unflag });
+      expect(linkedBy(flagFix)).toEqual([flag]);
+      expect(escapeOf(wide)).toBeNull();
+      expect(ledger.disagreements).toEqual([
+        {
+          fix: unknownFix,
+          subject: "fix: ghost (#13)",
+          declared: [],
+          notListed: ["deadbeef00"],
+          blamed: [],
+        },
+        {
+          fix: partFix,
+          subject: "fix: part (#17)",
+          declared: [partX, partY],
+          notListed: [],
+          blamed: [partX, partZ],
+        },
+        {
+          fix: wideFix,
+          subject: "fix: wide (#27)",
+          declared: [wideRecent],
+          notListed: [],
+          blamed: [],
+        },
+        { fix: agedFix, subject: "fix: aged (#31)", declared: [aged], notListed: [], blamed: [] },
+        {
+          fix: staleFix,
+          subject: "fix: stale (#32)",
+          declared: [stale],
+          notListed: [],
+          blamed: [],
+        },
+        {
+          fix: selfFix,
+          subject: "fix: self (#33)",
+          declared: [selfFix],
+          notListed: [],
+          blamed: [],
+        },
+        {
+          fix: earlyClaim,
+          subject: "fix: early claim (#34)",
+          declared: [later],
+          notListed: [],
+          blamed: [],
+        },
+      ]);
+      expect(linkedBy(selfFix)).toEqual([]);
+      expect(linkedBy(earlyClaim)).toEqual([]);
+    } finally {
+      repo.cleanup();
+    }
+  });
+
   it("records whether each merged pull request was checked blind", async () => {
     const repo = makeRepo();
     try {
@@ -305,6 +480,9 @@ describe("merge ledger", () => {
       const unchecked = merge("unchecked", 5, 5, () => {
         repo.commit("feat: unchecked", 4, { "src/unchecked.ts": lines("export const u = 1;") });
       });
+      const memberFix = repo.commit("fix: blind value (#6)", 6, {
+        "src/blind.ts": lines("export const blind = 2;"),
+      });
 
       const ledger = await buildLedger({
         cwd: repo.dir,
@@ -320,6 +498,10 @@ describe("merge ledger", () => {
         "none needed",
         "no checks",
       ]);
+      expect(ledger.changes.find((change) => change.sha === blind)?.escape).toMatchObject({
+        kind: "fix",
+        by: memberFix,
+      });
       expect(ledger.byChecks.map((row) => row.key).sort()).toEqual([
         "checked blind",
         "checks revised",
