@@ -105,7 +105,7 @@ const layerDesktopEnvironment = Layer.unwrap(
       ...metadata,
     });
   }),
-);
+).pipe(Layer.provide(DesktopPreReadyFileSystem.layer));
 
 const resolveDesktopSshCliRunner = (
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
