@@ -10,6 +10,7 @@ export function resolveAppMonogram(ownerName: string | null | undefined): string
 
 const UPSTREAM_APP_IDENTITY = {
   bundleId: "com.t3tools.t3code",
+  packageName: "t3code",
   scheme: "t3code",
   developmentScheme: "t3code-dev",
   userDataDirName: "t3code-v2",
@@ -27,6 +28,7 @@ export function resolveAppIdentity(ownerName: string | null | undefined): AppIde
     .replaceAll(/^-+|-+$/g, "");
   return {
     bundleId: `${UPSTREAM_APP_IDENTITY.bundleId}.${slug}`,
+    packageName: slug,
     scheme: slug,
     developmentScheme: `${slug}-dev`,
     userDataDirName: slug,
