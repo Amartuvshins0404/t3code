@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/react";
+import { useCloudAuth } from "../../cloud/cloudAuth";
 import { useAtomValue } from "@effect/atom-react";
 import {
   AuthRelayReadScope,
@@ -14,7 +14,6 @@ import {
   ConnectOnboardingOptOutSchema,
   EMPTY_CONNECT_ONBOARDING_OPT_OUT_STATE,
 } from "~/cloud/connectOnboarding";
-import { useManagedTunnelUsage } from "~/cloud/managedRelayState";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useCloudLinkController } from "~/cloud/useCloudLinkController";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -26,10 +25,7 @@ import {
 } from "~/state/environments";
 import { usePrimaryManagedPolicy } from "~/state/managedPolicy";
 import { environmentSession, readEnvironmentScope, useEnvironmentScope } from "~/state/session";
-import {
-  type T3ConnectAccountPageUrl,
-  useT3ConnectAccountPage,
-} from "../clerk/T3ConnectAccountPages";
+import { type T3ConnectAccountPageUrl, useT3ConnectAccountPage } from "./T3ConnectAccountDialog";
 import { CloudEnvironmentConnectRows } from "./CloudEnvironmentConnectList";
 import { TunnelLimitAlert } from "./TunnelUsage";
 import { Button } from "../ui/button";
@@ -50,8 +46,7 @@ type OnboardingStep = "publish" | "devices";
 const EMPTY_SESSION_STATE_ATOM = Atom.make(AsyncResult.initial<AuthSessionState>());
 
 function ConfiguredConnectOnboardingDialog() {
-  // Pending Clerk sessions must not look signed out or activation would look like a new sign-in.
-  const { isLoaded, isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false });
+  const { isLoaded, isSignedIn, userId } = useCloudAuth();
   const [optOutState, setOptOutState] = useLocalStorage(
     CONNECT_ONBOARDING_OPT_OUT_STORAGE_KEY,
     EMPTY_CONNECT_ONBOARDING_OPT_OUT_STATE,
@@ -197,7 +192,7 @@ function ConfiguredConnectOnboardingDialog() {
   };
 
   const openAccountPage = accountPage.open;
-  // The account page is a Clerk modal, so close this dialog before it opens.
+  // The account page is its own dialog, so close this one before it opens.
   const leaveForAccountPage = openAccountPage
     ? (page: T3ConnectAccountPageUrl) => {
         complete();
@@ -301,8 +296,6 @@ function ConfiguredConnectOnboardingDialog() {
           )}
         </WizardFooter>
       </WizardPopup>
-      {/* Base UI renders Root children while closed, so this keeps the account page mounted. */}
-      {accountPage.portals}
     </Dialog>
   );
 }
@@ -362,11 +355,8 @@ function OnboardingTunnelLimitAlert({
 }: {
   readonly onOpenAccountPage: ((page: T3ConnectAccountPageUrl) => void) | null;
 }) {
-  const { upgrade } = useManagedTunnelUsage();
   return (
     <TunnelLimitAlert
-      upgrade={upgrade}
-      onLinkT3Chat={onOpenAccountPage ? () => onOpenAccountPage("t3-chat") : null}
       onManageTunnels={onOpenAccountPage ? () => onOpenAccountPage("t3-connect") : null}
     />
   );

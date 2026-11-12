@@ -159,6 +159,10 @@
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
     },
+    "./cloud-auth": {
+      "types": "./src/cloudAuth/index.ts",
+      "default": "./src/cloudAuth/index.ts"
+    },
     "./state/auth": {
       "types": "./src/state/auth.ts",
       "default": "./src/state/auth.ts"
@@ -588,6 +592,7 @@
     "@t3tools/shared": "workspace:*",
     "@t3tools/source-control-core": "workspace:*",
     "@t3tools/source-control-definitions": "workspace:*",
+    "better-auth": "catalog:",
     "effect": "catalog:",
     "jszip": "3.10.1",
     "three": "0.180.0",

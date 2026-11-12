@@ -15,11 +15,14 @@
     "pg": "catalog:"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@electric-sql/pglite": "0.5.13",
     "@electric-sql/pglite-socket": "0.2.16",
+    "@t3tools/client-runtime": "workspace:*",
     "@types/node": "catalog:",
     "@types/pg": "catalog:",
     "auth": "catalog:",
+    "effect": "catalog:",
     "jose": "catalog:",
     "vite-plus": "catalog:"
   }

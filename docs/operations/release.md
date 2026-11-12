@@ -29,7 +29,7 @@ the version.
   - Pushing a `vX.Y.Z` tag by hand still works and builds exactly the tagged commit. Use it when
     the commit to ship is not the latest nightly, such as a cherry-picked fix on a release branch.
 - Runs lint, typecheck, and tests alongside artifact builds. Publishing waits for every check.
-- Reads the shared production T3 Connect relay URL and Clerk client configuration before packaging clients.
+- Reads the shared production T3 Connect relay and auth URLs before packaging clients.
 - Builds the platform-independent JS (server bundle, web client, Electron main) once in the `build_bundle` job and hands it to every platform job as the `js-bundle` artifact; the platform jobs only package it, so no runner rebuilds it.
 - Builds six desktop artifacts in parallel for both channels, each as its own job (`desktop_<platform>_<arch>`, one call of `release-desktop.yml`), gated only on the bundle. macOS and Linux targets build on hardware of their own architecture. Both Windows targets build and sign (with jsign) on a Linux runner, which packages faster than Windows runners, and a Windows job of the target's architecture (`windows-2025` or `windows-11-arm`, the `verify_runner`) runs the packaged natives and the CLI archive. The Windows jobs embed the same-arch Linux CLI archive as the WSL runtime and wait for that artifact partway through, not for the whole Linux job:
   - macOS `arm64` DMG
@@ -107,7 +107,7 @@ client builds must point at the same relay so users see the same linked environm
 release channels.
 
 `.github/workflows/deploy-relay.yml` deploys Alchemy stage `prod` on every push to `main`. Stable
-and nightly releases read the relay URL and Clerk client configuration from the existing
+and nightly releases read the relay and auth URLs from the existing
 `production` GitHub Actions environment before building desktop, CLI, or hosted web artifacts. That
 environment admits only `main` and `v*` tags, so preview releases, which may run from any branch,
 take the same public identifiers from `.env.example`; keep it in step with the `production` values.
@@ -134,7 +134,6 @@ Required `production` environment variables:
 - `CLERK_PUBLISHABLE_KEY`
 - `CLERK_JWT_AUDIENCE`
 - `CLERK_JWT_TEMPLATE`
-- `CLERK_CLI_OAUTH_CLIENT_ID`
 - `APNS_ENVIRONMENT`
 - `APNS_TEAM_ID`
 - `APNS_KEY_ID`
@@ -142,6 +141,7 @@ Required `production` environment variables:
 
 Optional `production` environment variables:
 
+- `AUTH_URL` when overriding the auth URL from `.env.example`
 - `RELAY_DOMAIN` when overriding the derived `relay.<RELAY_API_ZONE_NAME>` domain
 - `RELAY_TUNNEL_CLEANUP_MODE` with `off`, `dry-run`, or `enabled`. Missing and blank values use
   `off`.
@@ -586,8 +586,7 @@ Required repository variables:
 
 Optional repository variables:
 
-- `CLERK_PASSKEY_RP_DOMAINS`: comma-separated RP-domain override. By default, the build derives the
-  domain from the production Clerk publishable key.
+- `PASSKEY_RP_DOMAINS`: comma-separated RP domains for signed macOS builds.
 
 Checklist:
 
@@ -606,7 +605,7 @@ Checklist:
    - `APPLE_API_KEY`: contents of the downloaded `.p8`
    - `APPLE_API_KEY_ID`: Key ID
    - `APPLE_API_ISSUER`: Issuer ID
-10. Complete the Clerk Native API and AASA setup in [T3 Connect setup](./connect-setup.md#desktop-passkeys).
+10. Set `PASSKEY_RP_DOMAINS` as described in [T3 Connect setup](./connect-setup.md#signed-macos-builds).
 11. Re-run a tag release and confirm macOS artifacts are signed/notarized and contain the expected
     `com.apple.developer.associated-domains` entitlement.
 

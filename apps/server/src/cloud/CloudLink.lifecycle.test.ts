@@ -119,10 +119,8 @@ describe("consumeCloudReplayGuards", () => {
 });
 
 describe("releaseManagedTunnelOnShutdown", () => {
-  const cliToken: CliTokenManager.PersistedToken = {
+  const cliToken: CliTokenManager.CloudCliCredential = {
     accessToken: "cli-access-token",
-    refreshToken: "cli-refresh-token",
-    expiresAtEpochMs: Number.MAX_SAFE_INTEGER,
   };
 
   function makeMemorySecretStore(initial: Iterable<readonly [string, string]> = []) {
@@ -243,10 +241,9 @@ describe("releaseManagedTunnelOnShutdown", () => {
         Effect.provideService(
           CliTokenManager.CloudCliTokenManager,
           CliTokenManager.CloudCliTokenManager.of({
-            get: unusedSecretStoreOperation(),
             getExisting: harness.getExisting ?? Effect.succeedSome(cliToken),
             hasCredential: unusedSecretStoreOperation(),
-            store: () => unusedSecretStoreOperation(),
+            login: () => unusedSecretStoreOperation(),
             clear: unusedSecretStoreOperation(),
           }),
         ),

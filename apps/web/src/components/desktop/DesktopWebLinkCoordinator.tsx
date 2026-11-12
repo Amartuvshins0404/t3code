@@ -6,7 +6,11 @@ import {
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { promptLinkAppPath } from "@t3tools/shared/promptLinks";
-import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
+import {
+  isCloudAuthAppLink,
+  readPairingAppLink,
+  resolveRemotePairingTarget,
+} from "@t3tools/shared/remote";
 import { useRouter } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
 import { AtomRegistry } from "effect/reactivity";
@@ -201,6 +205,7 @@ export function DesktopWebLinkCoordinator() {
   });
 
   const openLink = useEffectEvent(async (url: string) => {
+    if (isCloudAuthAppLink(url)) return;
     const pairingUrl = readPairingAppLink(url);
     if (pairingUrl !== null) {
       await pairFromLink(pairingUrl);

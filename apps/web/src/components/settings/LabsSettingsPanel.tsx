@@ -1,9 +1,9 @@
-import { useAuth } from "@clerk/react";
+import { useCloudAuth } from "../../cloud/cloudAuth";
 import { Link } from "@tanstack/react-router";
 import { managedCapabilityDenial } from "@t3tools/contracts";
 
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
-import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
+import { openCloudSignInDialog } from "../../cloud/cloudSignInPrompt";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
@@ -20,7 +20,6 @@ export function LabsSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection id="beta" title="Beta">
         <BoringSidebarRow />
-        {/* Clerk is only mounted when this build has T3 Connect. */}
         {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : <GuestLinksRow />}
         <LinkedEnvironmentsRow />
         <PromptSuggestionsRow />
@@ -78,16 +77,15 @@ function BoringSidebarMultilineRow() {
 
 /** Signed out of T3 Connect, the row offers to sign in instead of its switch. */
 function GuestLinksRowWithSignIn() {
-  const { isSignedIn } = useAuth();
-  const { openAuthPrompt } = useT3ConnectAuthPrompt();
-  // `isSignedIn` is undefined until Clerk loads.
+  const { isSignedIn } = useCloudAuth();
+  // `isSignedIn` is undefined until auth loads.
   if (isSignedIn !== false) return <GuestLinksRow />;
   return (
     <SettingsRow
       {...searchableSetting("guest-links")}
       description="Share a thread with a guest who watches it live in a browser and sends messages you approve. Sign in to T3 Connect to use guest links."
       control={
-        <Button size="sm" variant="outline" onClick={openAuthPrompt}>
+        <Button size="sm" variant="outline" onClick={openCloudSignInDialog}>
           Sign in
         </Button>
       }

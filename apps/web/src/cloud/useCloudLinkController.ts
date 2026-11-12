@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useAuth } from "@clerk/react";
+import { getCloudAuth, useCloudAuth } from "./cloudAuth";
 import { findErrorTraceId } from "@t3tools/client-runtime/errors";
 import { AuthRelayReadScope, AuthRelayWriteScope, type EnvironmentId } from "@t3tools/contracts";
 import { ManagedRelay } from "@t3tools/client-runtime/relay";
@@ -25,7 +25,7 @@ import {
   updateEnvironmentPreferences as updateEnvironmentPreferencesAtom,
 } from "./linkEnvironmentAtoms";
 import { readCachedCloudLinkState, useCloudLinkState } from "./cloudLinkState";
-import { resolveRelayClerkTokenOptions } from "./publicConfig";
+
 import { isManagedTunnelActive } from "./t3ConnectState";
 
 export interface CloudLinkDesiredState {
@@ -48,7 +48,7 @@ function tunnelLimitFromLinkFailure(cause: unknown): number | null {
 }
 
 export function useCloudLinkController(environmentId: EnvironmentId | null) {
-  const { getToken, isSignedIn } = useAuth();
+  const { isSignedIn } = useCloudAuth();
   const refreshRelayEnvironments = useAtomCommand(relayEnvironmentDiscovery.refresh, {
     reportFailure: false,
   });
@@ -133,7 +133,9 @@ export function useCloudLinkController(environmentId: EnvironmentId | null) {
     if (!canManageLink()) return false;
     const wantsLink = desired.managedTunnel || desired.publish;
     if (wantsLink && readLinkState() === null) return false;
-    const tokenResult = await settlePromise(() => getToken(resolveRelayClerkTokenOptions()));
+    const tokenResult = await settlePromise(
+      async () => (await getCloudAuth()?.getRelayIdentityToken()) ?? null,
+    );
     if (!canManageLink()) return false;
 
     // A failed mutation may have partially applied, so refresh server state on every exit.
@@ -141,7 +143,7 @@ export function useCloudLinkController(environmentId: EnvironmentId | null) {
       // Unlink needs no relay token; failed token reads must still allow it.
       const unlinkResult = await unlinkEnvironment({
         target,
-        clerkToken: tokenResult._tag === "Success" ? (tokenResult.value ?? null) : null,
+        identityToken: tokenResult._tag === "Success" ? (tokenResult.value ?? null) : null,
       });
       refreshManagedTunnelUsage();
       if (unlinkResult._tag === "Failure") {
@@ -168,8 +170,8 @@ export function useCloudLinkController(environmentId: EnvironmentId | null) {
         reportUpdateFailure(squashAtomCommandFailure(tokenResult));
         return false;
       }
-      const clerkToken = tokenResult.value;
-      if (!clerkToken) {
+      const identityToken = tokenResult.value;
+      if (!identityToken) {
         reportUpdateFailure(new Error("Sign in to T3 Connect before enabling this."));
         return false;
       }
@@ -181,7 +183,7 @@ export function useCloudLinkController(environmentId: EnvironmentId | null) {
       ) {
         const linkResult = await linkEnvironment({
           target,
-          clerkToken,
+          identityToken,
           mode: desired.managedTunnel ? "managed" : "publish_only",
         });
         // Any link attempt can change the account's tunnel count.
@@ -189,7 +191,7 @@ export function useCloudLinkController(environmentId: EnvironmentId | null) {
         if (linkResult._tag === "Failure") {
           if (!isAtomCommandInterrupted(linkResult)) {
             const cause = squashAtomCommandFailure(linkResult);
-            // The caller shows an upgrade prompt instead of an error.
+            // The caller shows the tunnel limit alert instead of an error.
             const limit = tunnelLimitFromLinkFailure(cause);
             if (limit === null) reportUpdateFailure(cause);
             else setTunnelLimit(limit);

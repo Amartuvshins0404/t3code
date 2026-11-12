@@ -1,4 +1,4 @@
-import { useAuth, useClerk } from "@clerk/react";
+import { getCloudAuth, useCloudAuth } from "../../cloud/cloudAuth";
 import { useAtomValue } from "@effect/atom-react";
 import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import {
@@ -8,11 +8,10 @@ import {
 import { type AuthMcpApprovalDetails, EnvironmentId } from "@t3tools/contracts";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { isElectron } from "../../env";
 import { runConnectMcpApproval } from "../../state/connectMcpApproval";
-import { resolveClerkSignInProps } from "../clerk/authRedirect";
+import { openCloudSignInDialog } from "../../cloud/cloudSignInPrompt";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
@@ -84,20 +83,15 @@ export function ApproveAgentSurface() {
   const [transport] = useState(() =>
     environmentId === null ? null : connectTransport(environmentId, setEnvironment),
   );
-  const clerk = useClerk();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useCloudAuth();
   const session = useAtomValue(managedRelaySessionAtom);
   const signInOpened = useRef(false);
 
-  const openSignIn = () =>
-    clerk.openSignIn(resolveClerkSignInProps(window.location.href, isElectron));
-  const openSignInOnLoad = useEffectEvent(openSignIn);
-
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens Clerk sign-in once Clerk has loaded and nobody is signed in
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the sign-in dialog once auth has loaded and nobody is signed in
   useEffect(() => {
     if (!isLoaded || isSignedIn || signInOpened.current || framed) return;
     signInOpened.current = true;
-    openSignInOnLoad();
+    openCloudSignInDialog();
   }, [framed, isLoaded, isSignedIn]);
 
   if (environmentId === null || transport === null) {
@@ -138,7 +132,7 @@ export function ApproveAgentSurface() {
         description="Sign in to T3 Connect with the account this environment is linked to."
       >
         <div className="mt-6">
-          <Button type="button" onClick={openSignIn}>
+          <Button type="button" onClick={openCloudSignInDialog}>
             Sign in
           </Button>
         </div>
@@ -170,7 +164,7 @@ export function ApproveAgentSurface() {
           <Button
             size="sm"
             variant="link"
-            onClick={() => void clerk.signOut({ redirectUrl: window.location.href })}
+            onClick={() => void getCloudAuth()?.signOut()}
             type="button"
           >
             Use another account

@@ -45,9 +45,10 @@ vi.mock(import("@effect/atom-react"), async (original) => ({
     ),
   })) as never,
 }));
-vi.mock(import("@clerk/react"), async (original) => ({
+vi.mock(import("./cloudAuth"), async (original) => ({
   ...(await original()),
-  useAuth: (() => ({ getToken: testState.getToken, isSignedIn: true })) as never,
+  useCloudAuth: (() => ({ isSignedIn: true })) as never,
+  getCloudAuth: (() => ({ getRelayIdentityToken: testState.getToken })) as never,
 }));
 vi.mock(import("../components/ui/toast"), async (original) => {
   const actual = await original();
@@ -90,7 +91,7 @@ vi.mock(import("./cloudLinkState"), async (original) => ({
 }));
 vi.mock(import("./publicConfig"), async (original) => ({
   ...(await original()),
-  resolveRelayClerkTokenOptions: () => ({}) as never,
+  resolveRelayIdentityTokenOptions: () => ({}) as never,
 }));
 
 import { CloudEnvironmentLinkError } from "./linkEnvironment";
@@ -150,7 +151,7 @@ function setup() {
   testState.snapshot = linkedState;
   testState.renderedSnapshot = linkedState;
   testState.relayProviderKind = null;
-  testState.getToken.mockReset().mockResolvedValue("clerk-token");
+  testState.getToken.mockReset().mockResolvedValue("identity-token");
   for (const command of [
     testState.link,
     testState.unlink,
@@ -195,7 +196,7 @@ describe("useCloudLinkController", () => {
       await using screen = await mountController();
       testState.getToken.mockImplementationOnce(async () => {
         testState.scopes.delete(scope);
-        return "clerk-token";
+        return "identity-token";
       });
 
       expect(await screen.reconcile({ managedTunnel: false, publish: false })).toBe(false);
@@ -208,7 +209,7 @@ describe("useCloudLinkController", () => {
     await using screen = await mountController();
     testState.getToken.mockImplementationOnce(async () => {
       testState.snapshot = null;
-      return "clerk-token";
+      return "identity-token";
     });
 
     expect(await screen.reconcile({ managedTunnel: true, publish: true })).toBe(false);
@@ -221,7 +222,7 @@ describe("useCloudLinkController", () => {
     testState.getToken.mockRejectedValueOnce(new Error("Cloud sign-in unavailable"));
 
     expect(await screen.reconcile({ managedTunnel: false, publish: false })).toBe(true);
-    expect(testState.unlink).toHaveBeenCalledExactlyOnceWith({ target, clerkToken: null });
+    expect(testState.unlink).toHaveBeenCalledExactlyOnceWith({ target, identityToken: null });
     expect(testState.link).not.toHaveBeenCalled();
     expect(testState.preferences).not.toHaveBeenCalled();
   });

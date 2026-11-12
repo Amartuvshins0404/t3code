@@ -7,7 +7,7 @@ const HOSTED_PAIRING_LABEL_PARAM = "label";
 const PAIRING_APP_LINK_PARAM = "pairingUrl";
 const SUPPORTED_REMOTE_BACKEND_PROTOCOLS = new Set(["http:", "https:", "ws:", "wss:"]);
 
-export const readHashParams = (url: URL): URLSearchParams =>
+const readHashParams = (url: URL): URLSearchParams =>
   new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
 
 export class RemoteBackendUrlMissingError extends Schema.TaggedError<RemoteBackendUrlMissingError>()(
@@ -198,6 +198,14 @@ export const readPairingAppLink = (value: string): string | null => {
   if (!isAppLinkProtocol(url.protocol) || url.host !== "pair") return null;
   if (url.pathname !== "" && url.pathname !== "/") return null;
   return url.searchParams.get(PAIRING_APP_LINK_PARAM)?.trim() || null;
+};
+
+export const CLOUD_AUTH_APP_LINK_HOST = "auth-callback";
+
+export const isCloudAuthAppLink = (value: string): boolean => {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return isAppLinkProtocol(url.protocol) && url.host === CLOUD_AUTH_APP_LINK_HOST;
 };
 
 export const resolveRemotePairingTarget = (input: {

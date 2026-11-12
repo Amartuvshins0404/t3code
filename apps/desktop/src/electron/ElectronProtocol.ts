@@ -14,7 +14,7 @@ import * as Electron from "electron";
 
 import { BUILD_APP_IDENTITY } from "../app/DesktopBuildIdentity.ts";
 
-export const DESKTOP_HOST = "app";
+const DESKTOP_HOST = "app";
 const DESKTOP_PRODUCTION_SCHEME = BUILD_APP_IDENTITY.scheme;
 const DESKTOP_DEVELOPMENT_SCHEME = BUILD_APP_IDENTITY.developmentScheme;
 
@@ -56,7 +56,6 @@ export class ElectronProtocolUnregistrationError extends Schema.TaggedError<Elec
 
 export type DesktopProtocolRegistrationInput = {
   readonly scheme: string;
-  readonly clerkFrontendApiHostname: string | undefined;
 } & ({ readonly targetOrigin: URL } | { readonly assetDirectory: string });
 
 export class ElectronProtocol extends Context.Service<
@@ -69,14 +68,10 @@ export class ElectronProtocol extends Context.Service<
 >()("@t3tools/desktop/electron/ElectronProtocol") {}
 
 function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrationInput): string {
-  const clerkOrigin = input.clerkFrontendApiHostname
-    ? `https://${input.clerkFrontendApiHostname}`
-    : undefined;
   const scriptSources = [
     "'self'",
     "'unsafe-inline'",
     "'wasm-unsafe-eval'",
-    ...(clerkOrigin ? [clerkOrigin] : []),
     "https://challenges.cloudflare.com",
   ];
 

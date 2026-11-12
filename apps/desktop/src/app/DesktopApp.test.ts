@@ -16,8 +16,6 @@ import * as Stream from "effect/Stream";
 import { vi } from "vite-plus/test";
 
 vi.mock("electron", () => ({}));
-vi.mock("@clerk/electron", () => ({ createClerkBridge: vi.fn() }));
-vi.mock("@clerk/electron/storage", () => ({ storage: vi.fn() }));
 vi.mock("../ipc/DesktopIpcHandlers.ts", () => ({
   installDesktopIpcHandlers: () => Effect.void,
 }));
@@ -27,7 +25,7 @@ vi.mock("./DesktopStartupRecovery.ts", () => ({ listen: Effect.void }));
 import * as DesktopApp from "./DesktopApp.ts";
 import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
-import * as DesktopClerk from "./DesktopClerk.ts";
+import * as DesktopLaunchLinks from "./DesktopLaunchLinks.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLegacyLocalStorage from "./DesktopLegacyLocalStorage.ts";
 import * as DesktopLifecycle from "./DesktopLifecycle.ts";
@@ -134,9 +132,9 @@ it.effect.each([false, true])(
             register: Effect.void,
             relaunch: () => Effect.void,
           }),
-          Effect.provideService(DesktopClerk.DesktopClerk, {
+          Effect.provideService(DesktopLaunchLinks.DesktopLaunchLinks, {
             configure: Effect.void,
-          } as DesktopClerk.DesktopClerk["Service"]),
+          } as DesktopLaunchLinks.DesktopLaunchLinks["Service"]),
           Effect.provideService(ElectronSafeStorage.ElectronSafeStorage, {
             selectedStorageBackend: Effect.succeedNone,
           } as unknown as ElectronSafeStorage.ElectronSafeStorage["Service"]),

@@ -1,7 +1,7 @@
 import { expo } from "@better-auth/expo";
 import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
-import { bearer, deviceAuthorization, jwt, organization } from "better-auth/plugins";
+import { bearer, deviceAuthorization, jwt, oauthPopup, organization } from "better-auth/plugins";
 import pg from "pg";
 
 import type { Config } from "./config.ts";
@@ -26,6 +26,9 @@ export const createAuth = (config: Config, pool: pg.Pool) => {
     database: pool,
     trustedOrigins: [
       "t3code://",
+      "t3code-dev://",
+      "amaraa-mode://",
+      "amaraa-mode-dev://",
       "http://localhost:*",
       "http://127.0.0.1:*",
       "https://*.amartuvshin.com",
@@ -61,6 +64,7 @@ export const createAuth = (config: Config, pool: pg.Pool) => {
         origin: config.baseUrl,
       }),
       bearer(),
+      oauthPopup(),
       expo(),
     ],
   });

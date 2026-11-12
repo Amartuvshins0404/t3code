@@ -4,8 +4,8 @@ import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 
 import {
+  authUrlConfig,
   hostedAppUrlConfig,
-  makeCloudCliOAuthConfig,
   makeRelayUrlConfig,
   resolveRelayClientTracingConfig,
 } from "./publicConfig.ts";
@@ -37,22 +37,8 @@ it.effect("rejects malformed or insecure hosted app URLs", () =>
   }),
 );
 
-it.effect("derives direct Clerk OAuth endpoints from statically injected public config", () =>
-  Effect.gen(function* () {
-    const config = yield* makeCloudCliOAuthConfig({
-      clerkPublishableKeyFallback: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
-      clerkCliOAuthClientIdFallback: "oauth_client_embedded",
-    }).pipe(provideEnv({}));
-
-    assert.deepEqual(config, {
-      tokenEndpoint: "https://clerk.example.test/oauth/token",
-      deviceAuthorizationEndpoint: "https://clerk.example.test/oauth/device_authorization",
-      clientId: "oauth_client_embedded",
-      loopbackPort: 34338,
-      redirectUri: "http://127.0.0.1:34338/callback",
-      scopes: ["openid", "profile", "email", "offline_access"],
-    });
-  }),
+it.effect("rejects an insecure runtime auth URL override", () =>
+  authUrlConfig.pipe(provideEnv({ T3CODE_AUTH_URL: "http://auth.example.test" }), Effect.flip),
 );
 
 it("product opt-out disables relay tracing with either built-in or runtime credentials", () => {
