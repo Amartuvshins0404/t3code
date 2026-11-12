@@ -16,6 +16,7 @@ import {
   renderBotComment,
   renderChanges,
   renderLockComment,
+  runForPullRequest,
   type ApiFile,
   type ChangedFile,
   type ChecksLock,
@@ -986,5 +987,256 @@ describe("blind checks proof", () => {
       expect(verdict.ok).toBe(cases.every((entry) => entry.ok));
     },
     { arbitrary: { seed: 42 } },
+  );
+});
+
+const sharedHead = "3".repeat(40);
+const forkRun = (
+  id: number,
+  owner: string,
+  branch: string,
+  linked: ReadonlyArray<{ readonly number: number }> = [],
+) => ({
+  id,
+  run_number: id,
+  run_attempt: 1,
+  status: "completed",
+  head_sha: sharedHead,
+  head_branch: branch,
+  head_repository: { full_name: `${owner}/t3code` },
+  pull_requests: linked,
+});
+const forkPull = (number: number, owner: string, branch: string) => ({
+  number,
+  head: { sha: sharedHead, ref: branch, repo: { full_name: `${owner}/t3code` } },
+  base: { ref: "amaraa-mode" },
+});
+const pullAda = forkPull(21, "ada", "fix-slugs");
+const pullBo = forkPull(22, "bo", "fix-slugs");
+const pullHere = forkPull(23, "Amartuvshins0404", "fix-slugs-here");
+const runAda = forkRun(101, "ada", "fix-slugs");
+const runBo = forkRun(102, "bo", "fix-slugs");
+const runHere = forkRun(100, "Amartuvshins0404", "fix-slugs-here", [{ number: 23 }]);
+const ownRunCases: ReadonlyArray<{
+  readonly name: string;
+  readonly runs: ReadonlyArray<ReturnType<typeof forkRun>>;
+  readonly pr: ReturnType<typeof forkPull>;
+  readonly reads: number | null;
+}> = [
+  {
+    name: "a fork pull request whose commit another fork ran later",
+    runs: [runAda, runBo],
+    pr: pullAda,
+    reads: 101,
+  },
+  {
+    name: "the other fork pull request at the same commit",
+    runs: [runAda, runBo],
+    pr: pullBo,
+    reads: 102,
+  },
+  {
+    name: "a fork pull request with no run of its own yet",
+    runs: [runBo],
+    pr: pullAda,
+    reads: null,
+  },
+  {
+    name: "a branch in this repository whose commit a fork also ran",
+    runs: [runHere, runBo],
+    pr: pullHere,
+    reads: 100,
+  },
+];
+
+const strengthMarker = "<!-- test-strength -->";
+const webEditNames = [
+  "line endings",
+  "a note at the end",
+  "a note above the strength section",
+  "a blank line removed",
+  "a new line at the end",
+] as const;
+const webEdits: Record<(typeof webEditNames)[number], (text: string) => string> = {
+  "line endings": (text) => text.replace(/\r?\n/g, "\r\n"),
+  "a note at the end": (text) => `${text}\r\n\r\nChecked by hand.`,
+  "a note above the strength section": (text) =>
+    text.replace(/(\r?\n)(\r?\n)<!-- test-strength -->/, `$1Seen.$1$2${strengthMarker}`),
+  "a blank line removed": (text) =>
+    text.replace(/(\r?\n)\r?\n<!-- test-strength -->/, `$1${strengthMarker}`),
+  "a new line at the end": (text) => `${text}\r\n`,
+};
+const countOf = (text: string, pattern: RegExp) => text.match(pattern)?.length ?? 0;
+
+const commitPieces = [
+  "@octocat",
+  "#12",
+  "GH-7",
+  "6fceb557b2",
+  "https://x.io",
+  "www.x.io",
+  "[a](b)",
+  "<b>",
+  "&#64;x",
+  "<!--",
+  "-->",
+  "--!>",
+  "`",
+  "``",
+  "\\",
+  "\n",
+  "\r\n",
+  "\r",
+  "# ",
+  "===",
+  "|",
+  "fine words",
+] as const;
+const commitText = Schema.Tuple([
+  Schema.NonEmptyArray(Schema.Literals(commitPieces)).check(Schema.isMaxLength(5)),
+  Schema.String.check(Schema.isMaxLength(12)),
+]);
+const joined = ([pieces, tail]: readonly [ReadonlyArray<string>, string]) =>
+  `${pieces.join("")}${tail}`;
+const outsideCodeSpans = (line: string) => {
+  let out = "";
+  let at = 0;
+  while (at < line.length) {
+    if (line[at] === "\\" && at + 1 < line.length) {
+      out += line.slice(at, at + 2);
+      at += 2;
+      continue;
+    }
+    if (line[at] !== "`") {
+      out += line[at];
+      at += 1;
+      continue;
+    }
+    let open = 0;
+    while (line[at + open] === "`") open += 1;
+    let scan = at + open;
+    let close = -1;
+    while (scan < line.length && close === -1) {
+      if (line[scan] !== "`") {
+        scan += 1;
+        continue;
+      }
+      let run = 0;
+      while (line[scan + run] === "`") run += 1;
+      if (run === open) close = scan;
+      scan += run;
+    }
+    if (close === -1) {
+      out += line.slice(at, at + open);
+      at += open;
+    } else {
+      out += " ";
+      at = close + open;
+    }
+  }
+  return out;
+};
+const markupOutsideCode = /[@<>[\]&#]|:\/\/|www\.|[0-9a-f]{7}|gh-\d/i;
+const lockFromCommits = (kind: "checks" | "none", reason: string, stem: string, test: string) => {
+  const file = `${stem}.test.ts`;
+  const lock: ChecksLock = {
+    commit: "c".repeat(40),
+    fingerprint: "f".repeat(64),
+    kind,
+    ...(kind === "none" ? { reason } : {}),
+    files: [{ file, status: "added", key: "k".repeat(64), tests: [test] }],
+  };
+  return {
+    lock,
+    checks: {
+      state: "checks revised" as const,
+      reasons: [],
+      lock,
+      changes: [{ file, before: [test], after: [`${test}!`] }],
+    },
+  };
+};
+
+describe("the lane bot comment holds each pull request's own result, as plain text", () => {
+  it.each(ownRunCases)("reads the strength of $name from run $reads", ({ runs, pr, reads }) => {
+    expect(runForPullRequest({ runs, pr })?.id ?? null).toBe(reads);
+  });
+
+  it("writes the result of each fork's run to that fork's pull request", () => {
+    expect(
+      [runHere, runAda, runBo].map((run) =>
+        pullRequestForRun({ run, open: [pullHere, pullAda, pullBo], defaultBranch: "amaraa-mode" }),
+      ),
+    ).toEqual([23, 21, 22]);
+  });
+
+  effectIt.prop(
+    "keeps one strength section and the lock after a person edits the comment on the web page",
+    {
+      names: Schema.NonEmptyArray(Schema.Literals(lockedNames)),
+      firstStrength: Schema.Literals(strengthSections),
+      runs: Schema.NonEmptyArray(
+        Schema.Struct({
+          edits: Schema.NonEmptyArray(Schema.Literals(webEditNames)),
+          lane: Schema.Literals(["green", "amber", "red"]),
+          history: Schema.Literals(historyNames),
+          strength: Schema.Literals(strengthSections),
+        }),
+      ),
+    },
+    ({ names, firstStrength, runs }) => {
+      const file = lockedFile(names);
+      const first = judgeChecks({ ...checked, ...histories.checked(file) });
+      const saved = first.lock;
+      let comment = renderBotComment({ previous: null, checks: first, strength: firstStrength });
+      for (const run of runs) {
+        const edited = run.edits.reduce((text, edit) => webEdits[edit](text), comment);
+        const now = judgeChecks({
+          ...checked,
+          ...histories[run.history](file),
+          lane: run.lane,
+          lock: readLock(edited),
+        });
+        comment = renderBotComment({ previous: edited, checks: now, strength: run.strength });
+        expect(countOf(comment, /<!-- test-strength -->/g)).toBe(1);
+        expect(countOf(comment, /^#{1,6}[ \t]+Test strength/gm)).toBe(1);
+        expect(comment).toContain(run.strength);
+        expect(readLock(comment)).toEqual(saved);
+      }
+    },
+    { arbitrary: { seed: 26601, runs: 200 } },
+  );
+
+  effectIt.prop(
+    "shows text from commits as plain text that cannot cut the lock short",
+    {
+      kind: Schema.Literals(["checks", "none"]),
+      reason: commitText,
+      stem: commitText,
+      test: commitText,
+    },
+    ({ kind, reason, stem, test }) => {
+      const texts = [joined(reason), joined(stem), joined(test)];
+      const tricky = lockFromCommits(kind, texts[0]!, texts[1]!, texts[2]!);
+      const plain = lockFromCommits(kind, "plain", "plain", "plain");
+      const body = renderLockComment(tricky.lock, tricky.checks);
+      const lines = body.split(/\r\n|\r|\n/);
+      const plainLines = renderLockComment(plain.lock, plain.checks).split(/\r\n|\r|\n/);
+      expect(lines.length).toBe(plainLines.length);
+      const marker = lines[0]!;
+      expect(marker.endsWith("-->")).toBe(true);
+      expect(marker.slice(0, -3)).not.toMatch(/--!?>/);
+      expect(readLock(body)).toEqual(tricky.lock);
+      lines.slice(1).forEach((line, index) => {
+        if (line === plainLines[index + 1]) return;
+        expect(outsideCodeSpans(line)).not.toMatch(markupOutsideCode);
+      });
+      const shown = lines.slice(1).join("\n");
+      const words = (kind === "none" ? texts : texts.slice(1)).flatMap(
+        (text) => text.match(/[A-Za-z0-9]+/g) ?? [],
+      );
+      for (const word of words) expect(shown).toContain(word);
+    },
+    { arbitrary: { seed: 26602, runs: 300 } },
   );
 });

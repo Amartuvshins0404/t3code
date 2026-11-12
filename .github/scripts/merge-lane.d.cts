@@ -136,16 +136,30 @@ export function renderBotComment(input: {
   readonly checks: ChecksVerdict;
   readonly strength: string | null;
 }): string;
-export function pullRequestForRun(input: {
-  readonly run: {
-    readonly head_sha: string;
-    readonly pull_requests?: ReadonlyArray<{ readonly number: number }> | null;
+export interface BlindChecksRun {
+  readonly head_sha: string;
+  readonly head_branch?: string | null;
+  readonly head_repository?: { readonly full_name: string } | null;
+  readonly pull_requests?: ReadonlyArray<{ readonly number: number }> | null;
+}
+
+export interface PullRequestHead {
+  readonly head: {
+    readonly sha: string;
+    readonly ref?: string;
+    readonly repo?: { readonly full_name: string } | null;
   };
-  readonly open: ReadonlyArray<{
-    readonly number: number;
-    readonly head: { readonly sha: string };
-    readonly base: { readonly ref: string };
-  }>;
+}
+
+export function runForPullRequest<
+  Run extends BlindChecksRun & { readonly run_number: number; readonly run_attempt: number },
+>(input: { readonly runs: ReadonlyArray<Run>; readonly pr: PullRequestHead }): Run | null;
+
+export function pullRequestForRun(input: {
+  readonly run: BlindChecksRun;
+  readonly open: ReadonlyArray<
+    PullRequestHead & { readonly number: number; readonly base: { readonly ref: string } }
+  >;
   readonly defaultBranch: string;
 }): number | null;
 
