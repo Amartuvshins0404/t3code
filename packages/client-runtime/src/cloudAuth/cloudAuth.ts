@@ -143,6 +143,14 @@ function abortError(signal: AbortSignal) {
   });
 }
 
+function unreachable(cause: unknown): never {
+  throw new CloudAuthError({
+    reason: "failed",
+    detail: "Could not reach the sign-in service.",
+    cause,
+  });
+}
+
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(abortError(signal));
@@ -228,7 +236,9 @@ export function createCloudAuth(input: {
     open: (verification: CloudDeviceVerification) => void | Promise<void>,
     signal: AbortSignal,
   ): Promise<string> => {
-    const { data, error } = await client.device.code({ client_id: CLOUD_AUTH_DEVICE_CLIENT_ID });
+    const { data, error } = await client.device
+      .code({ client_id: CLOUD_AUTH_DEVICE_CLIENT_ID })
+      .catch(unreachable);
     if (error || !data) {
       throw new CloudAuthError({
         reason: "failed",
@@ -284,12 +294,14 @@ export function createCloudAuth(input: {
   };
 
   const socialAuthorizationUrl = async (callbackUrl: string) => {
-    const { data, error } = await client.signIn.social({
-      provider: "github",
-      callbackURL: callbackUrl,
-      errorCallbackURL: callbackUrl,
-      disableRedirect: true,
-    });
+    const { data, error } = await client.signIn
+      .social({
+        provider: "github",
+        callbackURL: callbackUrl,
+        errorCallbackURL: callbackUrl,
+        disableRedirect: true,
+      })
+      .catch(unreachable);
     if (error || !data?.url) {
       throw new CloudAuthError({
         reason: "failed",
