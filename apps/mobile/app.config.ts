@@ -2,7 +2,7 @@ import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS, resolveBrandAssetPath } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
-import { formatAppBaseName } from "@t3tools/contracts/appName";
+import { formatAppBaseName } from "../../packages/contracts/src/appName.ts";
 
 type AppVariant = "development" | "preview" | "production";
 

@@ -86,7 +86,9 @@ vi.mock(import("../../onboarding/firstRun"), async (original) => ({
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
   useEnvironments: (() => ({
-    environments: [{ environmentId: "primary", label: "primary" }],
+    environments: [
+      { environmentId: "primary", label: "primary", connection: { phase: "connected" } },
+    ],
   })) as never,
   usePrimaryEnvironmentId: (() => "primary") as never,
 }));
@@ -258,16 +260,24 @@ function pageText() {
   return document.body.textContent ?? "";
 }
 
-function button(label: string) {
-  const found = [...document.querySelectorAll("button")].find(
+function button(label: string, scope: ParentNode = document) {
+  const found = [...scope.querySelectorAll("button")].find(
     (element) => element.textContent?.trim() === label,
   );
   if (!found) throw new Error(`Missing button: ${label}`);
   return found;
 }
 
-async function click(label: string) {
-  const target = button(label);
+function section(title: string) {
+  const found = [...document.querySelectorAll("section")].find(
+    (element) => element.querySelector("h2")?.textContent === title,
+  );
+  if (!found) throw new Error(`Missing section: ${title}`);
+  return found;
+}
+
+async function click(label: string, scope?: ParentNode) {
+  const target = button(label, scope);
   expect(target.disabled).toBe(false);
   await act(async () => target.click());
 }
@@ -686,7 +696,7 @@ it("says the phone is set up only once this computer is shared with the signed-i
   );
   state.linkError = "Could not read T3 Connect link state.";
   await using _screen = await mountWelcome();
-  await click("Set up");
+  await click("Set up", section("Phone"));
   // A failed read says so instead of asking to share the computer again.
   await vi.waitFor(() => expect(pageText()).toContain("Could not check T3 Connect."));
   expect(pageText()).not.toContain("Set up T3 Connect");
