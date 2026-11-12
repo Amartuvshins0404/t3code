@@ -23,6 +23,7 @@ import {
   type DpopFailureReason as DpopFailureReasonType,
   mcpClientScopes,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isLocalLoopbackHost } from "@t3tools/shared/hostClassification";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
 import * as Context from "effect/Context";
@@ -44,7 +45,7 @@ import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { REUSABLE_DEV_SESSION_EXPIRES_AT, resolveReusableDevAuth } from "./ReusableDevAuth.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
-import { DESKTOP_RENDERER_ORIGINS } from "../httpCors.ts";
+import { desktopRendererOrigins } from "../httpCors.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
@@ -772,7 +773,7 @@ export const make = Effect.gen(function* () {
   // Cookies span ports; reject cookie-authenticated requests and sockets from other same-site origins.
   const trustedBrowserOrigins = new Set<string>([
     ...(config.devUrl ? [config.devUrl.origin] : []),
-    ...DESKTOP_RENDERER_ORIGINS,
+    ...desktopRendererOrigins((yield* HostProcess.Environment).T3CODE_OWNER_NAME),
     ...config.devAllowedOrigins,
   ]);
 

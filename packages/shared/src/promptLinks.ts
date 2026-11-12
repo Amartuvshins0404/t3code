@@ -1,3 +1,5 @@
+import { isAppLinkProtocol } from "@t3tools/contracts/appName";
+
 import { getAppBaseName } from "./appName.ts";
 import { DEFAULT_HOSTED_APP_URL } from "./connectAuth.ts";
 
@@ -184,7 +186,6 @@ export function buildNewThreadLink(input: {
   return url.toString();
 }
 
-const APP_SCHEME = /^t3code(?:-[a-z]+)?:$/;
 const THREAD_PATH = /^\/([^/]+)\/([^/]+)\/?$/;
 
 export function promptLinkAppPath(
@@ -193,7 +194,7 @@ export function promptLinkAppPath(
 ): string | null {
   if (!URL.canParse(value)) return null;
   const url = new URL(value);
-  if (APP_SCHEME.test(url.protocol)) {
+  if (isAppLinkProtocol(url.protocol)) {
     if (url.host === "new" && (url.pathname === "" || url.pathname === "/")) {
       return `/new${url.search}`;
     }

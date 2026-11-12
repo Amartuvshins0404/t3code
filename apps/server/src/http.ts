@@ -5,6 +5,7 @@ import {
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { injectMcpAppCookieBootstrap, injectMcpAppThemeBootstrap } from "@t3tools/shared/mcpApp";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
 import * as ByteSize from "effect/ByteSize";
@@ -51,7 +52,7 @@ import { WEBHOOK_ROUTE_PREFIX } from "./scheduledTasks/ScheduledTaskService.ts";
 import {
   browserApiCorsAllowedHeaders,
   browserApiCorsAllowedMethods,
-  DESKTOP_RENDERER_ORIGINS,
+  desktopRendererOrigins,
 } from "./httpCors.ts";
 import { requestUrl } from "./requestUrl.ts";
 
@@ -257,11 +258,16 @@ export const layerBrowserApiCors = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
     const devOrigin = config.devUrl?.origin;
+    const env = yield* HostProcess.Environment;
     // Credentialed dev requests need explicit Vite/Electron origins; packaged desktop uses the default wildcard.
     return HttpRouter.cors({
       ...(devOrigin
         ? {
-            allowedOrigins: [devOrigin, ...DESKTOP_RENDERER_ORIGINS, ...config.devAllowedOrigins],
+            allowedOrigins: [
+              devOrigin,
+              ...desktopRendererOrigins(env.T3CODE_OWNER_NAME),
+              ...config.devAllowedOrigins,
+            ],
             credentials: true,
           }
         : {}),

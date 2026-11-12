@@ -17,6 +17,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import { BUILD_APP_IDENTITY, BUILD_OWNER_NAME } from "./DesktopBuildIdentity.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import { resolveLinuxDesktopEntryName } from "./DesktopEarlyElectronStartup.ts";
 import { resolveDesktopBaseDir, resolveDesktopStateDir } from "./DesktopStatePaths.ts";
@@ -90,12 +91,6 @@ export class DesktopEnvironment extends Context.Service<
     readonly resolveResourcePathCandidates: (fileName: string) => readonly string[];
   }
 >()("@t3tools/desktop/app/DesktopEnvironment") {}
-
-declare const __T3CODE_BUILD_OWNER_NAME__: string | undefined;
-
-export const BUILD_OWNER_NAME = (
-  typeof __T3CODE_BUILD_OWNER_NAME__ === "undefined" ? "" : __T3CODE_BUILD_OWNER_NAME__
-).trim();
 
 const decodeOwnerName = Schema.decodeUnknownOption(
   fromLenientJson(Schema.Struct({ ownerName: ServerSettings.fields.ownerName })),
@@ -274,7 +269,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     displayName,
     ownerLogo: owner.ownerLogo,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
-      isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
+      isDevelopment ? "com.t3tools.t3code.dev" : BUILD_APP_IDENTITY.bundleId,
     ),
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
     linuxApplicationsDir,

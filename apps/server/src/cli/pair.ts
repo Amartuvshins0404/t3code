@@ -1,3 +1,4 @@
+import { resolveAppIdentity } from "@t3tools/contracts/appName";
 import { getAppBaseName } from "@t3tools/shared/appName";
 import {
   type AuthEnvironmentScope,
@@ -199,7 +200,7 @@ const formatPairOutput = (input: {
     renderTerminalQrCode(input.pairingUrl),
     "",
     `Pairing URL: ${input.pairingUrl}`,
-    `App link: ${buildPairingAppLink(input.pairingUrl)}`,
+    `App link: ${buildPairingAppLink(input.pairingUrl, resolveAppIdentity(process.env.T3CODE_OWNER_NAME).scheme)}`,
     `Token: ${input.token}`,
     `Expires: ${DateTime.formatIso(input.expiresAt)}`,
     ...input.notes.flatMap((note) => ["", `Note: ${note}`]),

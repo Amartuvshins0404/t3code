@@ -3,7 +3,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { formatAppBaseName } from "@t3tools/contracts";
+import { formatAppBaseName, resolveAppIdentity } from "@t3tools/contracts";
 import { setAppBaseName } from "@t3tools/shared/appName";
 import { parsePersistedOwnerName } from "@t3tools/shared/serverSettings";
 
@@ -13,7 +13,12 @@ export function formatOwnerAppBaseName(savedOwnerName: string | null | undefined
 
 function readSavedOwnerName(): string | null {
   try {
-    const home = process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3");
+    const home =
+      process.env.T3CODE_HOME?.trim() ||
+      NodePath.join(
+        NodeOS.homedir(),
+        resolveAppIdentity(process.env.T3CODE_OWNER_NAME).homeDirName,
+      );
     const raw = NodeFS.readFileSync(NodePath.join(home, "userdata", "settings.json"), "utf8");
     return parsePersistedOwnerName(raw);
   } catch {

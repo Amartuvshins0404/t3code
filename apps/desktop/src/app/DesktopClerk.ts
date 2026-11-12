@@ -172,7 +172,10 @@ export const make = Effect.gen(function* () {
 
       const startProviderAuthHandoff = (value: string | undefined) => {
         if (!value) return false;
-        const request = readCodexAuthHandoff(value, environment.isDevelopment);
+        const request = readCodexAuthHandoff(
+          value,
+          ElectronProtocol.getDesktopScheme(environment.isDevelopment),
+        );
         if (!request) return false;
         void runPromise(
           Effect.gen(function* () {

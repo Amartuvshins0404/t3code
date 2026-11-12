@@ -49,6 +49,7 @@ import { SettingsRow } from "./settingsLayout";
 import { AddCodexAccountDialog } from "./AddCodexAccountDialog";
 import { getOnboardingProviderState } from "../../onboarding/providerReadiness.logic";
 import { useAppBaseName } from "../../state/appBranding";
+import { APP_IDENTITY } from "../../branding";
 import { getProviderSummary } from "./providerStatus";
 import {
   settleAuthorizationPage,
@@ -662,7 +663,7 @@ function ManagedCodexSetup({
             instanceId,
             flowId: auth.flowId,
           },
-          import.meta.env.DEV,
+          import.meta.env.DEV ? APP_IDENTITY.developmentScheme : APP_IDENTITY.scheme,
         )
       : null;
   const waitingControl = (

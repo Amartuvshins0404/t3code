@@ -20,6 +20,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
+import { BUILD_OWNER_NAME } from "../app/DesktopBuildIdentity.ts";
 import * as DesktopCliShim from "../app/DesktopCliShim.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopState from "../app/DesktopState.ts";
@@ -540,9 +541,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         ELECTRON_RUN_AS_NODE: "1",
         T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING: "1",
         T3CODE_CLI_PATH: Option.getOrUndefined(input.cliPath),
-        ...(DesktopEnvironment.BUILD_OWNER_NAME
-          ? { T3CODE_OWNER_NAME: DesktopEnvironment.BUILD_OWNER_NAME }
-          : {}),
+        ...(BUILD_OWNER_NAME ? { T3CODE_OWNER_NAME: BUILD_OWNER_NAME } : {}),
       },
       extendEnv: true,
       bootstrap,

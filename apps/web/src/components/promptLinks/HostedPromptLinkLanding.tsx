@@ -9,7 +9,7 @@ import { useLocation } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { DESKTOP_DOWNLOAD_URL } from "~/branding";
+import { APP_IDENTITY, DESKTOP_DOWNLOAD_URL } from "~/branding";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { isHostedStaticApp } from "~/hostedPairing";
 import { useEnvironments } from "~/state/environments";
@@ -125,7 +125,7 @@ function HostedPromptLinkLanding({
   const appBaseName = useAppBaseName();
   const summary = summarize(appPath, appBaseName);
   const [remember, setRemember] = useState(false);
-  const deepLink = promptLinkDeepLink(appPath);
+  const deepLink = promptLinkDeepLink(appPath, APP_IDENTITY.scheme);
   const onPhone = /android|iphone|ipad/i.test(navigator.userAgent);
   const autoOpenedRef = useRef(false);
 

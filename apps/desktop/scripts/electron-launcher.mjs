@@ -4,6 +4,7 @@ import * as NodeModule from "node:module";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
+import { formatAppBaseName, resolveAppIdentity } from "../../../packages/contracts/src/appName.ts";
 import { ensureElectronRuntime } from "./ensure-electron-runtime.mjs";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -13,13 +14,14 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const ownerName = process.env.T3CODE_OWNER_NAME?.trim() ?? "";
-const APP_BASE_NAME = ownerName.length > 0 ? `${ownerName} Mode` : "Mode";
+const ownerName = process.env.T3CODE_OWNER_NAME;
+const appIdentity = resolveAppIdentity(ownerName);
+const APP_BASE_NAME = formatAppBaseName(ownerName);
 const APP_DISPLAY_NAME = isDevelopment ? `${APP_BASE_NAME} (Dev)` : `${APP_BASE_NAME} (Beta)`;
 const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
-  : "com.t3tools.t3code";
-const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
+  : appIdentity.bundleId;
+const APP_PROTOCOL_SCHEMES = isDevelopment ? [appIdentity.developmentScheme] : [appIdentity.scheme];
 const LAUNCHER_VERSION = 20;
 const iconRoot = process.env.T3CODE_OWNER_LOGO?.trim()
   ? NodePath.join(repoRoot, ".owner-icons")

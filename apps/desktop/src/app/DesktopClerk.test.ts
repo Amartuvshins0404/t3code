@@ -371,7 +371,7 @@ it.effect.each(["startup", "open-url", "early-second-instance"] as const)(
         instanceId: ProviderInstanceId.make("work"),
         flowId: "flow-one",
       };
-      const link = codexAuthHandoffUrl(request, true);
+      const link = codexAuthHandoffUrl(request, "t3code-dev");
       const delivered = Promise.withResolvers<string>();
       const shell = ElectronShell.ElectronShell.of({
         openExternal: (value) =>

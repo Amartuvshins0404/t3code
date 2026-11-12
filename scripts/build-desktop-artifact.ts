@@ -15,7 +15,7 @@ import {
   type DirectoryRecord,
 } from "@electron/asar";
 
-import { formatAppBaseName } from "@t3tools/contracts/appName";
+import { formatAppBaseName, resolveAppIdentity } from "@t3tools/contracts/appName";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
@@ -64,7 +64,6 @@ import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "com.t3tools.t3code";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -1292,7 +1291,7 @@ export function resolveMacPasskeySigningConfiguration(
   }
 
   return {
-    appId: DESKTOP_APP_ID,
+    appId: resolveAppIdentity(env.T3CODE_OWNER_NAME).bundleId,
     teamId,
     rpDomains: uniqueRpDomains,
     provisioningProfilePath,
@@ -2787,9 +2786,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   arch?: typeof BuildArch.Type,
 ) {
   const appBaseName = resolveDesktopAppBaseName();
+  const appIdentity = resolveAppIdentity(loadRepoEnv().T3CODE_OWNER_NAME);
+  const appSchemes = [appIdentity.scheme, appIdentity.developmentScheme];
   const buildConfig: Record<string, unknown> = {
     afterPack: (yield* Path.Path).join(yield* RepoRoot, "scripts/prepare-server-compile-cache.cjs"),
-    appId: DESKTOP_APP_ID,
+    appId: appIdentity.bundleId,
     productName: resolveDesktopProductName(version),
     artifactName: `${appBaseName.replaceAll(/\s+/g, "-")}-\${version}-\${arch}.\${ext}`,
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
@@ -2864,7 +2865,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       protocols: [
         {
           name: appBaseName,
-          schemes: ["t3code", "t3code-dev"],
+          schemes: appSchemes,
         },
         {
           name: "Web site URL",
@@ -2917,7 +2918,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       protocols: [
         {
           name: appBaseName,
-          schemes: ["t3code", "t3code-dev"],
+          schemes: appSchemes,
         },
       ],
       desktop: {

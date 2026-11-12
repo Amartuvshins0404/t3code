@@ -1,3 +1,4 @@
+import { resolveAppIdentity } from "@t3tools/contracts/appName";
 import { getAppBaseName } from "@t3tools/shared/appName";
 import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
@@ -187,7 +188,7 @@ export const formatHeadlessServeOutput = (accessInfo: HeadlessServeAccessInfo): 
     `Connection string: ${accessInfo.connectionString}`,
     `Token: ${accessInfo.token}`,
     `Pairing URL: ${accessInfo.pairingUrl}`,
-    `App link: ${buildPairingAppLink(accessInfo.pairingUrl)}`,
+    `App link: ${buildPairingAppLink(accessInfo.pairingUrl, resolveAppIdentity(process.env.T3CODE_OWNER_NAME).scheme)}`,
     "",
     renderTerminalQrCode(accessInfo.pairingUrl),
     "",
