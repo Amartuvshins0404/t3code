@@ -1,6 +1,16 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
-import { judge, planProof, type TestResult } from "../.github/scripts/blind-checks.cjs";
+import {
+  judge,
+  planProof,
+  pullRequestCommits,
+  type TestResult,
+} from "../.github/scripts/blind-checks.cjs";
 import type { ChangedFile } from "../.github/scripts/merge-lane.cjs";
 
 const base = "b".repeat(40);
@@ -46,6 +56,11 @@ const code = commit("d", "feat(web): slugs", [
 ]);
 const revise = (files: ReadonlyArray<ChangedFile>) =>
   commit("f", "test(web): revise a check\n\nBlind-checks: revised after an objection", files);
+
+const slugInputs = "apps/web/src/lib/testkit/slugInputs.ts";
+const testSetup = "apps/web/test/setup.ts";
+const supportOf = (plan: ReturnType<typeof planProof>) =>
+  plan.run ? [...plan.support].sort() : [];
 
 const sorted = (plan: ReturnType<typeof planProof>) =>
   plan.run
@@ -138,6 +153,174 @@ describe("blind checks proof: what is planned", () => {
     expect(sorted(plan)).toEqual([
       { file: slugTest, added: true, tests: ["drops spaces", "keeps letters"] },
     ]);
+  });
+
+  it("keeps a test file the checks commit added as added after a revision changed it", () => {
+    const plan = planProof({
+      commits: [checks, code, revise([changedFile(slugTest, ['it("keeps digits", () => {});'])])],
+      base,
+    });
+    expect(sorted(plan)).toEqual([
+      { file: slugTest, added: true, tests: ["drops spaces", "keeps digits", "keeps letters"] },
+    ]);
+  });
+
+  it("follows a test file a revision renamed, with the tests named under the old name and the new ones", () => {
+    const renamedTest = "apps/web/src/lib/slugify.test.ts";
+    const plan = planProof({
+      commits: [
+        checks,
+        code,
+        revise([
+          {
+            filename: renamedTest,
+            previous_filename: slugTest,
+            status: "renamed",
+            patch: [
+              "@@ -1,2 +1,3 @@",
+              ' it("keeps letters", () => {});',
+              ' it("drops spaces", () => {});',
+              '+it("keeps digits", () => {});',
+            ].join("\n"),
+          },
+        ]),
+      ],
+      base,
+    });
+    expect(sorted(plan)).toEqual([
+      { file: renamedTest, added: true, tests: ["drops spaces", "keeps digits", "keeps letters"] },
+    ]);
+  });
+
+  it("proves the tests of a revision that comes after a first commit saying no test is needed", () => {
+    const urlTest = "apps/web/src/lib/url.test.ts";
+    const plan = planProof({
+      commits: [
+        commit("a", "chore(web): slugs\n\nBlind-checks: none, copy text only", []),
+        code,
+        revise([addedFile(urlTest, ['it("keeps the scheme", () => {});'])]),
+      ],
+      base,
+    });
+    expect(sorted(plan)).toEqual([{ file: urlTest, added: true, tests: ["keeps the scheme"] }]);
+  });
+});
+
+describe("blind checks proof: which files the base branch run takes from the newest commit", () => {
+  it("takes a test-support file the checks commit changed", () => {
+    expect(supportOf(planProof({ commits: [checks, code], base }))).toEqual([slugInputs]);
+  });
+
+  it("takes a test-support file that only a commit with no checks trailer changed", () => {
+    const setupFix = commit("e", "fix(web): slug test setup", [
+      changedFile(testSetup, ["export const locale = 'en';"]),
+    ]);
+    expect(supportOf(planProof({ commits: [checks, code, setupFix], base }))).toEqual(
+      [slugInputs, testSetup].sort(),
+    );
+  });
+
+  it("leaves code a revision edits as the base branch has it, and still plans the revision's test file", () => {
+    const plan = planProof({
+      commits: [
+        checks,
+        code,
+        revise([
+          changedFile(titleTest, ['it("slugs emoji", () => {});']),
+          changedFile("src/real.ts", ["export const real = true;"]),
+        ]),
+      ],
+      base,
+    });
+    expect(supportOf(plan)).not.toContain("src/real.ts");
+    expect(sorted(plan)).toEqual([
+      { file: slugTest, added: true, tests: ["drops spaces", "keeps letters"] },
+      { file: titleTest, added: false, tests: ["slugs emoji"] },
+    ]);
+  });
+});
+
+describe("blind checks proof: the pull request's own commits", () => {
+  it("lists only the commits since the branch left the base branch, oldest first, with their messages and files", () => {
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "blind-checks-"));
+    const run = (args: ReadonlyArray<string>) =>
+      NodeChildProcess.execFileSync("git", args, {
+        cwd: dir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "Dev",
+          GIT_AUTHOR_EMAIL: "dev@example.com",
+          GIT_COMMITTER_NAME: "Dev",
+          GIT_COMMITTER_EMAIL: "dev@example.com",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_NOSYSTEM: "1",
+        },
+      }).trim();
+    const commitFiles = (message: string, files: Record<string, string>) => {
+      for (const [path, text] of Object.entries(files)) {
+        NodeFS.mkdirSync(NodePath.dirname(NodePath.join(dir, path)), { recursive: true });
+        NodeFS.writeFileSync(NodePath.join(dir, path), text);
+      }
+      run(["add", "-A"]);
+      run(["commit", "-q", "-m", message]);
+      return run(["rev-parse", "HEAD"]);
+    };
+    try {
+      run(["init", "-q", "-b", "amaraa-mode"]);
+      commitFiles("feat: start", { "src/slug.js": "export const slug = (text) => text;\n" });
+      commitFiles("feat: older base work", { "src/older.js": "export const older = 1;\n" });
+      run(["checkout", "-q", "-b", "fix/slugs"]);
+      const checksSha = commitFiles(
+        "test: checks for slugs\n\nBlind-checks: written from the request",
+        { "src/slug.test.js": 'it("lowercases", () => {});\n' },
+      );
+      const fixSha = commitFiles("feat: slugs lowercase", {
+        "src/slug.js": "export const slug = (text) => text.toLowerCase();\n",
+      });
+      run(["checkout", "-q", "amaraa-mode"]);
+      commitFiles("feat: newer base work", { "src/upstream.js": "export const upstream = 1;\n" });
+      run(["checkout", "-q", "fix/slugs"]);
+      run([
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "Merge branch 'amaraa-mode' into fix/slugs",
+        "amaraa-mode",
+      ]);
+      const mergeSha = run(["rev-parse", "HEAD"]);
+      run(["checkout", "-q", "amaraa-mode"]);
+      commitFiles("feat: base work after the merge", {
+        "src/later.js": "export const later = 1;\n",
+      });
+      const left = run(["merge-base", "amaraa-mode", "fix/slugs"]);
+
+      const commits = pullRequestCommits(dir, left, mergeSha).map((entry) => ({
+        sha: entry.sha,
+        message: entry.message.trim(),
+        files: entry.files.map((file) => ({ filename: file.filename, status: file.status })),
+      }));
+      expect(commits).toEqual([
+        {
+          sha: checksSha,
+          message: "test: checks for slugs\n\nBlind-checks: written from the request",
+          files: [{ filename: "src/slug.test.js", status: "added" }],
+        },
+        {
+          sha: fixSha,
+          message: "feat: slugs lowercase",
+          files: [{ filename: "src/slug.js", status: "modified" }],
+        },
+        {
+          sha: mergeSha,
+          message: "Merge branch 'amaraa-mode' into fix/slugs",
+          files: [{ filename: "src/upstream.js", status: "added" }],
+        },
+      ]);
+    } finally {
+      NodeFS.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
