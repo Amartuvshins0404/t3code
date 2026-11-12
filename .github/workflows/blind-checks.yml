@@ -55,7 +55,6 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # --commit is read only by a base branch judge older than planProof.
           node "$judge" plan --base "$PROOF_BASE" --head "$HEAD_SHA" --commit "$FIRST_SHA" --dir "$RUNNER_TEMP/proof"
 
       - name: Check out the base code with the checks from the head

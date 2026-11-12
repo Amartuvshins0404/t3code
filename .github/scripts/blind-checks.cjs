@@ -2,7 +2,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { TEST_FILE, checksMarker, gitFiles, testNames } = require("./merge-lane.cjs");
+const { TEST_FILE, checksMarker, gitFiles, isTestSupport, testNames } = require("./merge-lane.cjs");
 
 function git(cwd, args) {
   return execFileSync("git", ["-c", "core.quotePath=false", ...args], {
@@ -17,17 +17,17 @@ function planProof({ commits, base }) {
   if (!marker) {
     return { run: false, note: "No checks commit came first, so there is nothing to prove." };
   }
-  if (marker.kind === "none") {
-    return {
-      run: false,
-      note: `The first commit says no test is needed: ${marker.reason || "(no reason given)"}.`,
-    };
-  }
   const touched = new Map();
-  for (const commit of commits.filter((entry) => checksMarker(entry.message))) {
+  const support = new Set();
+  for (const commit of commits) {
+    const checks = checksMarker(commit.message);
     for (const file of commit.files) {
-      const was = touched.get(file.previous_filename ?? file.filename);
-      touched.delete(file.previous_filename ?? file.filename);
+      const from = file.previous_filename ?? file.filename;
+      support.delete(from);
+      if (file.status !== "removed" && isTestSupport(file.filename)) support.add(file.filename);
+      if (!checks) continue;
+      const was = touched.get(from);
+      touched.delete(from);
       if (file.status === "removed") continue;
       touched.set(file.filename, {
         file: file.filename,
@@ -36,13 +36,18 @@ function planProof({ commits, base }) {
       });
     }
   }
-  const entries = [...touched.values()];
-  const files = entries.filter((entry) => TEST_FILE.test(entry.file));
+  const files = [...touched.values()].filter((entry) => TEST_FILE.test(entry.file));
   if (files.length === 0) {
-    return { run: false, note: "The checks commit has no test file to run." };
+    return {
+      run: false,
+      note:
+        marker.kind === "none"
+          ? `The first commit says no test is needed: ${marker.reason || "(no reason given)"}.`
+          : "The checks commit has no test file to run.",
+    };
   }
-  const support = entries.filter((entry) => !TEST_FILE.test(entry.file)).map((entry) => entry.file);
-  return { run: true, base, files, support };
+  for (const entry of files) support.delete(entry.file);
+  return { run: true, base, files, support: [...support] };
 }
 
 function pullRequestCommits(cwd, base, head) {
@@ -227,6 +232,6 @@ function main() {
   process.exit(2);
 }
 
-module.exports = { planProof, judge, namePattern };
+module.exports = { planProof, pullRequestCommits, judge, namePattern };
 
 if (require.main === module) main();

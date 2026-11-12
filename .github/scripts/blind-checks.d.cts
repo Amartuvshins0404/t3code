@@ -37,6 +37,12 @@ export function planProof(input: {
   readonly base: string;
 }): Plan;
 
+export function pullRequestCommits(
+  cwd: string,
+  base: string,
+  head: string,
+): Array<{ sha: string; message: string; files: Array<ChangedFile> }>;
+
 export function judge(
   planned: { readonly commit: string; readonly files: ReadonlyArray<PlannedFile> },
   before: ReadonlyMap<string, TestResult>,
