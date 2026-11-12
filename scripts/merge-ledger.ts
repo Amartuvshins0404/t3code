@@ -9,17 +9,20 @@ import { classify, parseGitDiff, TEST_FILE, type Lane } from "../.github/scripts
 
 const HELP = `Usage:
   vp run report:merge-ledger [--branch <ref>] [--since <date>] [--until <date>]
-                             [--window <days>] [--repo <owner/name>] [--out <dir>] [--json]
+                             [--window <days>] [--repo <owner/name>] [--score <labels.json>]
+                             [--out <dir>] [--json]
 
 Lists the changes merged to --branch (default HEAD) between --since (default
 "30 days ago") and --until (default now), each with its lane, area, size and
 writer model, and marks a change escaped when a later commit reverts it, or
-when a later fix commit within --window days (default 14) changes or deletes
-lines it introduced.
+when a later fix commit within --window days (default 14) rewrites code it
+wrote: at least half of the code lines the fix changes or deletes.
 
 --repo reads lane:* labels and PR bodies of merged pull requests with gh; without
-it, lanes are recomputed from the lane rules. --out writes merge-ledger.md and
-merge-ledger.json; otherwise the markdown is printed, or the JSON with --json.`;
+it, lanes are recomputed from the lane rules. --score compares the links with a
+file of hand-labelled fixes ({ records: [{ fix, kind, culprits }] }). --out
+writes merge-ledger.md and merge-ledger.json; otherwise the markdown is printed,
+or the JSON with --json.`;
 
 const DAY = 86_400;
 const BLAME_CONCURRENCY = 8;
@@ -36,6 +39,14 @@ const IGNORED = [
 ];
 const MODEL_HINT =
   /claude|opus|sonnet|haiku|fable|gpt|codex|gemini|grok|cursor|composer|kimi|qwen|deepseek|glm|llama|mistral/i;
+const CONFIDENCE = [
+  "against 59 upstream fixes labelled by hand on 2026-11-12, 5 of the ledger's 11 links were right, and it found 5 of the 7 fixes that repaired a change from the previous 14 days.",
+  "About half the escapes listed below are wrong, and the ledger counts about 1.5 times as many recent repairs as hand reading did (11 against 7).",
+  "By hand, 15 of 120 upstream fixes (12.5%) repaired a recent change.",
+  "These counts are small: read a rate as rough, and a gap between two rows as real only when it is large and both rows have many mature merges.",
+  "Rerun the check with --score after changing a rule; see docs/operations/merge-lanes.md.",
+].join(" ");
+const NOT_CODE = /^\s*$|^\s*(\/\/|\/\*|\*\/|\*(\s|$)|#(\s|$)|<!--|\{\/\*)/;
 
 export interface LedgerOptions {
   readonly cwd: string;
@@ -57,6 +68,13 @@ export interface Escape {
   readonly kind: "revert" | "fix";
   readonly by: string;
   readonly bySubject: string;
+  readonly days: number;
+}
+
+export interface Link {
+  readonly kind: Escape["kind"];
+  readonly by: string;
+  readonly change: string;
   readonly days: number;
 }
 
@@ -95,6 +113,7 @@ export interface Ledger {
   readonly byArea: ReadonlyArray<LedgerGroup>;
   readonly byModel: ReadonlyArray<LedgerGroup>;
   readonly changes: ReadonlyArray<LedgerChange>;
+  readonly links: ReadonlyArray<Link>;
 }
 
 interface Range {
@@ -191,10 +210,18 @@ function removedRanges(files: ReturnType<typeof parseGitDiff>): Array<Range> {
     const path = file.previous_filename ?? file.filename;
     if (file.status === "added" || !file.patch || isIgnored(path)) continue;
     const lines: Array<[number, number]> = [];
-    for (const match of file.patch.matchAll(/^@@ -(\d+)(?:,(\d+))? /gm)) {
-      const start = Number(match[1]);
-      const count = match[2] === undefined ? 1 : Number(match[2]);
-      if (count > 0) lines.push([start, start + count - 1]);
+    let line = 0;
+    for (const text of file.patch.split("\n")) {
+      const hunk = /^@@ -(\d+)/.exec(text);
+      if (hunk) line = Number(hunk[1]);
+      else if (text.startsWith("-")) {
+        if (!NOT_CODE.test(text.slice(1))) {
+          const last = lines.at(-1);
+          if (last && last[1] === line - 1) last[1] = line;
+          else lines.push([line, line]);
+        }
+        line += 1;
+      }
     }
     if (lines.length > 0) ranges.push({ path, lines });
   }
@@ -343,11 +370,12 @@ async function mapLimit<T, R>(
 }
 
 async function blamedCommits(cwd: string, rev: string, sinceTime: number, range: Range) {
-  const args = ["blame", "-w", "--porcelain", `--since=@${sinceTime}`];
+  const args = ["blame", "-w", "-M", "-C", "--porcelain", `--since=@${sinceTime}`];
   for (const [start, end] of range.lines) args.push("-L", `${start},${end}`);
   const output = await gitAsync(cwd, [...args, rev, "--", range.path]);
   const counts = new Map<string, number>();
-  if (!output) return counts;
+  let total = 0;
+  if (!output) return { counts, total };
   const boundary = new Set<string>();
   let current: string | null = null;
   for (const line of output.split("\n")) {
@@ -355,10 +383,11 @@ async function blamedCommits(cwd: string, rev: string, sinceTime: number, range:
     if (header) {
       current = header[1]!;
       counts.set(current, (counts.get(current) ?? 0) + 1);
+      total += 1;
     } else if (line === "boundary" && current) boundary.add(current);
   }
   for (const sha of boundary) counts.delete(sha);
-  return counts;
+  return { counts, total };
 }
 
 function group(key: string, changes: ReadonlyArray<LedgerChange>): LedgerGroup {
@@ -431,22 +460,20 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
     Number.POSITIVE_INFINITY,
   );
 
+  const links: Array<Link> = [];
   const mark = (target: RawChange | undefined, by: RawChange, kind: Escape["kind"]) => {
     if (!target || target === by || target.change.time > by.change.time) return;
-    const days = (by.change.time - target.change.time) / DAY;
-    if (kind === "fix" && days > options.windowDays) return;
+    const exact = (by.change.time - target.change.time) / DAY;
+    if (kind === "fix" && exact > options.windowDays) return;
+    const days = Math.round(exact * 10) / 10;
+    links.push({ kind, by: by.change.sha, change: target.change.sha, days });
     const current = target.change.escape;
     const better =
       !current ||
       (kind === "revert" && current.kind === "fix") ||
       (kind === current.kind && days < current.days);
     if (!better) return;
-    target.change.escape = {
-      kind,
-      by: by.change.sha,
-      bySubject: by.change.subject,
-      days: Math.round(days * 10) / 10,
-    };
+    target.change.escape = { kind, by: by.change.sha, bySubject: by.change.subject, days };
   };
 
   const jobs = raws.filter((raw) => raw.kind !== null && raw.parents.length > 0);
@@ -469,15 +496,22 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
           ? sinceTime
           : 0;
     const totals = new Map<RawChange, number>();
+    let blamed = 0;
     for (const range of raw.removed) {
-      const counts = await blamedCommits(options.cwd, raw.parents[0]!, blameSince, range);
+      const { counts, total } = await blamedCommits(
+        options.cwd,
+        raw.parents[0]!,
+        blameSince,
+        range,
+      );
+      blamed += total;
       for (const [sha, count] of counts) {
         const target = ownerOf(sha);
         if (target) totals.set(target, (totals.get(target) ?? 0) + count);
       }
     }
     if (raw.kind === "fix") {
-      for (const target of totals.keys()) mark(target, raw, "fix");
+      for (const [target, count] of totals) if (count * 2 >= blamed) mark(target, raw, "fix");
     } else {
       const [top] = [...totals.entries()].sort((a, b) => b[1] - a[1]);
       mark(
@@ -499,7 +533,77 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
     byArea: groupBy(changes, (change) => change.area),
     byModel: groupBy(changes, (change) => change.model),
     changes,
+    links,
   };
+}
+
+export interface LabelRecord {
+  readonly fix: string;
+  readonly kind: "repair-recent" | "repair-old" | "not-repair" | "unsure";
+  readonly culprits: ReadonlyArray<string>;
+}
+
+export interface LedgerScore {
+  readonly scored: number;
+  readonly unsure: number;
+  readonly outsideRange: number;
+  readonly culpritsBeforeRange: number;
+  readonly linksMade: number;
+  readonly linksRight: number;
+  readonly labelledLinks: number;
+  readonly labelledLinksFound: number;
+  readonly labelledRecent: number;
+  readonly ledgerRecent: number;
+  readonly recentFound: number;
+}
+
+export function scoreLedger(ledger: Ledger, records: ReadonlyArray<LabelRecord>): LedgerScore {
+  const listed = new Set(ledger.changes.map((change) => change.sha));
+  const linksBy = new Map<string, Set<string>>();
+  for (const link of ledger.links) {
+    linksBy.set(link.by, (linksBy.get(link.by) ?? new Set()).add(link.change));
+  }
+  const inRange = records.filter((record) => listed.has(record.fix));
+  const scored = inRange.filter((record) => record.kind !== "unsure");
+  const recent = scored.filter((record) => record.kind === "repair-recent");
+  const linked = (record: LabelRecord) => linksBy.get(record.fix) ?? new Set<string>();
+  const right = (record: LabelRecord) => record.culprits.filter((sha) => linked(record).has(sha));
+  return {
+    scored: scored.length,
+    unsure: inRange.length - scored.length,
+    outsideRange: records.length - inRange.length,
+    culpritsBeforeRange: recent
+      .flatMap((record) => record.culprits)
+      .filter((sha) => !listed.has(sha)).length,
+    linksMade: scored.reduce((total, record) => total + linked(record).size, 0),
+    linksRight: scored.reduce((total, record) => total + right(record).length, 0),
+    labelledLinks: recent.reduce((total, record) => total + record.culprits.length, 0),
+    labelledLinksFound: recent.reduce((total, record) => total + right(record).length, 0),
+    labelledRecent: recent.length,
+    ledgerRecent: scored.filter((record) => linked(record).size > 0).length,
+    recentFound: recent.filter((record) => right(record).length > 0).length,
+  };
+}
+
+function outOf(part: number, whole: number) {
+  return `${part} of ${whole}${whole > 0 ? ` (${Math.round((part / whole) * 100)}%)` : ""}`;
+}
+
+export function renderScore(score: LedgerScore) {
+  return [
+    "### Score against hand labels",
+    "",
+    `${score.scored} labelled fixes scored; ${score.unsure} marked unsure and ${score.outsideRange} outside this run's range were skipped.`,
+    "",
+    `- Links right (precision): ${outOf(score.linksRight, score.linksMade)}.`,
+    `- Labelled links found (recall): ${outOf(score.labelledLinksFound, score.labelledLinks)}.`,
+    `- Recent repairs found: ${outOf(score.recentFound, score.labelledRecent)} labelled repair-recent fixes have a right link.`,
+    `- Recent repairs counted: the ledger links ${score.ledgerRecent} of these fixes to a recent change; hand reading says ${score.labelledRecent}.`,
+    score.culpritsBeforeRange > 0
+      ? `- ${score.culpritsBeforeRange} labelled culprits merged before --since and could not be found; run with an earlier --since.`
+      : "",
+    "",
+  ].join("\n");
 }
 
 function percent(value: number | null) {
@@ -531,13 +635,23 @@ export function renderMarkdown(ledger: Ledger) {
     .filter((row) => row.matureMerges >= 10)
     .sort((a, b) => (b.escapeRate ?? 0) - (a.escapeRate ?? 0));
   const escapes = ledger.changes.filter((change) => change.escape);
+  const oldest = Math.min(...ledger.changes.map((change) => change.time));
+  const fixes = ledger.changes.filter(
+    (change) =>
+      commitKind(change.subject) === "fix" && change.time - oldest >= ledger.windowDays * DAY,
+  );
+  const linked = new Set(ledger.links.filter((link) => link.kind === "fix").map((link) => link.by));
+  const repairing = fixes.filter((change) => linked.has(change.sha)).length;
   return [
     `## Merge ledger: ${ledger.branch}, ${ledger.since} to ${ledger.until}`,
     "",
     `${total.merges} merged changes. Lane share: ${share}.`,
     `${total.matureMerges} are older than the ${ledger.windowDays}-day fix window; ${total.matureEscapes} of those escaped (${percent(total.escapeRate)}). Median days to the fix or revert: ${total.medianDaysToFix ?? "n/a"}.`,
+    `${repairing} of the ${fixes.length} fix commits with ${ledger.windowDays} days of listed history behind them (${percent(fixes.length ? repairing / fixes.length : null)}) are linked to a change from those days.`,
     "",
     "Escape rates count only mature changes, whose fix window has fully passed.",
+    "",
+    `**How sure:** ${CONFIDENCE}`,
     "",
     table("By lane", ledger.byLane),
     table("Leakiest areas (10+ mature merges)", leaking, 5),
@@ -615,14 +729,22 @@ if (import.meta.main) {
     windowDays: Number(flag("--window") ?? 14),
     pullRequests: repo ? pullRequestsFromGitHub(repo, branch.replace(/^[^/]+\//, "")) : new Map(),
   });
-  const markdown = renderMarkdown(ledger);
+  const labels = flag("--score");
+  const score = labels
+    ? scoreLedger(
+        ledger,
+        (JSON.parse(NodeFS.readFileSync(labels, "utf8")) as { records: Array<LabelRecord> })
+          .records,
+      )
+    : null;
+  const markdown = [renderMarkdown(ledger), score ? renderScore(score) : ""].join("\n");
   const out = flag("--out");
   if (out) {
     NodeFS.mkdirSync(out, { recursive: true });
     NodeFS.writeFileSync(NodePath.join(out, "merge-ledger.md"), `${markdown}\n`);
     NodeFS.writeFileSync(
       NodePath.join(out, "merge-ledger.json"),
-      `${JSON.stringify(ledger, null, 2)}\n`,
+      `${JSON.stringify(score ? { ...ledger, score } : ledger, null, 2)}\n`,
     );
     console.log(`Wrote ${NodePath.join(out, "merge-ledger.md")} and merge-ledger.json`);
   } else {

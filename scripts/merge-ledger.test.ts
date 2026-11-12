@@ -5,7 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildLedger, writerModel } from "./merge-ledger.ts";
+import { buildLedger, scoreLedger, writerModel } from "./merge-ledger.ts";
 
 const DAY = 86_400;
 const START = Date.parse("2026-01-01T12:00:00Z") / 1000;
@@ -94,6 +94,44 @@ describe("merge ledger", () => {
       });
       NodeFS.rmSync(NodePath.join(repo.dir, "src/banner.ts"));
       const unnamedRevert = repo.commit("revert(web): take the banner back out (#10)", 30, {});
+      repo.commit("feat: config (#11)", -60, {
+        "src/config.ts": lines("export const a = 1;", "export const b = 2;", "export const c = 3;"),
+      });
+      const tweak = repo.commit("feat: tweak config (#12)", 31, {
+        "src/config.ts": lines("export const a = 1;", "export const b = 2;", "export const c = 4;"),
+      });
+      const configFix = repo.commit("fix: config values (#13)", 32, {
+        "src/config.ts": lines("export const a = 5;", "export const b = 6;", "export const c = 7;"),
+      });
+      const notes = repo.commit("feat: notes (#14)", 31, {
+        "src/notes.ts": lines("// keep in sync with the server", "export const notes = 1;"),
+      });
+      const notesFix = repo.commit("fix: notes comment (#15)", 32, {
+        "src/notes.ts": lines("// keep in sync with the relay", "export const notes = 1;"),
+      });
+      const pad = (width: string) => [
+        "export function formatDuration(totalSeconds: number) {",
+        "  const minutes = Math.floor(totalSeconds / 60).toString();",
+        `  const seconds = (totalSeconds % 60).toString().padStart(${width}, "0");`,
+        "  return `${minutes}:${seconds}`;",
+        "}",
+      ];
+      const formatter = repo.commit("feat: duration formatter (#16)", 33, {
+        "src/format.ts": lines("export const unit = 's';", ...pad("1")),
+      });
+      const move = repo.commit("refactor: move the formatter into text (#17)", 34, {
+        "src/format.ts": lines("export const unit = 's';"),
+        "src/text.ts": lines("export const separator = ':';", ...pad("1")),
+      });
+      const padFix = repo.commit("fix: durations pad seconds to two digits (#18)", 35, {
+        "src/text.ts": lines("export const separator = ':';", ...pad("2")),
+      });
+      const secondPadFix = repo.commit("fix: negative durations round toward zero (#19)", 36, {
+        "src/text.ts": lines(
+          "export const separator = ':';",
+          ...pad("2").map((line) => line.replace("Math.floor", "Math.trunc")),
+        ),
+      });
 
       const ledger = await buildLedger({
         cwd: repo.dir,
@@ -117,6 +155,39 @@ describe("merge ledger", () => {
       for (const sha of [fix, oldFix, testFix, spacing, revert, unnamedRevert]) {
         expect(bySha.get(sha)?.escape).toBeNull();
       }
+      expect(bySha.get(tweak)?.escape).toBeNull();
+      expect(bySha.get(notes)?.escape).toBeNull();
+      expect(bySha.get(move)?.escape).toBeNull();
+      expect(bySha.get(formatter)?.escape).toMatchObject({ kind: "fix", by: padFix, days: 2 });
+      expect(
+        ledger.links.filter((link) => link.change === formatter).map((link) => link.by),
+      ).toEqual(expect.arrayContaining([padFix, secondPadFix]));
+      for (const sha of [configFix, notesFix]) {
+        expect(ledger.links.some((link) => link.by === sha)).toBe(false);
+      }
+
+      expect(
+        scoreLedger(ledger, [
+          { fix, kind: "repair-recent", culprits: [parser] },
+          { fix: padFix, kind: "repair-recent", culprits: [formatter] },
+          { fix: secondPadFix, kind: "not-repair", culprits: [] },
+          { fix: configFix, kind: "repair-old", culprits: [] },
+          { fix: notesFix, kind: "unsure", culprits: [] },
+          { fix: "0".repeat(40), kind: "repair-recent", culprits: [old] },
+        ]),
+      ).toEqual({
+        scored: 4,
+        unsure: 1,
+        outsideRange: 1,
+        culpritsBeforeRange: 0,
+        linksMade: 3,
+        linksRight: 2,
+        labelledLinks: 2,
+        labelledLinksFound: 2,
+        labelledRecent: 2,
+        ledgerRecent: 3,
+        recentFound: 2,
+      });
 
       expect(bySha.get(parser)).toMatchObject({
         pr: 2,
@@ -124,7 +195,7 @@ describe("merge ledger", () => {
         area: "src",
         size: 3,
       });
-      expect(ledger.totals).toMatchObject({ merges: 11, matureMerges: 11, matureEscapes: 3 });
+      expect(ledger.totals).toMatchObject({ merges: 20, matureMerges: 20, matureEscapes: 4 });
     } finally {
       repo.cleanup();
     }

@@ -35,12 +35,23 @@ vp run report:merge-ledger --branch fork/amaraa-mode --repo Amartuvshins0404/t3c
 vp run report:merge-ledger --branch origin/main --since "30 days ago"
 ```
 
-A change escaped when a later commit reverts it, or when a later `fix` commit within `--window` days (default 14) changes or deletes lines it introduced, found with `git blame -w` on the fix's parent. Tests, docs, lockfiles, generated files, vendored `.repos/` and whitespace-only edits are ignored. Escape rates count only changes whose window has passed. Thirty days of upstream history take about a minute.
+A change escaped when a later commit reverts it, or when a later `fix` commit within `--window` days (default 14) rewrites code it wrote. The ledger runs `git blame -w -M -C` on the fix's parent over the code lines the fix changes or deletes, and links the fix to a change only when that change wrote at least half of those lines. Blank and comment-only lines, tests, docs, lockfiles, generated files and vendored `.repos/` are left out. Escape rates count only changes whose window has passed. Thirty days of upstream history take under two minutes.
 
-Read the numbers as an upper bound with noise:
+**How far to trust it.** Against 59 upstream fixes labelled by hand (2026-11-12), 5 of the ledger's 11 links were right, and it found 5 of the 7 fixes that repaired a change from the previous 14 days. About half the escapes it lists are wrong, and it counts about 1.5 times as many recent repairs as hand reading. The report also gives the share of fix commits linked to a recent change, the figure to compare with hand reading, where 15 of 120 upstream fixes (12.5%) repaired one. With 7 recent repairs behind the figures, a rate is rough: trust a gap between two lanes or areas only when it is large and both have many mature merges.
 
-- A fix that edits a recent line on the way to repairing something else counts as an escape.
-- A fix that only adds lines, such as a missing guard, links to nothing.
-- Code that a refactor moved is blamed on the refactor, not on the change that wrote it.
+What blame cannot do, whatever the rules:
+
+- A fix whose lines a recent change last wrote looks like a repair of that change, even when the fault is older or the fix is polish. This causes most of the wrong links that remain.
+- A fix that only adds lines, such as a missing guard or case, links to nothing.
 - A fix that repairs code older than the window is not counted, by design.
 - Without `--repo`, lanes are recomputed with today's rules, not the label the change had when it merged.
+
+### Checking a rule change
+
+`--score <labels.json>` adds a section that compares the ledger's links with hand labels: link precision and recall, how many labelled recent repairs it found, and how many fixes it counts as recent repairs against the labelled count, each with the numbers behind it. The labels file holds `{ "records": [{ "fix", "kind", "culprits" }] }`, where `kind` is `repair-recent`, `repair-old`, `not-repair` or `unsure`, and `culprits` are the full SHAs of the changes the fix repairs. Run it over a range that starts at least 14 days before the oldest labelled fix, or the culprits are not in the list:
+
+```sh
+vp run report:merge-ledger --branch ee90bdc9405d8d4b8ff78ce2133ccb04844298ab --since 2026-09-28 --until 2026-11-12T09:18:38Z --score labels.json
+```
+
+A new rule has to hold for fixes nobody labelled. Keep half the labels out of tuning and score the rule on them before you trust it. When the figures change, update the "How sure" text in `scripts/merge-ledger.ts` and this section.
