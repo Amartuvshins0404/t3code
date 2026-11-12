@@ -35,6 +35,7 @@ interface HarnessOptions {
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
   readonly desktopAppUpdate?: DesktopAppUpdate.DesktopAppUpdate["Service"];
   readonly policy?: ManagedPolicyDocument;
+  readonly shippedLayer?: boolean;
 }
 
 const archiveBytes = new TextEncoder().encode("not really a tarball");
@@ -150,29 +151,35 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
   const config = yield* ServerConfig.ServerConfig.pipe(
     Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
   );
-  const selfUpdate = yield* ServerSelfUpdate.make().pipe(
-    Effect.provideService(ProcessRunner.ProcessRunner, runner),
-    Effect.provideService(ServiceLauncherClient.ServiceLauncherClient, launcher),
-    Effect.provideService(
-      DesktopAppUpdate.DesktopAppUpdate,
-      options.desktopAppUpdate ?? {
-        available: false,
-        run: () => Effect.die("unexpected desktop app update run"),
-      },
-    ),
-    Effect.provideService(
-      HttpClient.HttpClient,
-      options.httpClient ?? releaseHttpClient(order, urls, options.beforeDownload),
-    ),
-    Effect.provideService(HostProcess.Platform, "linux"),
-    Effect.provideService(HostProcess.Architecture, "x64"),
-    Effect.provide(
-      Layer.merge(
-        ServerConfig.layer({ ...config, mode: options.mode ?? "web" }),
-        ManagedPolicy.layerTest(options.policy),
+  const provideDependencies = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.provideService(ProcessRunner.ProcessRunner, runner),
+      Effect.provideService(ServiceLauncherClient.ServiceLauncherClient, launcher),
+      Effect.provideService(
+        DesktopAppUpdate.DesktopAppUpdate,
+        options.desktopAppUpdate ?? {
+          available: false,
+          run: () => Effect.die("unexpected desktop app update run"),
+        },
       ),
-    ),
-  );
+      Effect.provideService(
+        HttpClient.HttpClient,
+        options.httpClient ?? releaseHttpClient(order, urls, options.beforeDownload),
+      ),
+      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provideService(HostProcess.Architecture, "x64"),
+      Effect.provide(
+        Layer.merge(
+          ServerConfig.layer({ ...config, mode: options.mode ?? "web" }),
+          ManagedPolicy.layerTest(options.policy),
+        ),
+      ),
+    );
+  const selfUpdate = yield* options.shippedLayer
+    ? provideDependencies(
+        ServerSelfUpdate.ServerSelfUpdate.pipe(Effect.provide(ServerSelfUpdate.layer)),
+      )
+    : provideDependencies(ServerSelfUpdate.make());
   return { selfUpdate, order, urls, baseDir, preflightProtocols };
 });
 
@@ -259,6 +266,29 @@ it.layer(NodeServices.layer)("server self update", (it) => {
         ).toBe("Example Corp manages T3 Code updates.");
       }
       expect([...service.order, ...desktop.order]).toEqual([]);
+    }),
+  );
+
+  it.effect("the fork's server never installs a t3 release or updates its desktop app", () =>
+    Effect.gen(function* () {
+      const service = yield* makeHarness({ shippedLayer: true });
+      const desktop = yield* makeHarness({
+        shippedLayer: true,
+        mode: "desktop",
+        desktopAppUpdate: {
+          available: true,
+          run: () => Effect.die("unexpected desktop app update run"),
+          commit: () => Effect.never,
+        },
+      });
+      for (const harness of [service, desktop]) {
+        expect(
+          (yield* harness.selfUpdate.update({ targetVersion: "1.1.0" }).pipe(Effect.flip)).reason,
+        ).toBe(
+          "This build updates only through its desktop app, from github.com/Amartuvshins0404/t3code.",
+        );
+      }
+      expect([...service.order, ...desktop.order, ...service.urls, ...desktop.urls]).toEqual([]);
     }),
   );
 

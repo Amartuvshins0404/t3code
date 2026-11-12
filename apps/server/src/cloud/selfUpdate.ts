@@ -1,7 +1,7 @@
 import { getAppBaseName } from "@t3tools/shared/appName";
 import {
-  FORK_UPDATES_ENABLED,
-  FORK_UPDATES_OFF_MESSAGE,
+  FORK_SELF_UPDATE_ENABLED,
+  FORK_SELF_UPDATE_OFF_MESSAGE,
   ServerSelfUpdateError,
   type ServerSelfUpdateCapability,
   type ServerSelfUpdateInput,
@@ -364,12 +364,12 @@ export const layer = Layer.effect(
   ServerSelfUpdate,
   make().pipe(
     Effect.map((service) =>
-      FORK_UPDATES_ENABLED
+      FORK_SELF_UPDATE_ENABLED
         ? service
         : ServerSelfUpdate.of({
             ...service,
             update: Effect.fn("ServerSelfUpdate.update")(function* () {
-              return yield* new ServerSelfUpdateError({ reason: FORK_UPDATES_OFF_MESSAGE });
+              return yield* new ServerSelfUpdateError({ reason: FORK_SELF_UPDATE_OFF_MESSAGE });
             }),
           }),
     ),

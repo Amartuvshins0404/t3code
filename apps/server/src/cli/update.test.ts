@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import type { ManagedUpdatesPolicy } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as NetService from "@t3tools/shared/Net";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -11,6 +12,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as TestClock from "effect/testing/TestClock";
 import * as TestConsole from "effect/testing/TestConsole";
+import { Command } from "effect/cli";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { afterEach, vi } from "vite-plus/test";
@@ -26,6 +28,7 @@ import {
   resolveMirrorVersion,
   resolveNewestVersion,
   runUpdate,
+  updateCommand,
 } from "./update.ts";
 
 // lsof listing one process, so prune sees a process list in which no runtime is running.
@@ -188,6 +191,21 @@ it.layer(NodeServices.layer)("t3 update under a managed policy", (it) => {
       );
       assert.include(error.message, "from Example Corp's update mirror");
       assert.deepStrictEqual(requested, ["https://updates.example.com"]);
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("t3 update on the fork", (it) => {
+  it.effect("refuses to install any t3 release", () =>
+    Effect.gen(function* () {
+      const error = yield* Command.runWith(updateCommand, { version: "0.0.0" })([
+        "--yes",
+        "1.1.0",
+      ]).pipe(Effect.flip, Effect.provide(NetService.layer));
+      assert.equal(
+        error.message,
+        "This build updates only through its desktop app, from github.com/Amartuvshins0404/t3code.",
+      );
     }),
   );
 });

@@ -1180,4 +1180,53 @@ describe("DesktopUpdates under a managed policy", () => {
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
+
+  it.effect("updates the fork's app only from the fork's releases", () => {
+    const harness = makeHarness({
+      env: { T3CODE_DESKTOP_MOCK_UPDATES: "true" },
+      policy: DesktopUpdatePolicy.resolveForkUpdatePolicy(
+        DesktopUpdatePolicy.unmanagedUpdatePolicy,
+      ),
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        yield* TestClock.adjust("10 minutes");
+        assert.isTrue((yield* updates.getState).enabled);
+        assert.deepEqual(harness.feedUrls(), [
+          {
+            provider: "generic",
+            url: "https://github.com/Amartuvshins0404/t3code/releases/latest/download",
+          },
+        ]);
+        assert.isAbove(harness.checkCount(), 0);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
+  it.effect("turns the fork's updates off when a policy names another feed", () => {
+    const harness = makeHarness({
+      policy: DesktopUpdatePolicy.resolveForkUpdatePolicy(
+        managed({ feedUrl: "https://updates.example.com/t3code" }),
+      ),
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        yield* TestClock.adjust("10 minutes");
+        const state = yield* updates.getState;
+        assert.equal(state.status, "disabled");
+        assert.equal(
+          state.message,
+          "This build updates only from github.com/Amartuvshins0404/t3code.",
+        );
+        assert.deepEqual(harness.feedUrls(), []);
+        assert.equal(harness.checkCount(), 0);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
 });

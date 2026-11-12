@@ -1,0 +1,171 @@
+name: Fork desktop release
+
+on:
+  push:
+    branches:
+      - amaraa-mode
+    paths:
+      - apps/desktop/**
+      - apps/server/**
+      - apps/web/**
+      - packages/**
+      - native/**
+      - scripts/**
+      - assets/**
+      - patches/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/actions/setup-ci-deps/**
+      - .github/workflows/fork-desktop-release.yml
+  workflow_dispatch:
+
+concurrency:
+  group: fork-desktop-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, sign and publish the Mac app
+    if: github.repository == 'Amartuvshins0404/t3code'
+    runs-on: macos-26
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      T3CODE_OWNER_NAME: ${{ vars.OWNER_NAME }}
+      T3CODE_OWNER_LOGO: assets/owner/logo.jpg
+      T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+      T3CODE_MACOS_SELF_SIGNED: "true"
+    steps:
+      - name: Checkout
+        shell: bash
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git -c checkout.workers=0 checkout --detach FETCH_HEAD
+
+      - name: Check the owner name
+        shell: bash
+        run: |
+          if [[ -z "$T3CODE_OWNER_NAME" ]]; then
+            echo "Set the OWNER_NAME repository variable." >&2
+            exit 1
+          fi
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin
+
+      - name: Set the release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(node -p "require('./apps/desktop/package.json').version")"
+          version="$(cut -d. -f1-2 <<<"$base").$((1000 + GITHUB_RUN_NUMBER))"
+          node scripts/update-release-package-versions.ts "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Render the owner's icons
+        run: vp run icons:export
+
+      - name: Import the signing certificate
+        shell: bash
+        env:
+          SIGNING_P12: ${{ secrets.FORK_MAC_SIGNING_P12 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.FORK_MAC_SIGNING_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_P12" || -z "$SIGNING_P12_PASSWORD" ]]; then
+            echo "Set the FORK_MAC_SIGNING_P12 and FORK_MAC_SIGNING_P12_PASSWORD secrets." >&2
+            exit 1
+          fi
+          keychain="$RUNNER_TEMP/fork-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 16)"
+          echo "::add-mask::$keychain_password"
+          cert_dir="$(mktemp -d)"
+          trap 'rm -rf "$cert_dir"' EXIT
+          printf '%s' "$SIGNING_P12" | base64 --decode > "$cert_dir/signing.p12"
+          /usr/bin/openssl pkcs12 -in "$cert_dir/signing.p12" -passin env:SIGNING_P12_PASSWORD -nokeys -clcerts -out "$cert_dir/signing.pem"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$cert_dir/signing.p12" -k "$keychain" -P "$SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+          existing=()
+          while IFS= read -r line; do existing+=("$line"); done < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')
+          security list-keychains -d user -s "$keychain" "${existing[@]}"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain" "$cert_dir/signing.pem"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/^ *1) [0-9A-F]* "\(.*\)"$/\1/p')"
+          if [[ -z "$identity" ]]; then
+            echo "The signing certificate is not a valid code signing identity." >&2
+            exit 1
+          fi
+          echo "CSC_NAME=$identity" >> "$GITHUB_ENV"
+          echo "FORK_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: Build the Mac app
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: vp run dist:desktop:artifact --platform mac --target dmg --arch arm64 --build-version "$VERSION" --signed --verbose
+
+      - name: Check the signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          unpacked="$(mktemp -d)"
+          ditto -x -k release/*-arm64.zip "$unpacked"
+          app="$(ls -d "$unpacked"/*.app)"
+          codesign --verify --deep --strict "$app"
+          codesign -dvv "$app" 2>&1 | grep -Fx "Authority=$CSC_NAME"
+          codesign -d -r- "$app"
+          test -f release/latest-mac.yml
+
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          IS_MAIN: ${{ github.ref == 'refs/heads/amaraa-mode' }}
+        run: |
+          set -euo pipefail
+          channel=(--latest)
+          if [[ "$IS_MAIN" != "true" ]]; then
+            channel=(--prerelease --latest=false)
+          fi
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --notes "$(git log -1 --format=%s) ($GITHUB_SHA)" \
+            "${channel[@]}" \
+            release/latest-mac.yml \
+            release/*-arm64.zip \
+            release/*-arm64.zip.blockmap \
+            release/*-arm64.dmg \
+            release/*-arm64.dmg.blockmap
+
+      - name: Remove the signing keychain
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${FORK_SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$FORK_SIGNING_KEYCHAIN" || true
+          fi
