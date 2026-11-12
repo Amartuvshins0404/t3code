@@ -607,11 +607,9 @@ function renderChanges(changes) {
 }
 
 function readLock(body) {
-  const start = body.indexOf(LOCK_MARKER);
-  if (start === -1) return null;
-  const end = body.indexOf("-->", start);
+  if (!body.startsWith(LOCK_MARKER)) return null;
   try {
-    return JSON.parse(body.slice(start + LOCK_MARKER.length, end));
+    return JSON.parse(body.slice(LOCK_MARKER.length, body.indexOf("-->")));
   } catch {
     return null;
   }
@@ -639,6 +637,25 @@ function renderLockComment(lock, checks) {
     "",
     "The lane bot wrote this lock the first time it saw the checks commit, and keeps it. An edit to this comment shows in its edit history.",
   ].join("\n");
+}
+
+function renderBotComment({ previous, checks, strength }) {
+  const split = previous?.lastIndexOf(`\n\n${STRENGTH_MARKER}\n`) ?? -1;
+  const kept = previous?.startsWith(LOCK_MARKER)
+    ? previous.slice(0, split === -1 ? undefined : split)
+    : null;
+  const lockBlock = checks.lock ? renderLockComment(checks.lock, checks) : kept;
+  return [
+    ...(lockBlock ? [lockBlock] : []),
+    ...(strength === null ? [] : [`${STRENGTH_MARKER}\n${strength}`]),
+  ].join("\n\n");
+}
+
+function isBotComment(comment) {
+  return (
+    comment.user?.login === LANE_BOT &&
+    Boolean(comment.body?.startsWith(LOCK_MARKER) || comment.body?.startsWith(STRENGTH_MARKER))
+  );
 }
 
 function isRequired(env = process.env) {
@@ -846,9 +863,8 @@ async function judgePullRequest(api, repoPath, pr, listed) {
   if (base.lane !== "green") {
     const comments = await api.all(`${repoPath}/issues/${pr.number}/comments`);
     lockComment =
-      comments.find(
-        (comment) => comment.user?.login === LANE_BOT && comment.body?.includes(LOCK_MARKER),
-      ) ?? null;
+      comments.find((comment) => isBotComment(comment) && comment.body.startsWith(LOCK_MARKER)) ??
+      null;
     const firstFiles =
       commits[0] && checksMarker(commits[0].message)
         ? ((await api.get(`${repoPath}/commits/${commits[0].sha}`)).files ?? [])
@@ -889,10 +905,11 @@ function fetchPullRequestFiles(repo, number) {
 }
 
 async function syncComment(github, { owner, repo, number }, checks, comment, strengthText) {
-  const body = [
-    ...(checks.lock ? [renderLockComment(checks.lock, checks)] : []),
-    `${STRENGTH_MARKER}\n${strengthText}`,
-  ].join("\n\n");
+  const body = renderBotComment({
+    previous: comment?.body ?? null,
+    checks,
+    strength: strengthText,
+  });
   if (!comment) {
     await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
   } else if (comment.body !== body) {
@@ -900,31 +917,33 @@ async function syncComment(github, { owner, repo, number }, checks, comment, str
   }
 }
 
+function pullRequestForRun({ run, open, defaultBranch }) {
+  const matching = open
+    .filter((pr) => pr.head.sha === run.head_sha && pr.base.ref === defaultBranch)
+    .map((pr) => pr.number);
+  const linked = (run.pull_requests ?? []).map((entry) => entry.number);
+  return matching.find((number) => linked.includes(number)) ?? matching[0] ?? null;
+}
+
 async function pullRequestFor(github, context) {
   if (context.payload.pull_request) return context.payload.pull_request;
   const finished = context.payload.workflow_run;
   if (finished?.event !== "pull_request") return null;
   const { owner, repo } = context.repo;
-  const numbers = (finished.pull_requests ?? []).map((entry) => entry.number);
-  if (numbers.length === 0) {
-    const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-      owner,
-      repo,
-      commit_sha: finished.head_sha,
-    });
-    numbers.push(...data.filter((entry) => entry.state === "open").map((entry) => entry.number));
-  }
-  for (const number of numbers) {
-    const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
-    if (
-      pr.state === "open" &&
-      pr.head.sha === finished.head_sha &&
-      pr.base.ref === context.payload.repository.default_branch
-    ) {
-      return pr;
-    }
-  }
-  return null;
+  const defaultBranch = context.payload.repository.default_branch;
+  const open = await github.paginate(github.rest.pulls.list, {
+    owner,
+    repo,
+    state: "open",
+    base: defaultBranch,
+    per_page: 100,
+  });
+  const number = pullRequestForRun({ run: finished, open, defaultBranch });
+  if (number === null) return null;
+  const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+  return pr.state === "open" && pullRequestForRun({ run: finished, open: [pr], defaultBranch })
+    ? pr
+    : null;
 }
 
 async function readMeasurement(github, { owner, repo }, sha) {
@@ -1049,12 +1068,7 @@ async function syncPullRequest({ github, context, core }) {
   );
   const strengthText = renderStrength(strength, { required: strengthRequired });
   const comment =
-    lockComment ??
-    (await api.all(`${repoPath}/issues/${pr.number}/comments`)).find(
-      (entry) =>
-        entry.user?.login === LANE_BOT &&
-        (entry.body?.includes(LOCK_MARKER) || entry.body?.includes(STRENGTH_MARKER)),
-    );
+    lockComment ?? (await api.all(`${repoPath}/issues/${pr.number}/comments`)).find(isBotComment);
   await syncComment(github, { owner, repo, number: pr.number }, checks, comment, strengthText);
   const wanted = `lane:${result.lane}`;
 
@@ -1170,6 +1184,8 @@ module.exports = {
   renderChanges,
   renderLockComment,
   readLock,
+  renderBotComment,
+  pullRequestForRun,
   syncPullRequest,
 };
 

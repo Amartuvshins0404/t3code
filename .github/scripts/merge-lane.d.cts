@@ -131,6 +131,23 @@ export function judgeRepairs(input: {
 export function renderChanges(changes: ReadonlyArray<TestChange>): string;
 export function renderLockComment(lock: ChecksLock, checks: ChecksVerdict): string;
 export function readLock(body: string): ChecksLock | null;
+export function renderBotComment(input: {
+  readonly previous: string | null;
+  readonly checks: ChecksVerdict;
+  readonly strength: string | null;
+}): string;
+export function pullRequestForRun(input: {
+  readonly run: {
+    readonly head_sha: string;
+    readonly pull_requests?: ReadonlyArray<{ readonly number: number }> | null;
+  };
+  readonly open: ReadonlyArray<{
+    readonly number: number;
+    readonly head: { readonly sha: string };
+    readonly base: { readonly ref: string };
+  }>;
+  readonly defaultBranch: string;
+}): number | null;
 
 export function parseGitDiff(text: string): Array<ParsedFile>;
 

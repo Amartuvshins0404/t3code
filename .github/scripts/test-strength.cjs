@@ -30,6 +30,7 @@ const RED_WHEN_UNMEASURED = new Set([
   "tests-failed",
   "no-breaks",
   "out-of-time",
+  "pending",
   "missing",
 ]);
 
