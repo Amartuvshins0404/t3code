@@ -21,11 +21,18 @@ jobs:
       group: merge-lane-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
-      - name: Checkout base branch rules
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          persist-credentials: false
+      - name: Checkout base branch rules without the vendored .repos tree
+        shell: bash
+        env:
+          CHECKOUT_REF: ${{ github.event.pull_request.base.sha }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
 
       - name: Judge the lane and sync its label
         uses: actions/github-script@v8
