@@ -59,6 +59,7 @@ import {
   ProjectId,
   resolveEnvironmentMachineKind,
   SourceControlProviderKind,
+  SourceControlRepositoryError,
 } from "@t3tools/contracts";
 import {
   StackActions,
@@ -73,6 +74,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
 import * as Order from "effect/Order";
+import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
 import { cn } from "../../lib/cn";
 import { useProjects, useServerConfigs, waitForProject } from "../../state/entities";
@@ -126,6 +128,8 @@ const environmentOptionOrder = Order.mapInput(
   }),
   (environment: EnvironmentOption) => ({ label: environment.label }),
 );
+
+const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
 
 function platformFromOs(os: string | null | undefined): string {
   if (os === "windows") return "Win32";
@@ -1436,7 +1440,11 @@ export function AddProjectDestinationScreen(props: {
       },
     });
     if (AsyncResult.isFailure(startResult)) {
-      setError(errorMessage(Cause.squash(startResult.cause)));
+      const failure = Cause.squash(startResult.cause);
+      setError(errorMessage(failure));
+      if (isSourceControlRepositoryError(failure) && failure.suggestedDestinationPath) {
+        setPathInput(failure.suggestedDestinationPath);
+      }
     } else {
       void suggestAppAccessForRemote(checkAppAccess, environment.environmentId, remoteUrl);
       const { projectId } = startResult.value;
@@ -1455,7 +1463,7 @@ export function AddProjectDestinationScreen(props: {
             environmentId: environment.environmentId,
             projectId,
             title,
-            cloning: "1",
+            ...(startResult.value.alreadyCloned ? {} : { cloning: "1" as const }),
             ...(prompt
               ? await draftWithPrompt(environment.environmentId, projectId, prompt).then(
                   (draftId) => ({ draftId }),

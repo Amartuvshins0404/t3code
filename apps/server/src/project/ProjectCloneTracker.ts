@@ -1,4 +1,3 @@
-import { SourceControlProviderKind } from "@t3tools/contracts";
 import type {
   ProjectCloneSnapshot,
   ProjectCloneStage,
@@ -281,6 +280,41 @@ export const make = Effect.gen(function* () {
   const start: ProjectCloneTracker["Service"]["start"] = Effect.fn("ProjectCloneTracker.start")(
     function* (input, hooks) {
       const prepared = yield* repositories.prepareClone(input);
+      const alreadyInProgress = new SourceControlRepositoryError({
+        operation: "cloneRepository",
+        provider: SourceControlRepositoryService.cloneProvider(input),
+        detail: "A clone into this destination is already in progress.",
+      });
+      if (prepared.alreadyCloned) {
+        const tracked = yield* Ref.get(clones);
+        if (
+          Array.from(tracked.values()).some(
+            (clone) => clone.input.destinationPath === prepared.destinationPath,
+          )
+        ) {
+          return yield* alreadyInProgress;
+        }
+        const projectId = yield* hooks
+          .createProject({
+            projectId: input.projectId,
+            title: input.title,
+            workspaceRoot: prepared.destinationPath,
+            createdAt: input.createdAt,
+          })
+          .pipe(
+            Effect.as(input.projectId),
+            Effect.catchTags({
+              ProjectConflictError: (conflict) => Effect.succeed(conflict.conflictingProjectId),
+            }),
+          );
+        return {
+          projectId,
+          cwd: prepared.destinationPath,
+          remoteUrl: prepared.remoteUrl,
+          repository: prepared.repository,
+          alreadyCloned: true,
+        };
+      }
       const startedAt = yield* nowIso;
       const snapshot: ProjectCloneSnapshot = {
         projectId: input.projectId,
@@ -317,11 +351,6 @@ export const make = Effect.gen(function* () {
           },
         });
         return [true, next] as const;
-      });
-      const alreadyInProgress = new SourceControlRepositoryError({
-        operation: "cloneRepository",
-        provider: input.provider ?? SourceControlProviderKind.make("unknown"),
-        detail: "A clone into this destination is already in progress.",
       });
       if (!claimed) return yield* alreadyInProgress;
       // Finish or release the claim despite disconnects; a claim without a fiber cannot be cancelled or retried.

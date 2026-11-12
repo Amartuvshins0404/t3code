@@ -258,11 +258,15 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
       return;
     }
     if (link.kind === "pull-request") {
-      setState({
-        status: "failed",
-        title: `Cloning ${repository.owner}/${repository.name}`,
-        message: "Open this link again when the clone finishes.",
-      });
+      setState(
+        result.value.alreadyCloned
+          ? { status: "pull-request-checkout", project }
+          : {
+              status: "failed",
+              title: `Cloning ${repository.owner}/${repository.name}`,
+              message: "Open this link again when the clone finishes.",
+            },
+      );
       return;
     }
     await openDraft(project);

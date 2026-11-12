@@ -79,6 +79,7 @@ export const SourceControlCloneRepositoryResult = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   remoteUrl: TrimmedNonEmptyString,
   repository: Schema.NullOr(SourceControlRepositoryInfo),
+  alreadyCloned: Schema.optionalKey(Schema.Boolean),
 });
 export type SourceControlCloneRepositoryResult = typeof SourceControlCloneRepositoryResult.Type;
 
@@ -254,6 +255,7 @@ export class SourceControlRepositoryError extends Schema.TaggedError<SourceContr
     provider: SourceControlProviderKind,
     operation: Schema.String,
     detail: Schema.String,
+    suggestedDestinationPath: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {

@@ -235,6 +235,90 @@ it.effect.each(["--bare", "source.git"])(
     ),
 );
 
+it.effect("opens a folder that already holds the repository and refuses one with other files", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const git = yield* GitVcsDriver.GitVcsDriver;
+    const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-clone-existing-" });
+    const checkoutWithRemote = (name: string, remoteUrl: string) =>
+      Effect.gen(function* () {
+        const directory = path.join(parent, name);
+        yield* git.execute({ operation: "test.init", cwd: parent, args: ["init", name] });
+        yield* git.execute({
+          operation: "test.remote",
+          cwd: directory,
+          args: ["remote", "add", "origin", remoteUrl],
+        });
+        return directory;
+      });
+    const sameRepository = yield* checkoutWithRemote("t3code", "git@github.com:Octocat/t3code.git");
+    const otherRepository = yield* checkoutWithRemote(
+      "other",
+      CLONE_URLS.url.replace("t3code", "x"),
+    );
+    const plainFolder = path.join(parent, "notes");
+    yield* fs.makeDirectory(plainFolder);
+    yield* fs.writeFileString(path.join(plainFolder, "todo.txt"), "mine");
+    yield* fs.makeDirectory(`${plainFolder}-2`);
+    const cloneCalls: Array<ReadonlyArray<string>> = [];
+
+    yield* Effect.gen(function* () {
+      const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+      const clone = (destinationPath: string) =>
+        service.cloneRepository({
+          provider: SourceControlProviderKind.make("github"),
+          repository: "octocat/t3code",
+          destinationPath,
+          protocol: "https",
+        });
+
+      assert.deepStrictEqual(yield* clone(sameRepository), {
+        cwd: sameRepository,
+        remoteUrl: CLONE_URLS.url,
+        repository: { provider: SourceControlProviderKind.make("github"), ...CLONE_URLS },
+        alreadyCloned: true,
+      });
+      assert.deepStrictEqual(cloneCalls, []);
+
+      for (const occupied of [otherRepository, plainFolder]) {
+        const error = yield* Effect.flip(clone(occupied));
+        assert.strictEqual(
+          error.detail,
+          `${occupied} already has other files. Pick another folder name.`,
+        );
+        assert.strictEqual(error.provider, "github");
+      }
+      const plainError = yield* Effect.flip(clone(plainFolder));
+      assert.strictEqual(plainError.suggestedDestinationPath, `${plainFolder}-3`);
+      assert.deepStrictEqual(cloneCalls, []);
+    }).pipe(
+      Effect.provide(
+        layer({
+          git: {
+            execute: (input) =>
+              input.args[0] === "clone"
+                ? Effect.sync(() => {
+                    cloneCalls.push(input.args);
+                    return processOutput();
+                  })
+                : git.execute(input),
+          },
+        }),
+      ),
+    );
+  }).pipe(
+    Effect.provide(
+      GitVcsDriver.layer.pipe(
+        Layer.provide(
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-clone-existing-config-" }),
+        ),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      ),
+    ),
+  ),
+);
+
 it.effect("reports clone progress from git's stderr and keeps its error text on failure", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -621,7 +705,7 @@ it.effect("preserves destination probe failures instead of treating them as miss
       }),
     );
 
-    assert.strictEqual(error.provider, "unknown");
+    assert.strictEqual(error.provider, "github");
     assert.strictEqual(error.operation, "cloneRepository");
     assert.strictEqual(error.cause, fileSystemCause);
   }).pipe(

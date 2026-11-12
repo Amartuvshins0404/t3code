@@ -156,6 +156,14 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
   }
   void suggestAppAccessForRemote(input.target.environmentId, input.remoteUrl);
   if (reads.length === 0) return projectId;
+  if (started.value.alreadyCloned) {
+    setFileCopy(copyKey, {
+      phase: "failed",
+      title: `${input.target.label} already had this repository at ${started.value.cwd}, so no files were copied`,
+      failures: reads.map((read) => read.relativePath),
+    });
+    return projectId;
+  }
 
   void (async () => {
     const clone = await waitForClone(input.target.environmentId, projectId);

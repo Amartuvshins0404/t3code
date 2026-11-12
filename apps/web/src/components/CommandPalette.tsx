@@ -51,6 +51,7 @@ import {
   type EnvironmentId,
   type FilesystemBrowseResult,
   SourceControlProviderKind,
+  SourceControlRepositoryError,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
@@ -276,7 +277,9 @@ import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import { threadRecentUse } from "@t3tools/shared/paletteSearch";
+import * as Schema from "effect/Schema";
 
+const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
 const NEW_THREAD_IN_GROUP = "projects";
@@ -2212,17 +2215,31 @@ function OpenCommandPaletteDialog(props: {
     setIsRemoteProjectCloning(false);
     if (startResult._tag === "Failure") {
       if (!isAtomCommandInterrupted(startResult)) {
+        const error = squashAtomCommandFailure(startResult);
         toastManager.add(
           stackedThreadToast({
             type: "error",
             title: "Clone failed",
-            description: errorMessage(squashAtomCommandFailure(startResult)),
+            description: errorMessage(error),
           }),
         );
+        if (isSourceControlRepositoryError(error) && error.suggestedDestinationPath) {
+          setHighlightedItemValue(null);
+          setQuery(error.suggestedDestinationPath);
+          setBrowseGeneration((generation) => generation + 1);
+        }
       }
       return;
     }
     setOpen(false);
+    if (startResult.value.alreadyCloned) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "success",
+          title: `Already cloned at ${startResult.value.cwd}. Opened it.`,
+        }),
+      );
+    }
     void suggestAppAccessForRemote(
       addProjectCloneFlow.environmentId,
       addProjectCloneFlow.remoteUrl,

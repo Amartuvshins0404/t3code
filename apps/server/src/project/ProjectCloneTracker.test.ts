@@ -30,6 +30,7 @@ const startInput = {
 
 function makeHarness(options?: {
   readonly clone?: SourceControlRepositoryService.SourceControlRepositoryService["Service"]["cloneRepository"];
+  readonly alreadyCloned?: boolean;
 }) {
   const created: Array<{ projectId: ProjectId; workspaceRoot: string }> = [];
   const cloned: Array<ProjectId> = [];
@@ -50,6 +51,7 @@ function makeHarness(options?: {
             remoteUrl: input.remoteUrl ?? "",
             cloneUrl: input.remoteUrl ?? "",
             repository: null,
+            alreadyCloned: options?.alreadyCloned ?? false,
           }),
         cloneRepository:
           options?.clone ??
@@ -234,6 +236,7 @@ describe("ProjectCloneTracker", () => {
               remoteUrl: "https://github.com/octocat/t3code.git",
               cloneUrl: "https://user:s3cret@github.com/octocat/t3code.git",
               repository: null,
+              alreadyCloned: false,
             }),
           cloneRepository: (input) =>
             Effect.sync(() => {
@@ -309,6 +312,45 @@ describe("ProjectCloneTracker", () => {
       });
       expect(harness.cloned).toEqual([owner]);
       expect(yield* tracker.get(projectId)).toBeNull();
+    }).pipe(Effect.provide(harness.layer));
+  });
+
+  it.effect("opens a destination that already holds the repository instead of cloning it", () => {
+    const owner = ProjectId.make("project-existing");
+    const clones: Array<string> = [];
+    const harness = makeHarness({
+      alreadyCloned: true,
+      clone: (input) =>
+        Effect.sync(() => {
+          clones.push(input.destinationPath);
+          return { cwd: input.destinationPath, remoteUrl: input.remoteUrl ?? "", repository: null };
+        }),
+    });
+    const existingProjectHooks: ProjectCloneTracker.ProjectCloneHooks = {
+      ...harness.hooks,
+      createProject: (input) =>
+        Effect.fail(
+          new ProjectConflictError({
+            projectId: input.projectId,
+            workspaceRoot: input.workspaceRoot,
+            conflictingProjectId: owner,
+          }),
+        ),
+    };
+    return Effect.gen(function* () {
+      const tracker = yield* ProjectCloneTracker.ProjectCloneTracker;
+      const added = yield* tracker.start(startInput, harness.hooks);
+      expect(added).toMatchObject({ projectId, cwd: "/workspace/t3code", alreadyCloned: true });
+      expect(harness.created).toEqual([{ projectId, workspaceRoot: "/workspace/t3code" }]);
+
+      const reopened = yield* tracker.start(startInput, existingProjectHooks);
+      expect(reopened).toMatchObject({ projectId: owner, alreadyCloned: true });
+
+      yield* Effect.yieldNow;
+      expect(clones).toEqual([]);
+      expect(harness.cloned).toEqual([]);
+      expect(yield* tracker.get(projectId)).toBeNull();
+      expect(yield* tracker.get(owner)).toBeNull();
     }).pipe(Effect.provide(harness.layer));
   });
 

@@ -63,6 +63,7 @@ export const ProjectCloneStartResult = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   remoteUrl: TrimmedNonEmptyString,
   repository: Schema.NullOr(SourceControlRepositoryInfo),
+  alreadyCloned: Schema.optionalKey(Schema.Boolean),
 });
 export type ProjectCloneStartResult = typeof ProjectCloneStartResult.Type;
 

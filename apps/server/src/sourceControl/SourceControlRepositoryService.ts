@@ -33,6 +33,7 @@ import {
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
+import { sourceControlDefinitions } from "./sourceControlDefinitions.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { cloneUrlForProtocol, cloneUrlProtocol } from "@t3tools/shared/cloneUrl";
 const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
@@ -66,6 +67,7 @@ export interface SourceControlPreparedClone {
   readonly remoteUrl: string;
   readonly cloneUrl: string;
   readonly repository: SourceControlRepositoryInfo | null;
+  readonly alreadyCloned: boolean;
 }
 
 export interface SourceControlCloneOptions {
@@ -83,6 +85,19 @@ const CLONE_ENV = {
   // English progress without overriding LC_CTYPE, which a global post-checkout hook inherits.
   LANGUAGE: "C",
 } satisfies NodeJS.ProcessEnv;
+
+export function cloneProvider(input: {
+  readonly provider?: SourceControlProviderKind | undefined;
+  readonly remoteUrl?: string | undefined;
+}): SourceControlProviderKind {
+  return (
+    input.provider ??
+    (input.remoteUrl === undefined
+      ? undefined
+      : sourceControlDefinitions.recognizeRemote(input.remoteUrl)?.kind) ??
+    SourceControlProviderKind.make("unknown")
+  );
+}
 
 function mapRepositoryError(operation: string, provider: SourceControlProviderKind) {
   return Effect.mapError((cause: unknown) =>
@@ -254,29 +269,21 @@ export const make = Effect.gen(function* () {
   );
 
   const prepareDestination = Effect.fn("SourceControlRepositoryService.prepareDestination")(
-    function* (destinationPath: string) {
+    function* (destinationPath: string, provider: SourceControlProviderKind) {
       const normalizedDestination = yield* normalizeDestinationPath(destinationPath);
+      let entries: ReadonlyArray<string> = [];
       if (yield* fileSystem.exists(normalizedDestination)) {
-        const entries = yield* fileSystem
-          .readDirectory(normalizedDestination, { recursive: false })
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new SourceControlRepositoryError({
-                  operation: "cloneRepository",
-                  provider: SourceControlProviderKind.make("unknown"),
-                  detail: "Destination path already exists and is not a directory.",
-                  cause,
-                }),
-            ),
-          );
-        if (entries.length > 0) {
-          return yield* new SourceControlRepositoryError({
-            operation: "cloneRepository",
-            provider: SourceControlProviderKind.make("unknown"),
-            detail: "Destination path already exists and is not empty.",
-          });
-        }
+        entries = yield* fileSystem.readDirectory(normalizedDestination, { recursive: false }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new SourceControlRepositoryError({
+                operation: "cloneRepository",
+                provider,
+                detail: "Destination path already exists and is not a directory.",
+                cause,
+              }),
+          ),
+        );
       } else {
         // Skip existing parents: recursive mkdir on a Windows drive root fails with EPERM.
         const parentPath = path.dirname(normalizedDestination);
@@ -289,18 +296,51 @@ export const make = Effect.gen(function* () {
         destinationPath: normalizedDestination,
         parentPath: path.dirname(normalizedDestination),
         directoryName: path.basename(normalizedDestination),
+        entries,
       };
+    },
+  );
+
+  const holdsRepository = Effect.fn("SourceControlRepositoryService.holdsRepository")(function* (
+    destinationPath: string,
+    remoteUrls: ReadonlyArray<string>,
+  ) {
+    const result = yield* git
+      .execute({
+        operation: "SourceControlRepositoryService.holdsRepository",
+        cwd: destinationPath,
+        args: ["config", "--local", "--get-regexp", "^remote\\..*\\.url$"],
+        allowNonZeroExit: true,
+      })
+      .pipe(Effect.orElseSucceed(() => null));
+    if (result === null || result.exitCode !== 0) return false;
+    const wanted = new Set(remoteUrls.map(sourceControlDefinitions.repositoryKeyFromRemote));
+    return result.stdout.split(/\r?\n/).some((line) => {
+      const remoteUrl = /^\S+\s+(.+)$/.exec(line.trim())?.[1];
+      return (
+        remoteUrl !== undefined &&
+        wanted.has(sourceControlDefinitions.repositoryKeyFromRemote(remoteUrl))
+      );
+    });
+  });
+
+  const nextFreeDestination = Effect.fn("SourceControlRepositoryService.nextFreeDestination")(
+    function* (destinationPath: string) {
+      for (let suffix = 2; suffix <= 100; suffix += 1) {
+        const candidate = `${destinationPath}-${suffix}`;
+        if (!(yield* fileSystem.exists(candidate))) return candidate;
+      }
+      return undefined;
     },
   );
 
   const prepareClone = Effect.fn("SourceControlRepositoryService.prepareClone")(function* (
     input: SourceControlCloneRepositoryInput,
   ) {
-    const preparedDestination = yield* prepareDestination(input.destinationPath);
+    const provider = cloneProvider(input);
+    const preparedDestination = yield* prepareDestination(input.destinationPath, provider);
     let repository: SourceControlRepositoryInfo | null = null;
     let remoteUrl = input.remoteUrl?.trim() ?? null;
-    let provider: SourceControlProviderKind =
-      input.provider ?? SourceControlProviderKind.make("unknown");
 
     if (input.provider && input.repository) {
       repository = yield* lookupRepository({
@@ -309,7 +349,6 @@ export const make = Effect.gen(function* () {
         cwd: preparedDestination.parentPath,
       });
       remoteUrl = selectRemoteUrl(repository, input.protocol);
-      provider = input.provider;
     }
 
     if (!remoteUrl) {
@@ -320,11 +359,29 @@ export const make = Effect.gen(function* () {
       });
     }
 
+    const occupied = preparedDestination.entries.length > 0;
+    const alreadyCloned =
+      occupied &&
+      preparedDestination.entries.includes(".git") &&
+      (yield* holdsRepository(
+        preparedDestination.destinationPath,
+        repository ? [remoteUrl, repository.url, repository.sshUrl] : [remoteUrl],
+      ));
+    if (occupied && !alreadyCloned) {
+      return yield* new SourceControlRepositoryError({
+        operation: "cloneRepository",
+        provider,
+        detail: `${preparedDestination.destinationPath} already has other files. Pick another folder name.`,
+        suggestedDestinationPath: yield* nextFreeDestination(preparedDestination.destinationPath),
+      });
+    }
+
     return {
       destinationPath: preparedDestination.destinationPath,
       remoteUrl: redactRemoteUrl(remoteUrl),
       cloneUrl: remoteUrl,
       repository,
+      alreadyCloned,
     } satisfies SourceControlPreparedClone;
   });
 
@@ -350,7 +407,7 @@ export const make = Effect.gen(function* () {
     };
     // Git misreads @ in a pathless URL's query as userinfo and echoes its suffix as the host.
     const normalizedCloneUrl = cloneUrl.replace(/^([a-z][a-z0-9+.-]*:\/\/[^/?#]+)\?/i, "$1/?");
-    const provider = input.provider ?? SourceControlProviderKind.make("unknown");
+    const provider = cloneProvider({ provider: input.provider, remoteUrl: cloneUrl });
     const timeoutMs = options?.timeoutMs === undefined ? CLONE_TIMEOUT_MS : options.timeoutMs;
     const clone = git
       .execute({
@@ -402,6 +459,14 @@ export const make = Effect.gen(function* () {
     options?: SourceControlCloneOptions,
   ) {
     const prepared = yield* prepareClone(input);
+    if (prepared.alreadyCloned) {
+      return {
+        cwd: prepared.destinationPath,
+        remoteUrl: prepared.remoteUrl,
+        repository: prepared.repository,
+        alreadyCloned: true,
+      };
+    }
     const httpsUrl = httpsFallbackUrl(input, prepared);
     const remoteUrl = yield* runClone(
       input,
@@ -579,18 +644,12 @@ export const make = Effect.gen(function* () {
     }),
     prepareClone: Effect.fnUntraced(function* (input) {
       return yield* prepareClone(input).pipe(
-        mapRepositoryError(
-          "cloneRepository",
-          input.provider ?? SourceControlProviderKind.make("unknown"),
-        ),
+        mapRepositoryError("cloneRepository", cloneProvider(input)),
       );
     }),
     cloneRepository: Effect.fnUntraced(function* (input, options) {
       return yield* cloneRepository(input, options).pipe(
-        mapRepositoryError(
-          "cloneRepository",
-          input.provider ?? SourceControlProviderKind.make("unknown"),
-        ),
+        mapRepositoryError("cloneRepository", cloneProvider(input)),
       );
     }),
     discardClone: Effect.fnUntraced(function* (destinationPath) {
