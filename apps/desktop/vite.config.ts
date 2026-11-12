@@ -25,6 +25,7 @@ const publicConfigDefine = {
     repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
   ),
   __T3CODE_BUILD_OWNER_NAME__: JSON.stringify(repoEnv.T3CODE_OWNER_NAME?.trim() ?? ""),
+  __T3CODE_BUILD_OWNER_LOGO__: JSON.stringify(Boolean(repoEnv.T3CODE_OWNER_LOGO?.trim())),
 };
 
 export default defineConfig({

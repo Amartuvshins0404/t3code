@@ -61,6 +61,13 @@ const resolveResourcePath = Effect.fn("desktop.assets.resolveResourcePath")(func
   return Option.none<string>();
 });
 
+declare const __T3CODE_BUILD_OWNER_LOGO__: boolean | undefined;
+
+const sourceTreeIconRoot =
+  typeof __T3CODE_BUILD_OWNER_LOGO__ !== "undefined" && __T3CODE_BUILD_OWNER_LOGO__
+    ? [".owner-icons"]
+    : [];
+
 const sourceTreeIconFileNames = {
   dev: {
     ico: "blueprint-windows.ico",
@@ -87,7 +94,13 @@ function resolveSourceTreeIconPath(
       : environment.platform === "darwin"
         ? fileNames.macPng
         : fileNames.universalPng;
-  return environment.path.join(environment.rootDir, "assets", brand, fileName);
+  return environment.path.join(
+    environment.rootDir,
+    ...sourceTreeIconRoot,
+    "assets",
+    brand,
+    fileName,
+  );
 }
 
 const resolveIconPath = Effect.fn("desktop.assets.resolveIconPath")(function* (

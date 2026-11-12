@@ -18,6 +18,7 @@ import {
   DEV_PROXIED_PATH_PREFIXES,
 } from "@t3tools/shared/devProxy";
 
+import { resolveBrandAssetPath, WEB_PUBLIC_DIRECTORY } from "../../scripts/lib/brand-assets";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
@@ -274,6 +275,31 @@ function bootstrapTitlePlugin(): Plugin {
   };
 }
 
+// With T3CODE_OWNER_LOGO set, the gitignored owner icons replace the placeholder copies in public/.
+function ownerIconsPlugin(): Plugin | undefined {
+  const iconDirectory = resolveBrandAssetPath(WEB_PUBLIC_DIRECTORY, repoEnv);
+  if (iconDirectory === WEB_PUBLIC_DIRECTORY) return undefined;
+  const iconDirectoryUrl = new URL(`../../${iconDirectory}/`, import.meta.url);
+  const contentTypes: Record<string, string> = { ico: "image/x-icon", png: "image/png" };
+  return {
+    name: "t3code:owner-icons",
+    async configureServer(server) {
+      const fileNames = new Set(await NodeFSP.readdir(iconDirectoryUrl));
+      server.middlewares.use((request, response, next) => {
+        const fileName = request.url?.split("?")[0]?.slice(1) ?? "";
+        if (!fileNames.has(fileName)) return next();
+        NodeFSP.readFile(new URL(fileName, iconDirectoryUrl)).then((contents) => {
+          response.setHeader("Content-Type", contentTypes[fileName.split(".").pop() ?? ""] ?? "");
+          response.end(contents);
+        }, next);
+      });
+    },
+    async writeBundle(options) {
+      if (options.dir) await NodeFSP.cp(iconDirectoryUrl, options.dir, { recursive: true });
+    },
+  };
+}
+
 // Allow Tailnet hosts for sharing; Tailscale-controlled DNS prevents attacker rebinding.
 const configuredAllowedHosts = (process.env.T3CODE_DEV_ALLOWED_HOSTS ?? "")
   .split(",")
@@ -295,6 +321,7 @@ export default defineConfig(() => {
     assetsInclude: ["**/*.wasm"],
     plugins: [
       bootstrapTitlePlugin(),
+      ownerIconsPlugin(),
       devCompressionPlugin(),
       chunkCycleGuardPlugin(),
       builtDev

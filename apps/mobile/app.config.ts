@@ -1,6 +1,6 @@
 import type { ExpoConfig } from "expo/config";
 
-import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
+import { BRAND_ASSET_PATHS, resolveBrandAssetPath } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
 import { formatAppBaseName } from "@t3tools/contracts/appName";
 
@@ -28,8 +28,11 @@ const observeEndpointUrl = repoEnv.T3CODE_RELAY_URL?.trim()
   ? new URL("/v1/mobile/observe", repoEnv.T3CODE_RELAY_URL.trim()).toString()
   : "https://observe.invalid";
 
-const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
-const androidAdaptiveForeground = "./assets/android-icon-foreground.png";
+const fromRepoRoot = (relativePath: string) =>
+  `../../${resolveBrandAssetPath(relativePath, repoEnv)}`;
+const androidAdaptiveForeground = fromRepoRoot(BRAND_ASSET_PATHS.androidIconForegroundPng);
+const androidMonochromeIcon = fromRepoRoot(BRAND_ASSET_PATHS.androidIconMarkPng);
+const androidNotificationIcon = fromRepoRoot(BRAND_ASSET_PATHS.androidNotificationIconPng);
 
 if (
   isIosPersonalTeamBuild &&
@@ -42,41 +45,43 @@ if (
 }
 
 const DEVELOPMENT_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
+  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentUniversalIconPng),
+  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
+  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentUniversalIconPng),
   androidAdaptiveForeground,
   androidAdaptiveBackgroundColor: "#347FF8",
-  androidAdaptiveBackgroundImage: "./assets/android-icon-background-dev.png",
-  androidSplashIcon: "./assets/android-splash-icon-dev.png",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
+  androidAdaptiveBackgroundImage: fromRepoRoot(
+    BRAND_ASSET_PATHS.androidIconBackgroundDevelopmentPng,
+  ),
+  androidSplashIcon: fromRepoRoot(BRAND_ASSET_PATHS.androidSplashIconDevelopmentPng),
+  androidMonochromeIcon,
+  androidNotificationIcon,
   androidNotificationColor: "#00639B",
 } as const;
 
 const PREVIEW_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
+  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
+  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
+  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
   androidAdaptiveForeground,
   androidAdaptiveBackgroundColor: "#111533",
-  androidAdaptiveBackgroundImage: "./assets/android-icon-background-nightly.png",
-  androidSplashIcon: "./assets/android-splash-icon-nightly.png",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
+  androidAdaptiveBackgroundImage: fromRepoRoot(BRAND_ASSET_PATHS.androidIconBackgroundNightlyPng),
+  androidSplashIcon: fromRepoRoot(BRAND_ASSET_PATHS.androidSplashIconNightlyPng),
+  androidMonochromeIcon,
+  androidNotificationIcon,
   androidNotificationColor: "#7565C7",
 } as const;
 
 const RELEASE_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
+  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionLinuxIconPng),
+  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
+  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionLinuxIconPng),
   androidAdaptiveForeground,
   androidAdaptiveBackgroundColor: "#000000",
   androidAdaptiveBackgroundImage: undefined,
-  androidSplashIcon: "./assets/android-splash-icon-prod.png",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
+  androidSplashIcon: fromRepoRoot(BRAND_ASSET_PATHS.androidSplashIconProductionPng),
+  androidMonochromeIcon,
+  androidNotificationIcon,
   androidNotificationColor: "#FFFFFF",
 } as const;
 

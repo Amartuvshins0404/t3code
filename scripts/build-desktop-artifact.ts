@@ -33,6 +33,7 @@ import {
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
 import {
   BRAND_ASSET_PATHS,
+  resolveBrandAssetPath,
   resolveWebAssetBrandForChannel,
   type WebAssetBrand,
 } from "./lib/brand-assets.ts";
@@ -2728,18 +2729,19 @@ export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
 }
 
 export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
+  const env = loadRepoEnv();
   if (resolveDesktopUpdateChannel(version) === "nightly") {
     return {
-      macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
-      linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
-      windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
+      macIconPng: resolveBrandAssetPath(BRAND_ASSET_PATHS.nightlyMacIconPng, env),
+      linuxIconPng: resolveBrandAssetPath(BRAND_ASSET_PATHS.nightlyLinuxIconPng, env),
+      windowsIconIco: resolveBrandAssetPath(BRAND_ASSET_PATHS.nightlyWindowsIconIco, env),
     };
   }
 
   return {
-    macIconPng: BRAND_ASSET_PATHS.productionMacIconPng,
-    linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
-    windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
+    macIconPng: resolveBrandAssetPath(BRAND_ASSET_PATHS.productionMacIconPng, env),
+    linuxIconPng: resolveBrandAssetPath(BRAND_ASSET_PATHS.productionLinuxIconPng, env),
+    windowsIconIco: resolveBrandAssetPath(BRAND_ASSET_PATHS.productionWindowsIconIco, env),
   };
 }
 
