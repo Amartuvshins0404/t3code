@@ -1,6 +1,13 @@
 import type { DesktopBridge, DesktopUpdateState } from "@t3tools/contracts";
 
-import { APP_BASE_NAME } from "../branding";
+import { formatAppBaseName } from "@t3tools/contracts/appName";
+
+function appBaseName(): string {
+  return (
+    window.desktopBridge?.getAppBranding()?.baseName ??
+    formatAppBaseName(import.meta.env.APP_OWNER_NAME)
+  );
+}
 
 const FALLBACK_TRIAGE_COMMAND = "npx t3 triage";
 const DOWNLOAD_URL = "https://t3.codes/download";
@@ -237,7 +244,7 @@ function mountUpdateButton(
           : undefined;
     run?.then(
       (result) => render(result.state),
-      (error: unknown) => console.warn(`Could not update ${APP_BASE_NAME}.`, error),
+      (error: unknown) => console.warn(`Could not update ${appBaseName()}.`, error),
     );
   });
   // A pushed state is newer than the initial read, so the read must not overwrite it.
@@ -257,7 +264,7 @@ function mountUpdateButton(
 }
 
 export function showBootError(error: unknown) {
-  console.error(`${APP_BASE_NAME} failed to start.`, error);
+  console.error(`${appBaseName()} failed to start.`, error);
   const bootShell = document.getElementById("boot-shell");
   if (!bootShell) return;
 
@@ -276,7 +283,7 @@ export function showBootError(error: unknown) {
   };
 
   const message = element("div", {}, [
-    element("h1", { textContent: `${APP_BASE_NAME} failed to start` }),
+    element("h1", { textContent: `${appBaseName()} failed to start` }),
     element("p", {
       textContent: offline
         ? "This browser appears to be offline. Check the connection, then reload."
@@ -368,7 +375,7 @@ export function showBootError(error: unknown) {
       : []),
     element("div", {}, [
       element("p", {
-        textContent: `Run this on the computer that runs ${APP_BASE_NAME}. Your agent can check the local logs and help you file a bug report.`,
+        textContent: `Run this on the computer that runs ${appBaseName()}. Your agent can check the local logs and help you file a bug report.`,
       }),
       element("div", { id: "boot-error-command" }, [command, copyCommand]),
     ]),

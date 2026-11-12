@@ -129,9 +129,9 @@ describe("ThreadActivityAnnouncer", () => {
 
     expect(heard).toEqual([
       ["Working", ""],
-      ["Working", "Mode:Checking the repo"],
-      ["Needs approval", "Mode:Checking the repo"],
-      ["Needs approval", "Mode:Checking the repo"],
+      ["Working", "Mode: Checking the repo"],
+      ["Needs approval", "Mode: Checking the repo"],
+      ["Needs approval", "Mode: Checking the repo"],
       ["Needs approval", "Running rg"],
     ]);
   });
@@ -151,7 +151,7 @@ describe("ThreadActivityAnnouncer", () => {
       }),
     );
 
-    await expect.element(detail).toHaveTextContent("Mode:Checking the repo. Needs approval");
+    await expect.element(detail).toHaveTextContent("Mode: Checking the repo. Needs approval");
     await expect.element(status).toHaveTextContent("Working");
   });
 });

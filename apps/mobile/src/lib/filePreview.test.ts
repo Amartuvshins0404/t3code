@@ -182,6 +182,9 @@ vi.mock("../state/entities", () => ({
 vi.mock("../state/use-thread-selection", () => ({
   useThreadSelection: () => ({ selectedThread: null }),
 }));
+vi.mock("../state/appBranding", () => ({
+  useAppBranding: () => ({ baseName: "Mode", monogram: "M", logo: null }),
+}));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => vi.fn() }));
 vi.mock("../state/use-atom-command", () => ({}));
 vi.mock("../state/v2-item-support", () => ({}));
