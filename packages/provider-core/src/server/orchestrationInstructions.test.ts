@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  T3_CODE_CODE_SEARCH_INSTRUCTIONS,
   T3_CODE_DEVICE_TOOL_INSTRUCTIONS,
   T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH,
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
@@ -39,10 +40,15 @@ describe("T3 device instructions", () => {
     );
   });
 
-  it("reach OpenCode and Cursor only when the session holds device access", () => {
+  it("reach OpenCode and Cursor only when the session holds device access or Code search", () => {
     assert.include(t3OrchestrationSystemPrompt(true, true), T3_CODE_DEVICE_TOOL_INSTRUCTIONS);
     assert.notInclude(t3OrchestrationSystemPrompt(true, false), "## T3 Code devices");
     assert.isUndefined(t3OrchestrationSystemPrompt(false, true));
+    assert.include(
+      t3OrchestrationSystemPrompt(true, false, true),
+      T3_CODE_CODE_SEARCH_INSTRUCTIONS,
+    );
+    assert.notInclude(t3OrchestrationSystemPrompt(true, true), "## Code search");
 
     const firstRun = (hasDeviceTools: boolean) =>
       t3OrchestrationPrompt({
@@ -54,6 +60,18 @@ describe("T3 device instructions", () => {
       });
     assert.include(firstRun(true), T3_CODE_DEVICE_TOOL_INSTRUCTIONS);
     assert.notInclude(firstRun(false), "## T3 Code devices");
+    assert.notInclude(firstRun(true), "## Code search");
+    assert.include(
+      t3OrchestrationPrompt({
+        prompt: "Where is login handled?",
+        hasT3Mcp: true,
+        hasDeviceTools: false,
+        hasCodeSearch: true,
+        orchestrationDelivered: false,
+        deviceInstructionsDelivered: false,
+      }),
+      T3_CODE_CODE_SEARCH_INSTRUCTIONS,
+    );
 
     const laterRun = (deviceInstructionsDelivered: boolean) =>
       t3OrchestrationPrompt({
@@ -68,7 +86,7 @@ describe("T3 device instructions", () => {
     assert.equal(laterRun(true), "Check the login screen.");
   });
 
-  it("reach ACP agents again when device access changes mid-thread", () => {
+  it("reach ACP agents again when device access or Code search changes mid-thread", () => {
     const state = { interactionMode: "default", hasT3Mcp: true, hasDeviceTools: false } as const;
     const withDevices = t3AcpPromptWithInstructions({
       prompt: "Check the login screen.",
@@ -81,5 +99,14 @@ describe("T3 device instructions", () => {
       "Again.",
     );
     assert.notInclude(t3AcpPromptWithInstructions({ prompt: "Hi.", state }), "## T3 Code devices");
+    assert.notInclude(t3AcpPromptWithInstructions({ prompt: "Hi.", state }), "## Code search");
+    assert.include(
+      t3AcpPromptWithInstructions({
+        prompt: "Where is login handled?",
+        state: { ...state, hasCodeSearch: true },
+        previousState: state,
+      }),
+      T3_CODE_CODE_SEARCH_INSTRUCTIONS,
+    );
   });
 });

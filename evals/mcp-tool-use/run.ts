@@ -211,6 +211,7 @@ const McpToolUseExpect = Schema.Struct({
   shellMustNot: Schema.optional(Schema.Array(Schema.String)),
   /** Regexes that some shell command must match, each. */
   shellMust: Schema.optional(Schema.Array(Schema.String)),
+  firstSearch: Schema.optional(Schema.String),
   /** Case-sensitive regexes on the agent's visible text. */
   textMust: Schema.optional(Schema.Array(Schema.String)),
   textMustNot: Schema.optional(Schema.Array(Schema.String)),
@@ -269,6 +270,7 @@ const McpToolUseWorld = Schema.StructWithRest(
     deviceAgentAccess: Schema.optional(Schema.Boolean),
     /** false: agent browser access is off. T3 denies every preview call and drops its browser text. */
     browserAgentAccess: Schema.optional(Schema.Boolean),
+    codeSearch: Schema.optional(Schema.Boolean),
     /** Every capture reaches T3 with adb screencap's warning ahead of the PNG: T3 reports 0×0. */
     deviceInvalidCapture: Schema.optional(Schema.Boolean),
     /** Devices another thread's agent-device session holds, by device id: that thread's id. */
@@ -514,11 +516,12 @@ const visibleT3Tools = (options: { readonly subagent?: boolean; readonly links?:
  * `browser` say whether the thread holds the `device` and `preview` capabilities, as agent device
  * and browser access decide.
  */
-const claudeQueryOptions = (model: Model, device = true, browser = true) => {
+const claudeQueryOptions = (model: Model, device = true, browser = true, codeSearch = false) => {
   // Refs whose text follows a capability read its flag; older ones ignore it.
   const input: Parameters<typeof makeClaudeQueryOptions>[0] & {
     readonly deviceToolsAvailable?: boolean;
     readonly browserToolsAvailable?: boolean;
+    readonly codeSearchAvailable?: boolean;
   } = {
     modelSelection: { instanceId: ProviderInstanceId.make(CLAUDE_PROVIDER), model },
     nativeThreadId: "mcp-tool-use-eval",
@@ -527,13 +530,14 @@ const claudeQueryOptions = (model: Model, device = true, browser = true) => {
     mcpServers: { "t3-code": { type: "http", url: "http://127.0.0.1/mcp" } },
     deviceToolsAvailable: device,
     browserToolsAvailable: browser,
+    codeSearchAvailable: codeSearch,
   };
   return makeClaudeQueryOptions(input);
 };
 
 /** Text T3 appends to Claude Code's system prompt. Delegated children get the same text. */
-export const t3SystemAppend = (model: Model, device = true, browser = true) => {
-  const { systemPrompt } = claudeQueryOptions(model, device, browser);
+export const t3SystemAppend = (model: Model, device = true, browser = true, codeSearch = false) => {
+  const { systemPrompt } = claudeQueryOptions(model, device, browser, codeSearch);
   if (isRecord(systemPrompt) && systemPrompt.type === "preset" && systemPrompt.append) {
     return systemPrompt.append;
   }
@@ -622,6 +626,7 @@ export const buildBase = (
     readonly deviceAccess?: boolean;
     /** false: the thread has no agent browser access, so T3's text leaves the browser out. */
     readonly browserAccess?: boolean;
+    readonly codeSearch?: boolean;
   },
 ) => {
   const t3 = visibleT3Tools(options);
@@ -647,7 +652,7 @@ export const buildBase = (
   const { model } = options;
   const append = options.nativeSubagent
     ? ""
-    : t3SystemAppend(model, options.deviceAccess, options.browserAccess);
+    : t3SystemAppend(model, options.deviceAccess, options.browserAccess, options.codeSearch);
   const modelLine = `You are powered by the model named ${MODELS[model]}. The exact model ID is ${model}.`;
   const joined = systemTexts.join("\n");
   // The capture's home directory names its user. Cases use `/home/user` paths instead.
@@ -716,6 +721,7 @@ const buildCodexBase = (
     readonly deviceAccess?: boolean;
     /** false: the thread has no agent browser access, so T3's text leaves the browser out. */
     readonly browserAccess?: boolean;
+    readonly codeSearch?: boolean;
   },
 ): Base => {
   const t3 = visibleT3Tools(options);
@@ -751,7 +757,11 @@ const buildCodexBase = (
   });
   const context = buildCodexAdditionalContext(
     { model: options.model, reasoningEffort: effort },
-    { browser: options.browserAccess ?? true, device: options.deviceAccess ?? true },
+    {
+      browser: options.browserAccess ?? true,
+      device: options.deviceAccess ?? true,
+      codeSearch: options.codeSearch === true,
+    },
   );
   input.push(
     ...Object.entries(context).map(([key, entry]) => message(`<${key}>${entry.value}</${key}>`)),
@@ -1783,6 +1793,8 @@ const withPage = (tool: string, input: unknown, files: ReadonlyMap<string, strin
 };
 
 /** `pasted` is the thread's user text (`pastedText`), for request_secret's `value`. */
+const SEARCH_COMMAND = /\b(?:jg|rg|grep|find|ag|fd)\b/;
+
 export const gradeSample = (
   expect: McpToolUseCase["expect"],
   run: SampleRun,
@@ -1876,6 +1888,21 @@ export const gradeSample = (
       `shellMust /${p}/`,
       shell.some((c) => test(p, c) || test(p, argvForm(c))),
     );
+  if (expect.firstSearch !== undefined) {
+    const first = calls.flatMap((call) =>
+      call.tool === "Grep" || call.tool === "Glob" || call.tool === "Agent"
+        ? [`${call.tool} ${valueText(call.input)}`]
+        : isRecord(call.input) &&
+            typeof call.input.command === "string" &&
+            SEARCH_COMMAND.test(call.input.command)
+          ? [call.input.command]
+          : [],
+    )[0];
+    add(
+      `firstSearch /${expect.firstSearch}/`,
+      first !== undefined && test(expect.firstSearch, first),
+    );
+  }
   for (const p of expect.textMust ?? []) add(`textMust /${p}/`, test(p, run.text));
   for (const p of expect.textMustNot ?? []) add(`textMustNot /${p}/`, !test(p, run.text));
   for (const p of expect.finalTextMust ?? [])
@@ -2507,6 +2534,7 @@ const main = Effect.gen(function* () {
     deviceAccess: boolean,
     browserAccess: boolean,
     links: boolean,
+    codeSearch: boolean,
   ): Effect.Effect<Base, Schema.SchemaError> =>
     codex
       ? decodeCodexCapture(template).pipe(
@@ -2519,6 +2547,7 @@ const main = Effect.gen(function* () {
               links,
               deviceAccess,
               browserAccess,
+              codeSearch,
             }),
           ),
         )
@@ -2532,6 +2561,7 @@ const main = Effect.gen(function* () {
               links,
               deviceAccess,
               browserAccess,
+              codeSearch,
             });
             return role === "native-subagent"
               ? Effect.promise(() =>
@@ -2542,19 +2572,29 @@ const main = Effect.gen(function* () {
         );
   // Codex has no native subagents; its cases with that role run as top-level threads.
   const baseKey = ({ setup }: McpToolUseCase) =>
-    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}`;
-  const base = yield* buildFor("top", true, true, false);
-  const bases = new Map<string, Base>([["top:true:true:false", base]]);
+    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.world?.codeSearch === true}`;
+  const base = yield* buildFor("top", true, true, false, false);
+  const bases = new Map<string, Base>([["top:true:true:false:false", base]]);
   for (const testCase of selected) {
     const key = baseKey(testCase);
     if (bases.has(key)) continue;
-    const [role = "top", device, browser, links] = key.split(":") as [
+    const [role = "top", device, browser, links, codeSearch] = key.split(":") as [
       McpToolUseCase["setup"]["role"],
       string,
       string,
       string,
+      string,
     ];
-    bases.set(key, yield* buildFor(role, device === "true", browser === "true", links === "true"));
+    bases.set(
+      key,
+      yield* buildFor(
+        role,
+        device === "true",
+        browser === "true",
+        links === "true",
+        codeSearch === "true",
+      ),
+    );
   }
   const baseFor = (testCase: McpToolUseCase) => bases.get(baseKey(testCase)) ?? base;
   const effort = flags.effort ?? base.codex?.reasoning.effort ?? "high";

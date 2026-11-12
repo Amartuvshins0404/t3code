@@ -17,6 +17,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -41,10 +42,13 @@ const classifyOutput = (
   return patterns.find(([pattern]) => pattern.test(text))?.[1] ?? "failed";
 };
 
+const isConnected = (status: CodeSearchStatus) => status.installed && status.provider !== undefined;
+
 export class CodeSearchSetup extends Context.Service<
   CodeSearchSetup,
   {
     readonly status: Effect.Effect<CodeSearchStatus>;
+    readonly available: Effect.Effect<boolean>;
     readonly connect: (
       input: CodeSearchConnectInput,
     ) => Effect.Effect<CodeSearchConnectResult, CodeSearchSetupError>;
@@ -55,6 +59,7 @@ const make = Effect.gen(function* () {
   const runner = yield* ProcessRunner.ProcessRunner;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const lastAvailable = yield* Ref.make<boolean | undefined>(undefined);
 
   const resolveCommand = (command: string) =>
     resolveCommandPath(command).pipe(
@@ -150,7 +155,16 @@ const make = Effect.gen(function* () {
       ...(version === undefined ? {} : { version }),
       ...(provider === undefined ? {} : { provider }),
     } satisfies CodeSearchStatus;
-  }).pipe(Effect.withSpan("CodeSearchSetup.status"));
+  }).pipe(
+    Effect.tap((current) => Ref.set(lastAvailable, isConnected(current))),
+    Effect.withSpan("CodeSearchSetup.status"),
+  );
+
+  const available = Effect.gen(function* () {
+    const known = yield* Ref.get(lastAvailable);
+    if (known !== undefined) return known;
+    return isConnected(yield* status);
+  });
 
   const checkNode = Effect.fn("CodeSearchSetup.checkNode")(function* () {
     const node = yield* resolveCommand("node");
@@ -217,7 +231,7 @@ const make = Effect.gen(function* () {
     } satisfies CodeSearchConnectResult;
   });
 
-  return CodeSearchSetup.of({ status, connect });
+  return CodeSearchSetup.of({ status, available, connect });
 });
 
 export const layer = Layer.effect(CodeSearchSetup, make);
