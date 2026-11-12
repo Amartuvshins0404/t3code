@@ -2,8 +2,21 @@ import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 import pg from "pg";
+import { it as effectIt } from "@effect/vitest";
 import { expect, it, vi } from "vite-plus/test";
 
+import {
+  type CloudDeviceVerification,
+  type CloudStoredSession,
+  createCloudAuth,
+} from "@t3tools/client-runtime/cloud-auth";
+import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Signature from "effect/crypto/Signature";
+import * as Effect from "effect/Effect";
+import * as Jwks from "effect/jose/Jwks";
+import * as Layer from "effect/Layer";
+
+import * as RelayIdentity from "../../relay/src/auth/identity.ts";
 import { createAuth } from "./auth.ts";
 import { loadConfig } from "./config.ts";
 import { migrate } from "./migrate.ts";
@@ -53,8 +66,15 @@ const startAuth = async () => {
     const jwks = createLocalJWKSet((await call("/jwks")).body);
     return jwtVerify(jwt, jwks, { issuer: ISSUER, audience: "t3-relay" });
   };
+  const fetchAuth = (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const headers = new Headers(request.headers);
+    headers.set("origin", BASE_URL);
+    return auth.handler(new Request(request, { headers }));
+  };
   return {
     call,
+    fetch: fetchAuth,
     signIn,
     verify,
     [Symbol.asyncDispose]: async () => {
@@ -132,3 +152,77 @@ it("lets the t3-cli device grant end in a bearer token that mints the relay JWT"
   const { payload } = await service.verify(body.token);
   expect(payload).toMatchObject({ sub: userId, email: "grace@example.com", orgs: [] });
 });
+
+effectIt.effect(
+  "signs a CloudAuth client in through the device page and hands it a JWT the relay accepts",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Effect.acquireDisposable(Effect.promise(startAuth));
+      let stored: CloudStoredSession | null = null;
+      let showPrompt: (prompt: CloudDeviceVerification) => void = () => {};
+      const prompted = new Promise<CloudDeviceVerification>((resolve) => {
+        showPrompt = resolve;
+      });
+      const cloudAuth = createCloudAuth({
+        authUrl: BASE_URL,
+        platform: {
+          fetch: service.fetch,
+          store: {
+            read: async () => stored,
+            write: async (session) => {
+              stored = session;
+            },
+          },
+          signIn: (_method, context) => context.signInWithDevice(showPrompt),
+        },
+      });
+      yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], now: START }),
+        ),
+        () => Effect.sync(() => vi.useRealTimers()),
+      );
+
+      const signedIn = cloudAuth.signIn("passkey");
+      const { userCode } = yield* Effect.promise(() => prompted);
+      const { userId, token } = yield* Effect.promise(() =>
+        service.signIn("lin@example.com", "Lin"),
+      );
+      yield* Effect.promise(() => service.call(`/device?user_code=${userCode}`, { token }));
+      yield* Effect.promise(() =>
+        service.call("/device/approve", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ userCode }),
+        }),
+      );
+      yield* Effect.promise(() => vi.advanceTimersByTimeAsync(6_000));
+
+      expect(yield* Effect.promise(() => signedIn)).toMatchObject({
+        id: userId,
+        email: "lin@example.com",
+      });
+      expect(stored).toMatchObject({ user: { id: userId } });
+      const jwt = yield* Effect.promise(() => cloudAuth.getRelayIdentityToken());
+      const { body: keySet } = yield* Effect.promise(() => service.call("/jwks"));
+      const relayIdentity = yield* RelayIdentity.Identity.pipe(
+        Effect.provide(
+          RelayIdentity.layerWithJwks({
+            issuer: ISSUER,
+            audience: "t3-relay",
+            jwksUrl: `${BASE_URL}/api/auth/jwks`,
+          }).pipe(
+            Layer.provide(Jwks.layerLocal(keySet)),
+            Layer.provide(
+              Signature.layerWebCrypto.pipe(Layer.provideMerge(SecureRandom.layerWebCrypto)),
+            ),
+          ),
+        ),
+      );
+      expect(yield* relayIdentity.verify(jwt ?? "")).toMatchObject({
+        userId,
+        email: "lin@example.com",
+        orgs: [],
+      });
+    }).pipe(Effect.scoped),
+);

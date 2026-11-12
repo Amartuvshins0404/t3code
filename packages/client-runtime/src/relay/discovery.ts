@@ -106,9 +106,9 @@ function validateStatus(
 }
 
 const relayAccountId = Effect.fn("clientRuntime.discovery.relayAccountId")(function* (
-  clerkToken: string,
+  identityToken: string,
 ) {
-  const claims = yield* decodeRelayJwt(clerkToken).pipe(Effect.option);
+  const claims = yield* decodeRelayJwt(identityToken).pipe(Effect.option);
   const sub = Option.isSome(claims) ? claims.value.sub : undefined;
   return typeof sub === "string" && sub.length > 0 ? Option.some(sub) : Option.none<string>();
 });
@@ -161,12 +161,12 @@ export const make = Effect.fn("RelayEnvironmentDiscovery.make")(function* () {
 
   const refreshStatus = Effect.fn("RelayEnvironmentDiscovery.refreshStatus")(function* (
     generation: number,
-    clerkToken: string,
+    identityToken: string,
     environment: RelayClientEnvironmentRecord,
   ) {
     const result = yield* relay
       .getEnvironmentStatus({
-        clerkToken,
+        identityToken,
         scopes: [RelayEnvironmentStatusScope, RelayEnvironmentConnectScope],
         environmentId: environment.environmentId,
       })
@@ -237,7 +237,7 @@ export const make = Effect.fn("RelayEnvironmentDiscovery.make")(function* () {
 
       // Sign-out triggers credentials-changed refreshes and must settle to an empty list.
       // Only session-level missing credentials are benign; relay-side auth failures must surface.
-      const tokenResult = yield* Effect.result(session.clerkToken);
+      const tokenResult = yield* Effect.result(session.identityToken);
       if (tokenResult._tag === "Failure") {
         const failure = tokenResult.failure;
         if (failure._tag === "ConnectionBlockedError" && failure.reason === "authentication") {
@@ -252,11 +252,11 @@ export const make = Effect.fn("RelayEnvironmentDiscovery.make")(function* () {
         }
         return yield* failure;
       }
-      const clerkToken = tokenResult.success;
+      const identityToken = tokenResult.success;
       if ((yield* Ref.get(accountGeneration)) !== generation) {
         return;
       }
-      const accountId = yield* relayAccountId(clerkToken);
+      const accountId = yield* relayAccountId(identityToken);
       const previousAccountId = yield* Ref.get(activeAccountId);
       if (
         Option.isSome(previousAccountId) &&
@@ -268,7 +268,7 @@ export const make = Effect.fn("RelayEnvironmentDiscovery.make")(function* () {
       yield* Ref.set(activeAccountId, accountId);
 
       const environments = yield* relay
-        .listEnvironments({ clerkToken })
+        .listEnvironments({ identityToken })
         .pipe(Effect.mapError(mapManagedRelayError));
       if ((yield* Ref.get(accountGeneration)) !== generation) {
         return;
@@ -290,7 +290,7 @@ export const make = Effect.fn("RelayEnvironmentDiscovery.make")(function* () {
 
       yield* Effect.forEach(
         environments,
-        (environment) => refreshStatus(generation, clerkToken, environment),
+        (environment) => refreshStatus(generation, identityToken, environment),
         {
           concurrency: "unbounded",
           discard: true,

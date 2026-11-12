@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/react";
+import { useCloudAuth } from "../../cloud/cloudAuth";
 import { useAtomValue } from "@effect/atom-react";
 import { offersLinkedEnvironments } from "@t3tools/client-runtime/link-request";
 import {
@@ -43,7 +43,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { relayEnvironmentDiscovery } from "~/state/relay";
 import { useEnvironmentScope, useEnvironmentSessionState } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
+import { openCloudSignInDialog } from "../../cloud/cloudSignInPrompt";
 import { CommandBlock } from "../CommandBlock";
 import { AccessOption, accessConfig } from "../auth/ConnectAgentSurface";
 import { useAccessEnvironment } from "../settings/useAccessEnvironment";
@@ -233,7 +233,7 @@ function useGrantableLevels(environment: EnvironmentPresentation) {
 
 function useGate(environment: EnvironmentPresentation) {
   const environmentId = environment.environmentId;
-  const { isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
+  const { isSignedIn } = useCloudAuth();
   const controller = useCloudLinkController(environmentId);
   const canReadRelay = useEnvironmentScope(environmentId, AuthRelayReadScope);
   const thisMachine =
@@ -364,7 +364,6 @@ function GateScreen({
   const name = environment.label;
   const appBaseName = useAppBaseName();
   const turnOnHere = useT3ConnectTurnOn(environment.environmentId);
-  const { openAuthPrompt } = useT3ConnectAuthPrompt();
   const retry = (onClick: () => void) => (
     <Button variant="outline" onClick={onClick}>
       Check again
@@ -388,11 +387,11 @@ function GateScreen({
             `T3 Connect gives ${name} that address. Each app still needs your approval.`,
           ]}
         >
-          {/* Clerk's sign-in is its own modal, so this dialog closes first. */}
+          {/* Sign-in is its own dialog, so this one closes first. */}
           <Button
             onClick={() => {
               close();
-              openAuthPrompt();
+              openCloudSignInDialog();
             }}
           >
             Sign in to T3 Connect

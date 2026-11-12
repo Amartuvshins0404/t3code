@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button, InlineButton } from "../ui/button";
-import { useT3ConnectAccountPage } from "./T3ConnectAccountPages";
+import { useT3ConnectAccountPage } from "./T3ConnectAccountDialog";
 
 export function RemoveT3ConnectEnvironmentDialog({
   environmentLabel,
@@ -90,7 +90,6 @@ export function RemoveT3ConnectEnvironmentDialog({
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-      {accountPage.portals}
     </>
   );
 }

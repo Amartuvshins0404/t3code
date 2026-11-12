@@ -46,9 +46,22 @@ Native apps can use the same passkeys once `amartuvshin.com` serves
 ceremonies are accepted only from `https://auth.amartuvshin.com` today. Changing the relying party
 id later invalidates every registered passkey.
 
-### Trusted origins
+### Trusted origins and CORS
 
-`t3code://` deep links, `http://localhost:*`, `http://127.0.0.1:*`, and `https://*.amartuvshin.com`.
+Trusted origins are the desktop app schemes (`t3code`, `t3code-dev`, `amaraa-mode`,
+`amaraa-mode-dev`), `http://localhost:*`, `http://127.0.0.1:*`, and `https://*.amartuvshin.com`.
+`/api/auth/*` answers CORS for the same web origins and for the desktop renderers at
+`<scheme>://app` ([cors.ts](src/cors.ts)). Clients authenticate with bearer session tokens, so
+CORS does not allow credentials.
+
+### Client sign-in
+
+- Web GitHub: `GET /api/auth/oauth-popup/start` in a popup. The `oauthPopup` plugin posts the
+  session token to the opener.
+- Desktop GitHub: `POST /api/auth/sign-in/social` with `callbackURL` `<scheme>://auth-callback`,
+  then the system browser opens `/api/auth/expo-authorization-proxy`. The `expo` plugin appends
+  the session cookie to the deep link.
+- Passkeys and the CLI: the device login above. Passkey ceremonies only work on this origin.
 
 ## Configuration
 

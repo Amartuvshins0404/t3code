@@ -9,7 +9,7 @@ export const setLiveActivityUpdatesEnabled = Effect.fn("setLiveActivityUpdatesEn
   function* (input: {
     readonly enabled: boolean;
     readonly previousEnabled: boolean;
-    readonly clerkToken: string | null;
+    readonly identityToken: string | null;
     readonly connections: ReadonlyArray<SavedRemoteConnection>;
     readonly canConfigureEnvironment: (environmentId: EnvironmentId) => boolean;
   }) {
@@ -20,12 +20,12 @@ export const setLiveActivityUpdatesEnabled = Effect.fn("setLiveActivityUpdatesEn
     const updateEnvironmentPreference = Effect.fn("updateEnvironmentPreference")(function* (
       connection: SavedRemoteConnection,
       enabled: boolean,
-      clerkToken: string,
+      identityToken: string,
     ) {
       if (!input.canConfigureEnvironment(connection.environmentId)) return;
 
       yield* linkEnvironmentToCloudWithPreference({
-        clerkToken,
+        identityToken,
         connection,
         liveActivitiesEnabled: enabled,
       });
@@ -36,12 +36,12 @@ export const setLiveActivityUpdatesEnabled = Effect.fn("setLiveActivityUpdatesEn
         liveActivitiesEnabled: enabled,
       });
 
-      const clerkToken = input.clerkToken;
-      if (!clerkToken) return;
+      const identityToken = input.identityToken;
+      if (!identityToken) return;
 
       yield* Effect.forEach(
         linkedConnections,
-        (connection) => updateEnvironmentPreference(connection, enabled, clerkToken),
+        (connection) => updateEnvironmentPreference(connection, enabled, identityToken),
         { concurrency: "unbounded" },
       );
     });
@@ -55,13 +55,13 @@ export const setLiveActivityUpdatesEnabled = Effect.fn("setLiveActivityUpdatesEn
         ),
       );
 
-      const clerkToken = input.clerkToken;
-      if (!clerkToken) return;
+      const identityToken = input.identityToken;
+      if (!identityToken) return;
 
       yield* Effect.forEach(
         linkedConnections,
         (connection) =>
-          updateEnvironmentPreference(connection, input.previousEnabled, clerkToken).pipe(
+          updateEnvironmentPreference(connection, input.previousEnabled, identityToken).pipe(
             Effect.catchCause((cause) =>
               Effect.logWarning(
                 `Could not restore Live Activity preference for environment ${connection.environmentId}.`,

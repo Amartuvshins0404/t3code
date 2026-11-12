@@ -2,6 +2,7 @@ import * as NodeHttp from "node:http";
 
 import { toNodeHandler } from "better-auth/node";
 
+import { corsHeaders, corsPreflightHeaders } from "./cors.ts";
 import { devicePage } from "./devicePage.ts";
 import { auth, config, pool } from "./instance.ts";
 import { migrate } from "./migrate.ts";
@@ -12,7 +13,16 @@ const authHandler = toNodeHandler(auth);
 
 const server = NodeHttp.createServer((req, res) => {
   const path = new URL(req.url ?? "/", "http://localhost").pathname;
-  if (path === "/api/auth" || path.startsWith("/api/auth/")) return void authHandler(req, res);
+  if (path === "/api/auth" || path.startsWith("/api/auth/")) {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, corsPreflightHeaders(req.headers.origin));
+      return void res.end();
+    }
+    for (const [name, value] of Object.entries(corsHeaders(req.headers.origin))) {
+      res.setHeader(name, value);
+    }
+    return void authHandler(req, res);
+  }
   if (path === "/device" && (req.method === "GET" || req.method === "HEAD")) {
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",

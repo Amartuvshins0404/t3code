@@ -24,7 +24,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as References from "effect/References";
-import * as Schema from "effect/Schema";
 import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
@@ -64,8 +63,6 @@ const jsonFlag = Flag.Boolean("json").pipe(
   Flag.withDefault(false),
 );
 
-const isCloudCliTokenManagerError = Schema.is(CliTokenManager.CloudCliTokenManagerError);
-
 export const headlessFlag = Flag.Boolean("headless").pipe(
   Flag.withDescription(
     "Sign in with a URL and code on any device. Automatic without a terminal or over SSH.",
@@ -74,9 +71,8 @@ export const headlessFlag = Flag.Boolean("headless").pipe(
 );
 
 /**
- * Inside an SSH session there is no local browser to complete the loopback
- * OAuth callback, so the device authorization grant is the only flow that
- * can work.
+ * Inside an SSH session there is no local browser to open, so the CLI only
+ * prints the sign-in URL and code for another device.
  */
 const headlessSessionConfig = Config.all({
   sshConnection: Config.String("SSH_CONNECTION").pipe(Config.option),
@@ -104,17 +100,10 @@ const authorizeCli = Effect.fn("cloud.cli.authorize")(function* (options: {
   readonly headless: boolean;
 }) {
   const tokens = yield* CliTokenManager.CloudCliTokenManager;
-  // Without a terminal, no key press can open a browser, so sign in with a code.
-  const useOutOfBandOAuth =
+  const headless =
     options.headless ||
     (yield* headlessSessionConfig) ||
     !(process.stdin.isTTY && process.stdout.isTTY);
-  if (!useOutOfBandOAuth) {
-    const authorization = yield* tokens.get;
-    if (authorization._tag === "Authorized") {
-      return authorization.token.identity ?? null;
-    }
-  }
   const existing = yield* tokens.getExisting.pipe(
     Effect.catchTags({
       CloudCliCredentialRefreshError: () =>
@@ -124,17 +113,11 @@ const authorizeCli = Effect.fn("cloud.cli.authorize")(function* (options: {
   if (Option.isSome(existing)) {
     return existing.value.identity ?? null;
   }
-  const { token, identity } = yield* CliTokenManager.deviceAuthorizationLogin(
-    showDeviceAuthorizationPrompt,
-  ).pipe(
-    Effect.mapError((cause) =>
-      isCloudCliTokenManagerError(cause)
-        ? cause
-        : new CliTokenManager.CloudCliAuthorizationError({ cause }),
-    ),
-  );
-  yield* tokens.store(token);
-  return identity;
+  const credential = yield* tokens.login({
+    showPrompt: showDeviceAuthorizationPrompt,
+    openBrowser: !headless,
+  });
+  return credential.identity ?? null;
 });
 
 function bytesToString(value: Uint8Array): string {

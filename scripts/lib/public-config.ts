@@ -4,11 +4,14 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 
+const DEFAULT_AUTH_URL = "https://auth.amartuvshin.com";
+const DEFAULT_RELAY_URL = "https://relay.amartuvshin.com";
+
 export interface T3CodePublicConfig {
-  readonly clerkPublishableKey: string | undefined;
-  readonly clerkJwtTemplate: string | undefined;
-  readonly clerkCliOAuthClientId: string | undefined;
-  readonly relayUrl: string | undefined;
+  readonly mobileClerkPublishableKey: string | undefined;
+  readonly mobileClerkJwtTemplate: string | undefined;
+  readonly authUrl: string;
+  readonly relayUrl: string;
   readonly mobileOtlpTracesUrl: string | undefined;
   readonly mobileOtlpTracesDataset: string | undefined;
   readonly mobileOtlpTracesToken: string | undefined;
@@ -36,32 +39,16 @@ export function loadRepoEnv({
     ...rootEnv,
     ...localEnv,
     ...baseEnv,
-    ...(config.clerkPublishableKey
-      ? {
-          T3CODE_CLERK_PUBLISHABLE_KEY: config.clerkPublishableKey,
-          VITE_CLERK_PUBLISHABLE_KEY: config.clerkPublishableKey,
-          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: config.clerkPublishableKey,
-        }
+    ...(config.mobileClerkPublishableKey
+      ? { EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: config.mobileClerkPublishableKey }
       : {}),
-    ...(config.clerkJwtTemplate
-      ? {
-          T3CODE_CLERK_JWT_TEMPLATE: config.clerkJwtTemplate,
-          VITE_CLERK_JWT_TEMPLATE: config.clerkJwtTemplate,
-          EXPO_PUBLIC_CLERK_JWT_TEMPLATE: config.clerkJwtTemplate,
-        }
+    ...(config.mobileClerkJwtTemplate
+      ? { EXPO_PUBLIC_CLERK_JWT_TEMPLATE: config.mobileClerkJwtTemplate }
       : {}),
-    ...(config.clerkCliOAuthClientId
-      ? {
-          T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: config.clerkCliOAuthClientId,
-          VITE_CLERK_CLI_OAUTH_CLIENT_ID: config.clerkCliOAuthClientId,
-        }
-      : {}),
-    ...(config.relayUrl
-      ? {
-          T3CODE_RELAY_URL: config.relayUrl,
-          VITE_T3CODE_RELAY_URL: config.relayUrl,
-        }
-      : {}),
+    T3CODE_AUTH_URL: config.authUrl,
+    VITE_T3CODE_AUTH_URL: config.authUrl,
+    T3CODE_RELAY_URL: config.relayUrl,
+    VITE_T3CODE_RELAY_URL: config.relayUrl,
     ...(config.mobileOtlpTracesUrl
       ? {
           T3CODE_MOBILE_OTLP_TRACES_URL: config.mobileOtlpTracesUrl,
@@ -103,24 +90,19 @@ export function loadRepoEnv({
 
 function resolvePublicConfig(...sources: readonly Environment[]): T3CodePublicConfig {
   return {
-    clerkPublishableKey: firstNonEmpty(
+    mobileClerkPublishableKey: firstNonEmpty(
       sources,
       "T3CODE_CLERK_PUBLISHABLE_KEY",
-      "VITE_CLERK_PUBLISHABLE_KEY",
       "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY",
     ),
-    clerkJwtTemplate: firstNonEmpty(
+    mobileClerkJwtTemplate: firstNonEmpty(
       sources,
       "T3CODE_CLERK_JWT_TEMPLATE",
-      "VITE_CLERK_JWT_TEMPLATE",
       "EXPO_PUBLIC_CLERK_JWT_TEMPLATE",
     ),
-    clerkCliOAuthClientId: firstNonEmpty(
-      sources,
-      "T3CODE_CLERK_CLI_OAUTH_CLIENT_ID",
-      "VITE_CLERK_CLI_OAUTH_CLIENT_ID",
-    ),
-    relayUrl: firstNonEmpty(sources, "T3CODE_RELAY_URL", "VITE_T3CODE_RELAY_URL"),
+    authUrl: firstNonEmpty(sources, "T3CODE_AUTH_URL", "VITE_T3CODE_AUTH_URL") ?? DEFAULT_AUTH_URL,
+    relayUrl:
+      firstNonEmpty(sources, "T3CODE_RELAY_URL", "VITE_T3CODE_RELAY_URL") ?? DEFAULT_RELAY_URL,
     mobileOtlpTracesUrl: firstNonEmpty(
       sources,
       "T3CODE_MOBILE_OTLP_TRACES_URL",

@@ -668,10 +668,7 @@ export class RelayEnvironmentPrincipal extends Context.Service<
 >()("@t3tools/contracts/relay/RelayEnvironmentPrincipal") {}
 
 const RelayClientBearerAuthorization = HttpApiSecurity.http({ scheme: "bearer" }).pipe(
-  HttpApiSecurity.annotate(
-    OpenApi.Description,
-    "Clerk session or OAuth bearer token for the signed-in T3 Connect user.",
-  ),
+  HttpApiSecurity.annotate(OpenApi.Description, "Identity JWT for the signed-in T3 Connect user."),
 );
 
 export class RelayClientAuth extends HttpApiMiddleware.Service<
@@ -766,7 +763,7 @@ export const RelayWebClientId = "t3-web" as const;
 export const RelayDpopAccessTokenRequest = Schema.Struct({
   grant_type: Schema.Literal(RelayDpopTokenExchangeGrantType),
   subject_token: TrimmedNonEmptyString.annotate({
-    description: "Clerk bearer token for the signed-in cloud user.",
+    description: "Identity JWT for the signed-in cloud user.",
   }),
   subject_token_type: Schema.Literal(RelayJwtSubjectTokenType),
   requested_token_type: Schema.Literal(RelayAccessTokenType),
@@ -968,9 +965,6 @@ export type RelayT3ChatPlan = typeof RelayT3ChatPlan.Type;
 
 export const DEFAULT_MANAGED_TUNNEL_LIMIT = 3;
 
-// A linked paid T3 Chat plan raises the default managed tunnel cap.
-export const T3CHAT_PLAN_TUNNEL_LIMITS = { pro: 10, premier: 100 } as const;
-
 export const RelayT3ChatLink = Schema.Struct({
   email: Schema.String,
   plan: RelayT3ChatPlan,
@@ -1164,10 +1158,10 @@ export const RelayExchangeDpopAccessTokenEndpoint = HttpApiEndpoint.post(
     error: RelayAuthAndInternalErrors,
   },
 )
-  .annotate(OpenApi.Summary, "Exchange a Clerk token for a DPoP access token")
+  .annotate(OpenApi.Summary, "Exchange an identity JWT for a DPoP access token")
   .annotate(
     OpenApi.Description,
-    "Bootstrap endpoint. Send the DPoP proof JWT in the dpop header and the Clerk token in subject_token. The returned access token is bound to the proof key.",
+    "Bootstrap endpoint. Send the DPoP proof JWT in the dpop header and the identity JWT in subject_token. The returned access token is bound to the proof key.",
   );
 
 const RelayTokenGroup = HttpApiGroup.make("token")

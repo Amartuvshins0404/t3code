@@ -40,7 +40,7 @@ read-once bodies of up to 1 MiB that need per-link order, caps, and retry
 timing. Queues cap messages at 128 KB and cannot hold one link's requests back
 while its environment is away.
 
-Clerk, deployment, and native authentication setup live in the
+Deployment and native authentication setup live in the
 [Connect setup runbook](../operations/connect-setup.md).
 
 ## The relay is a trusted broker
@@ -174,22 +174,27 @@ while the pin installs. Every binary needs `CLOUDFLARED_MIN_VERSION`, the oldest
 release that accepts every flag the connector is started with. Raise it whenever
 a new flag is added.
 
-## OAuth traps
+## Sign-in traps
 
-Interactive clients and the headless CLI use the same Clerk application but
-different credentials. The relay accepts both session-template JWTs and CLI
-OAuth tokens; requiring a JWT template for the CLI would reject valid logins.
-The CLI is a public OAuth client using PKCE and stores no client secret.
+Web, desktop, and the CLI share one [`CloudAuth` port](../../packages/client-runtime/src/cloudAuth/cloudAuth.ts).
+Each client holds a Better Auth session token and sends it as a bearer token.
+The auth service sits on a different site from most clients (loopback, tailnet,
+the desktop scheme), so its session cookie is never readable there. The relay
+only sees the short-lived identity JWT from `/api/auth/token`.
 
-Loopback CLI authorization starts on the hosted `/connect` page so sign-in
-completes before entering Clerk's authorize endpoint. Sending a signed-out
-browser straight to that endpoint loses the authorize parameters during the
-sign-in redirect. The [shared flow](../../packages/shared/src/connectAuth.ts)
-preserves PKCE and state for the loopback callback.
+The session token reaches each client differently, because nothing on the auth
+service can hand a cookie to another origin:
 
-SSH and headless sessions use Clerk's OAuth device authorization grant because
-the browser cannot ordinarily reach a listener on the remote machine. The CLI
-polls Clerk's token endpoint directly while the user approves a short code on
-Clerk's hosted device page; the hosted app plays no part and there is no
-redirect URI or PKCE. The grant must be enabled on the CLI OAuth application
-or the device endpoint returns an error before any prompt is shown.
+- Web GitHub sign-in uses Better Auth's `oauth-popup` plugin, which posts the
+  token to the opener. The opener's origin must be a trusted origin.
+- Desktop GitHub sign-in runs in the system browser. The callback is
+  `<app scheme>://auth-callback`, and the `expo` plugin appends the session
+  cookie to that redirect. Every app scheme must be a trusted origin, or the
+  social sign-in rejects the callback URL.
+- Passkey ceremonies are accepted only on the auth origin, so passkey sign-in on
+  every client, and every CLI login, uses the device grant (client `t3-cli`)
+  and the auth service's `/device` page.
+
+Browser clients call `/api/auth/*` cross-origin, so the auth service answers
+CORS for the app origins in [cors.ts](../../infra/auth/src/cors.ts). A new
+client origin needs an entry there and in `trustedOrigins`.

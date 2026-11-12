@@ -8,10 +8,6 @@ import {
   deactivateManagedRelayAuthentication,
 } from "./managedAuth";
 
-vi.mock("@clerk/react", () => ({
-  useClerk: vi.fn(),
-}));
-
 vi.mock("../lib/runtime", () => ({
   runtime: {
     runPromiseExit: vi.fn(),
@@ -33,7 +29,7 @@ describe("managed relay authentication", () => {
     activateManagedRelayAuthentication("account-1", async () => "account-1-token");
     expect(appAtomRegistry.get(managedRelaySessionAtom)?.accountId).toBe("account-1");
     const token = await Effect.fromNullishOr(appAtomRegistry.get(managedRelaySessionAtom)).pipe(
-      Effect.flatMap((session) => session.readClerkToken()),
+      Effect.flatMap((session) => session.readIdentityToken()),
       Effect.runPromise,
     );
     expect(token).toBe("account-1-token");

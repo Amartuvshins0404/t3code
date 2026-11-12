@@ -1548,9 +1548,6 @@ describe("EnvironmentSupervisor", () => {
         createEnvironmentLinkChallenge: unused,
         linkEnvironment: unused,
         unlinkEnvironment: unused,
-        getT3ChatLink: unused,
-        createT3ChatLinkRequest: unused,
-        unlinkT3Chat: unused,
         getEnvironmentStatus: unused,
         connectEnvironment: Effect.fn("TestConnectionHttp.connectEnvironment")(function* () {
           yield* Ref.update(bootstrapCalls, (count) => count + 1);
@@ -1583,7 +1580,7 @@ describe("EnvironmentSupervisor", () => {
             Layer.succeed(ManagedRelay.ManagedRelayClient, relay),
             Layer.succeed(ClientCapabilities.CloudSession, {
               identity: Effect.succeedSome({ accountId: "test-account" }),
-              clerkToken: Effect.succeed("clerk-token"),
+              identityToken: Effect.succeed("identity-token"),
             }),
             Layer.succeed(ClientCapabilities.RelayDeviceIdentity, {
               deviceId: Effect.succeedNone,
