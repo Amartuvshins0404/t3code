@@ -1,10 +1,16 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { ChangedFile } from "../.github/scripts/merge-lane.cjs";
+import { parseGitDiff, type ChangedFile } from "../.github/scripts/merge-lane.cjs";
 import {
   BREAK_WORDING,
   isStrengthRequired,
   judgeStrength,
+  planMeasurement,
   planStrength,
   renderStrength,
   strengthLabelChanges,
@@ -653,5 +659,120 @@ describe("test strength: Stryker", () => {
     const devDependencies: Record<string, string> = rootPackage.devDependencies;
     expect(devDependencies["@stryker-mutator/core"]).toBe("10.1.1");
     expect(devDependencies["@stryker-mutator/vitest-runner"]).toBe("10.1.1");
+  });
+});
+
+function pullRequestRepo(changedLines: number) {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "test-strength-"));
+  const git = (args: ReadonlyArray<string>) =>
+    NodeChildProcess.execFileSync("git", args, {
+      cwd: dir,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+        ),
+        GIT_AUTHOR_NAME: "Dev",
+        GIT_AUTHOR_EMAIL: "dev@example.com",
+        GIT_COMMITTER_NAME: "Dev",
+        GIT_COMMITTER_EMAIL: "dev@example.com",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+      },
+    }).trim();
+  const commit = (message: string, files: Record<string, string>) => {
+    for (const [file, text] of Object.entries(files)) {
+      NodeFS.mkdirSync(NodePath.dirname(NodePath.join(dir, file)), { recursive: true });
+      NodeFS.writeFileSync(NodePath.join(dir, file), text);
+    }
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", message]);
+    return git(["rev-parse", "HEAD"]);
+  };
+  const lines = (count: number, name: string) =>
+    Array.from({ length: count }, (_, index) => `export const ${name}${index} = ${index} > 3;\n`);
+  const own = "packages/demo/src/own.ts";
+  const upstream = "packages/demo/src/upstream.ts";
+
+  git(["init", "-q", "-b", "amaraa-mode"]);
+  commit("feat(demo): start", {
+    [own]: "export const own = 1;\n",
+    [upstream]: "export const upstream = 1;\n",
+  });
+  git(["checkout", "-q", "-b", "fix/own"]);
+  const first = commit("test(demo): checks for own\n\nBlind-checks: written from the request", {
+    "packages/demo/src/own.test.ts": 'it("owns", () => {});\n',
+  });
+  commit("fix(demo): own", { [own]: lines(changedLines, "own").join("") });
+  git(["checkout", "-q", "amaraa-mode"]);
+  commit("feat(demo): newer base work", {
+    [upstream]: lines(100, "upstream").join(""),
+    "packages/demo/src/upstream.test.ts": 'it("goes upstream", () => {});\n',
+  });
+  git(["checkout", "-q", "fix/own"]);
+  git(["merge", "-q", "--no-edit", "amaraa-mode"]);
+  const head = commit("fix(demo): own after the merge", {
+    [own]: ["export const changed = 2;\n", ...lines(changedLines, "own").slice(1)].join(""),
+  });
+  git(["checkout", "-q", "amaraa-mode"]);
+  const base = commit("feat(demo): base work after the merge", {
+    [upstream]: lines(120, "later").join(""),
+  });
+  git(["checkout", "-q", "--detach", head]);
+
+  const laneBotPlan = planStrength({
+    firstMessage: git(["log", "-1", "--format=%B", first]),
+    commit: head,
+    files: parseGitDiff(
+      git(["diff", "--no-color", "--no-ext-diff", "-M", "-U3", `${base}...${head}`]),
+    ),
+    repoFiles: git(["ls-tree", "-r", "--name-only", head]).split("\n").filter(Boolean),
+  });
+  return {
+    dir,
+    own,
+    first,
+    base,
+    head,
+    laneBotPlan,
+    cleanup: () => NodeFS.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+describe("test strength: a pull request that merged newer base branch work", () => {
+  it("breaks only the lines the pull request itself changed since it left the base branch", () => {
+    const repo = pullRequestRepo(3);
+    try {
+      const planned = planMeasurement(repo.dir, {
+        first: repo.first,
+        base: repo.base,
+        head: repo.head,
+      });
+      expect(planned).toMatchObject({
+        run: true,
+        code: [{ file: repo.own, lines: [1, 2, 3] }],
+        tests: ["packages/demo/src/own.test.ts"],
+        measured: 3,
+        total: 3,
+      });
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  it("picks the same lines and the same sample as the lane bot for the same pull request", () => {
+    const repo = pullRequestRepo(850);
+    try {
+      const planned = planMeasurement(repo.dir, {
+        first: repo.first,
+        base: repo.base,
+        head: repo.head,
+      });
+      expect(repo.laneBotPlan).toMatchObject({ run: true, measured: 800, total: 850 });
+      expect(planned).toEqual(repo.laneBotPlan);
+    } finally {
+      repo.cleanup();
+    }
   });
 });

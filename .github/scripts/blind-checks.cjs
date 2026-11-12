@@ -2,9 +2,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { TEST_FILE, checksMarker, parseGitDiff, testNames } = require("./merge-lane.cjs");
-
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const { TEST_FILE, checksMarker, gitFiles, isTestSupport, testNames } = require("./merge-lane.cjs");
 
 function git(cwd, args) {
   return execFileSync("git", ["-c", "core.quotePath=false", ...args], {
@@ -14,38 +12,53 @@ function git(cwd, args) {
   });
 }
 
-function plan(cwd, commit) {
-  const marker = checksMarker(git(cwd, ["log", "-1", "--format=%B", commit]));
+function planProof({ commits, base }) {
+  const marker = commits[0] ? checksMarker(commits[0].message) : null;
   if (!marker) {
     return { run: false, note: "No checks commit came first, so there is nothing to prove." };
   }
-  if (marker.kind === "none") {
+  const touched = new Map();
+  const support = new Set();
+  for (const commit of commits) {
+    const checks = checksMarker(commit.message);
+    for (const file of commit.files) {
+      const from = file.previous_filename ?? file.filename;
+      support.delete(from);
+      if (file.status !== "removed" && isTestSupport(file.filename)) support.add(file.filename);
+      if (!checks) continue;
+      const was = touched.get(from);
+      touched.delete(from);
+      if (file.status === "removed") continue;
+      touched.set(file.filename, {
+        file: file.filename,
+        added: was ? was.added : file.status === "added",
+        tests: [...new Set([...(was?.tests ?? []), ...testNames(file.patch)])],
+      });
+    }
+  }
+  const files = [...touched.values()].filter((entry) => TEST_FILE.test(entry.file));
+  if (files.length === 0) {
     return {
       run: false,
-      note: `The first commit says no test is needed: ${marker.reason || "(no reason given)"}.`,
+      note:
+        marker.kind === "none"
+          ? `The first commit says no test is needed: ${marker.reason || "(no reason given)"}.`
+          : "The checks commit has no test file to run.",
     };
   }
-  const parent = /^parent ([0-9a-f]{40})$/m.exec(git(cwd, ["cat-file", "-p", commit]))?.[1];
-  const diff = git(cwd, [
-    "diff",
-    "--no-color",
-    "--no-ext-diff",
-    "-M",
-    "-U3",
-    parent ?? EMPTY_TREE,
-    commit,
-  ]);
-  const files = parseGitDiff(diff)
-    .filter((file) => file.status !== "removed" && TEST_FILE.test(file.filename))
-    .map((file) => ({
-      file: file.filename,
-      added: file.status === "added",
-      tests: testNames(file.patch),
+  for (const entry of files) support.delete(entry.file);
+  return { run: true, base, files, support: [...support] };
+}
+
+function pullRequestCommits(cwd, base, head) {
+  return git(cwd, ["rev-list", "--reverse", "--topo-order", `${base}..${head}`])
+    .split("\n")
+    .filter(Boolean)
+    .map((sha) => ({
+      sha,
+      message: git(cwd, ["log", "-1", "--format=%B", sha]),
+      files: gitFiles({ cwd, range: sha }),
     }));
-  if (files.length === 0) {
-    return { run: false, note: "The checks commit has no test file to run." };
-  }
-  return { run: true, commit, files };
 }
 
 function namePattern(name) {
@@ -134,7 +147,7 @@ function render(planned, verdict, required) {
   const lines = [
     `### Blind checks: ${verdict.ok ? "proven" : "not proven"}`,
     "",
-    `The checks commit \`${planned.commit.slice(0, 10)}\` was run without the code, then with it. Every new test has to fail without the code and pass with it.`,
+    `The checks were run as they are at the head: without the code on \`${planned.base.slice(0, 10)}\`, where this pull request left the base branch, then with the code. Every new test has to fail without the code and pass with it.`,
     "",
     "| Test file | Without the code | With the code |",
     "| --- | --- | --- |",
@@ -169,8 +182,11 @@ function main() {
   };
   const cwd = flag("--cwd") ?? process.cwd();
   const dir = flag("--dir");
-  if (command === "plan" && flag("--commit") && dir) {
-    const planned = plan(cwd, flag("--commit"));
+  if (command === "plan" && flag("--base") && flag("--head") && dir) {
+    const planned = planProof({
+      commits: pullRequestCommits(cwd, flag("--base"), flag("--head")),
+      base: flag("--base"),
+    });
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "plan.json"), `${JSON.stringify(planned, null, 2)}\n`);
     if (planned.run) {
@@ -185,7 +201,6 @@ function main() {
       `run=${planned.run}`,
       `browser=${planned.run && planned.files.some((entry) => entry.file.includes(".browser.test."))}`,
       `desktop=${planned.run && planned.files.some((entry) => entry.file.startsWith("apps/desktop/"))}`,
-      `checks=${planned.run ? planned.commit : ""}`,
     ];
     if (process.env.GITHUB_OUTPUT)
       fs.appendFileSync(process.env.GITHUB_OUTPUT, `${outputs.join("\n")}\n`);
@@ -207,16 +222,16 @@ function main() {
   console.error(
     [
       "Usage:",
-      "  node .github/scripts/blind-checks.cjs plan --commit <sha> --dir <dir> [--cwd <repo>]",
+      "  node .github/scripts/blind-checks.cjs plan --base <sha> --head <sha> --dir <dir> [--cwd <repo>]",
       "  node .github/scripts/blind-checks.cjs judge --dir <dir> [--cwd <repo>]",
       "",
-      "plan reads the first commit of a pull request and lists the test files its checks added or changed.",
-      "judge reads before.json and after.json, the vitest JSON reports of those files without and with the code.",
+      "plan reads the pull request's commits since it left the base branch and lists the test files its checks commits added or changed.",
+      "judge reads before.json and after.json, the vitest JSON reports of those files as they are at the head, without and with the code.",
     ].join("\n"),
   );
   process.exit(2);
 }
 
-module.exports = { plan, judge, namePattern };
+module.exports = { planProof, pullRequestCommits, judge, namePattern };
 
 if (require.main === module) main();

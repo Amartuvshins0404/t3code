@@ -45,7 +45,7 @@ Green pull requests are exempt from the checks rules. A red one gets them only w
 - **The lock is a bot comment.** The first time the lane bot sees a checks commit it saves a fingerprint of it in a comment by `github-actions[bot]`. A comment by anyone else is ignored. The fingerprint covers the trailer and the lines the commit adds and removes, not its SHA, so rebasing onto a newer `amaraa-mode` keeps the lock. Rewriting the commit's content does not.
 - **Revising checks is red on purpose.** A later commit with a `Blind-checks:` trailer is a revision, which is red and yours to judge. A later commit that touches a test file without the trailer is red as tampering. Putting a locked test file back as it was counts too.
 - **The proof job runs pull request code.** It runs on `pull_request` with read-only contents and no secrets, which is why it is separate from the lane bot. It runs the judge script from the base branch, but the workflow file comes from the pull request, so a pull request can still change the job. Doing so makes the lane red.
-- **A test file that cannot load counts as failing only if it loads with the code.** Without the code, an import of a missing module fails the whole file. The judge accepts that only when the same file loads and passes at the head, because the locked tests did not change in between. A file that fails to load both times is a broken setup. A file that cannot load hides whether each test in it would have failed on its own.
+- **A test file that cannot load counts as failing only if it loads with the code.** Without the code, an import of a missing module fails the whole file. The judge accepts that only when the same file loads and passes at the head, because both runs use the test files as they are at the head. A file that fails to load both times is a broken setup. A file that cannot load hides whether each test in it would have failed on its own.
 - **`vp test run` skips a path it does not know.** The judge treats a test file with no result as not run, never as passed.
 - **It reports until you switch it on.** The repository variable `BLIND_CHECKS_MODE=required` makes the Merge lane check fail on any checks or `Repairs:` reason, and makes Blind checks fail when the proof does not hold. Any other value only reports. Nothing blocks a merge until both checks are required on `amaraa-mode`.
 
@@ -72,7 +72,7 @@ It reports until the repository variable `TEST_STRENGTH_MODE` is `required`. The
 Measure a change locally from a clean tree, with a checks commit first:
 
 ```sh
-node .github/scripts/test-strength.cjs measure --first <checks commit> --head HEAD --out ../strength
+node .github/scripts/test-strength.cjs measure --first <checks commit> --base fork/amaraa-mode --head HEAD --out ../strength
 ```
 
 #### What is easy to get wrong

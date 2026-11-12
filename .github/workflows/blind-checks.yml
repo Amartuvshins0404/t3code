@@ -20,7 +20,6 @@ jobs:
     timeout-minutes: 22
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      BASE_REF: ${{ github.event.pull_request.base.ref }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       BLIND_CHECKS_MODE: ${{ vars.BLIND_CHECKS_MODE }}
     steps:
@@ -33,19 +32,20 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-          git fetch -q --no-tags --filter=blob:none --shallow-exclude="$BASE_REF" origin "$HEAD_SHA"
-          first="$(git rev-list --reverse --first-parent "$HEAD_SHA" | sed -n 1p)"
-          parent="$(git cat-file -p "$first" | sed -n 's/^parent //p' | sed -n 1p)"
-          git fetch -q --no-tags --filter=blob:none --depth=1 origin "$parent" "$BASE_SHA"
+          git fetch -q --no-tags --filter=tree:0 origin "$HEAD_SHA" "$BASE_SHA"
+          base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          first="$(git rev-list --reverse --first-parent "$base..$HEAD_SHA" | sed -n 1p)"
           git sparse-checkout set --no-cone '/*' '!/.repos/'
           mkdir -p "$RUNNER_TEMP/judge" "$RUNNER_TEMP/proof"
           git archive "$BASE_SHA" .github/scripts | tar -x -C "$RUNNER_TEMP/judge"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "first=$first" >> "$GITHUB_OUTPUT"
 
-      - name: Find the checks commit
+      - name: Find the checks
         id: plan
         shell: bash
         env:
+          PROOF_BASE: ${{ steps.fetch.outputs.base }}
           FIRST_SHA: ${{ steps.fetch.outputs.first }}
         run: |
           set -euo pipefail
@@ -55,13 +55,17 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          node "$judge" plan --commit "$FIRST_SHA" --dir "$RUNNER_TEMP/proof"
+          node "$judge" plan --base "$PROOF_BASE" --head "$HEAD_SHA" --commit "$FIRST_SHA" --dir "$RUNNER_TEMP/proof"
 
-      - name: Check out the checks commit
+      - name: Check out the base code with the checks from the head
         if: steps.plan.outputs.run == 'true'
+        shell: bash
         env:
-          CHECKS_SHA: ${{ steps.plan.outputs.checks }}
-        run: git checkout -q --detach "$CHECKS_SHA"
+          PROOF_BASE: ${{ steps.fetch.outputs.base }}
+        run: |
+          set -euo pipefail
+          git checkout -q --detach "$PROOF_BASE"
+          jq -r '.files[].file, .support[]?' "$RUNNER_TEMP/proof/plan.json" | tr '\n' '\0' | xargs -0 git checkout -q "$HEAD_SHA" --
 
       - name: Setup Vite+
         if: steps.plan.outputs.run == 'true'
@@ -120,7 +124,7 @@ jobs:
             printf '### Test strength: skipped\n\nThe base branch has no test-strength check yet.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          node "$runner" measure --first "$FIRST_SHA" --head "$HEAD_SHA" --out "$RUNNER_TEMP/strength"
+          node "$runner" measure --first "$FIRST_SHA" --base "$BASE_SHA" --head "$HEAD_SHA" --out "$RUNNER_TEMP/strength"
 
       - name: Upload the test strength measurement
         if: always() && steps.strength.outcome != 'skipped'

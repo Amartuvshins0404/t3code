@@ -6,7 +6,6 @@ const { pathToFileURL } = require("node:url");
 
 const { TEST_FILE, checksMarker, isTestSupport, parseGitDiff } = require("./merge-lane.cjs");
 
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const MAX_LINES = 800;
 const MINUTES = 5;
 const CODE_FILE = /\.(?:js|cjs|mjs|jsx|ts|tsx|mts|cts)$/;
@@ -523,20 +522,22 @@ function restore(cwd, before, planned) {
   return status() === before;
 }
 
-async function measure({ cwd, first, head, out, minutes = MINUTES }) {
+function planMeasurement(cwd, { first, base, head }) {
+  return planStrength({
+    firstMessage: git(cwd, ["log", "-1", "--format=%B", first]),
+    commit: head,
+    files: parseGitDiff(
+      git(cwd, ["diff", "--no-color", "--no-ext-diff", "-M", "-U3", `${base}...${head}`]),
+    ),
+    repoFiles: git(cwd, ["ls-tree", "-r", "--name-only", head]).split("\n").filter(Boolean),
+  });
+}
+
+async function measure({ cwd, first, base, head, out, minutes = MINUTES }) {
   const deadline = Date.now() + minutes * 60_000;
   fs.mkdirSync(out, { recursive: true });
   const log = path.join(out, "run.log");
-  const parent = /^parent ([0-9a-f]{40})$/m.exec(git(cwd, ["cat-file", "-p", first]))?.[1];
-  const files = parseGitDiff(
-    git(cwd, ["diff", "--no-color", "--no-ext-diff", "-M", "-U3", parent ?? EMPTY_TREE, head]),
-  );
-  const planned = planStrength({
-    firstMessage: git(cwd, ["log", "-1", "--format=%B", first]),
-    commit: head,
-    files,
-    repoFiles: git(cwd, ["ls-tree", "-r", "--name-only", head]).split("\n").filter(Boolean),
-  });
+  const planned = planMeasurement(cwd, { first, base, head });
   const measurement = { version: 1, head, tests: planned.run ? planned.tests : [] };
   const finish = (extra) => {
     const done = { ...measurement, ...extra };
@@ -633,11 +634,18 @@ async function main() {
     const index = args.indexOf(name);
     return index === -1 ? undefined : args[index + 1];
   };
-  if (command === "measure" && flag("--first") && flag("--head") && flag("--out")) {
+  if (
+    command === "measure" &&
+    flag("--first") &&
+    flag("--base") &&
+    flag("--head") &&
+    flag("--out")
+  ) {
     const cwd = flag("--cwd") ?? process.cwd();
     const { planned, measurement } = await measure({
       cwd,
       first: flag("--first"),
+      base: flag("--base"),
       head: flag("--head"),
       out: path.resolve(flag("--out")),
       minutes: flag("--minutes") ? Number(flag("--minutes")) : MINUTES,
@@ -654,9 +662,9 @@ async function main() {
   console.error(
     [
       "Usage:",
-      "  node .github/scripts/test-strength.cjs measure --first <sha> --head <sha> --out <dir> [--cwd <repo>] [--minutes 5]",
+      "  node .github/scripts/test-strength.cjs measure --first <sha> --base <sha> --head <sha> --out <dir> [--cwd <repo>] [--minutes 5]",
       "",
-      "measure plans the breaks from the diff between the first commit's parent and the head, runs the chosen tests, runs Stryker on the changed lines, and writes measurement.json to the out directory.",
+      "measure plans the breaks from the diff between where the head left the base branch and the head, runs the chosen tests, runs Stryker on the changed lines, and writes measurement.json to the out directory.",
     ].join("\n"),
   );
   process.exit(2);
@@ -666,6 +674,7 @@ module.exports = {
   BREAK_WORDING,
   LABELS,
   planStrength,
+  planMeasurement,
   judgeStrength,
   renderStrength,
   isStrengthRequired,

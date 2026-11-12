@@ -1,3 +1,5 @@
+import type { ChangedFile } from "./merge-lane.cjs";
+
 export interface PlannedFile {
   readonly file: string;
   readonly added: boolean;
@@ -6,7 +8,12 @@ export interface PlannedFile {
 
 export type Plan =
   | { readonly run: false; readonly note: string }
-  | { readonly run: true; readonly commit: string; readonly files: ReadonlyArray<PlannedFile> };
+  | {
+      readonly run: true;
+      readonly base: string;
+      readonly files: ReadonlyArray<PlannedFile>;
+      readonly support: ReadonlyArray<string>;
+    };
 
 export interface TestResult {
   readonly name: string;
@@ -21,7 +28,20 @@ export interface ProofRow {
   readonly problems: ReadonlyArray<string>;
 }
 
-export function plan(cwd: string, commit: string): Plan;
+export function planProof(input: {
+  readonly commits: ReadonlyArray<{
+    readonly sha: string;
+    readonly message: string;
+    readonly files: ReadonlyArray<ChangedFile>;
+  }>;
+  readonly base: string;
+}): Plan;
+
+export function pullRequestCommits(
+  cwd: string,
+  base: string,
+  head: string,
+): Array<{ sha: string; message: string; files: Array<ChangedFile> }>;
 
 export function judge(
   planned: { readonly commit: string; readonly files: ReadonlyArray<PlannedFile> },
