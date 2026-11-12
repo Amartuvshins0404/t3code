@@ -48,7 +48,7 @@ const decodeEarlyDesktopSettingsJson = Schema.decodeSync(EarlyDesktopSettingsJso
 const isDevelopmentEnvironment = (env: NodeJS.ProcessEnv): boolean =>
   trimNonEmpty(env.VITE_DEV_SERVER_URL) !== null;
 
-function resolveEarlyDesktopSettingsPath(input: {
+function resolveEarlyStateDir(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
@@ -59,13 +59,32 @@ function resolveEarlyDesktopSettingsPath(input: {
     joinPath: input.joinPath,
     t3Home,
   });
-  const stateDir = resolveDesktopStateDir({
+  return resolveDesktopStateDir({
     baseDir,
     isDevelopment: isDevelopmentEnvironment(input.env),
     joinPath: input.joinPath,
     t3Home,
   });
-  return input.joinPath(stateDir, "desktop-settings.json");
+}
+
+function resolveEarlyDesktopSettingsPath(input: {
+  readonly env: NodeJS.ProcessEnv;
+  readonly homeDirectory: string;
+  readonly joinPath: JoinPath;
+}): string {
+  return input.joinPath(resolveEarlyStateDir(input), "desktop-settings.json");
+}
+
+export function resolveEarlyServerSettingsJson(
+  input: EarlyDesktopSettingsInput,
+): Option.Option<string> {
+  try {
+    return Option.some(
+      input.readFileString(input.joinPath(resolveEarlyStateDir(input), "settings.json")),
+    );
+  } catch {
+    return Option.none();
+  }
 }
 
 export function resolveEarlyLinuxPasswordStorePreference(

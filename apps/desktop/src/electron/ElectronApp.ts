@@ -69,6 +69,7 @@ export class ElectronApp extends Context.Service<
     ) => Effect.Effect<boolean>;
     readonly setDesktopName: (desktopName: string) => Effect.Effect<void>;
     readonly setDockIcon: (iconPath: string) => Effect.Effect<void>;
+    readonly setDockIconFromDataUrl: (dataUrl: string) => Effect.Effect<void>;
     readonly appendCommandLineSwitch: (switchName: string, value?: string) => Effect.Effect<void>;
     readonly onBeforeQuitForUpdate: (
       listener: () => void,
@@ -220,6 +221,12 @@ export const make = ElectronApp.of({
   setDockIcon: Effect.fn("ElectronApp.setDockIcon")(function (iconPath) {
     return Effect.sync(() => {
       Electron.app.dock?.setIcon(iconPath);
+    });
+  }),
+  setDockIconFromDataUrl: Effect.fn("ElectronApp.setDockIconFromDataUrl")(function (dataUrl) {
+    return Effect.sync(() => {
+      const image = Electron.nativeImage.createFromDataURL(dataUrl);
+      if (!image.isEmpty()) Electron.app.dock?.setIcon(image);
     });
   }),
   appendCommandLineSwitch: Effect.fn("ElectronApp.appendCommandLineSwitch")(

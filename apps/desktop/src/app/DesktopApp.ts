@@ -125,11 +125,13 @@ const handleFatalStartupError = Effect.fn("desktop.startup.handleFatalStartupErr
 ): Effect.fn.Return<
   void,
   never,
+  | DesktopEnvironment.DesktopEnvironment
   | DesktopShutdown.DesktopShutdown
   | DesktopState.DesktopState
   | ElectronApp.ElectronApp
   | ElectronDialog.ElectronDialog
 > {
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const shutdown = yield* DesktopShutdown.DesktopShutdown;
   const state = yield* DesktopState.DesktopState;
   const electronApp = yield* ElectronApp.ElectronApp;
@@ -145,7 +147,7 @@ const handleFatalStartupError = Effect.fn("desktop.startup.handleFatalStartupErr
   const wasQuitting = yield* Ref.getAndSet(state.quitting, true);
   if (!wasQuitting) {
     yield* electronDialog.showErrorBox(
-      "T3 Code failed to start",
+      `${environment.branding.baseName} failed to start`,
       `Stage: ${stage}\n${message}${detail}`,
     );
   }
@@ -235,7 +237,7 @@ const bootstrap = Effect.gen(function* () {
     });
     yield* (yield* ElectronDialog.ElectronDialog).showErrorBox(
       "This T3 home is unavailable",
-      DesktopHomeOwner.homeOwnedMessage(owner),
+      DesktopHomeOwner.homeOwnedMessage(owner, environment.branding.baseName),
     );
     return yield* (yield* ElectronApp.ElectronApp).quit;
   }

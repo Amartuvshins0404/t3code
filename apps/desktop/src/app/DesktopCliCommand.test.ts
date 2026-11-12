@@ -27,6 +27,7 @@ const environmentFor = (
     desktopSettingsPath: path.join(input.baseDir, "userdata", "desktop-settings.json"),
     serverRoot: "/opt/T3 Code/resources/app.asar",
     appImagePath: Option.none(),
+    branding: { baseName: "Mode", stageLabel: "Beta", displayName: "Mode (Beta)" },
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
 
 const commandIn = (

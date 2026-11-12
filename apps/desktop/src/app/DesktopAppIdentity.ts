@@ -106,7 +106,9 @@ export const make = Effect.gen(function* () {
     }
 
     // Packaged bundles carry their icon in Info.plist; setting it again overwrites the user's custom icon.
-    if (environment.platform === "darwin" && !environment.isPackaged) {
+    if (environment.platform === "darwin" && Option.isSome(environment.ownerLogo)) {
+      yield* electronApp.setDockIconFromDataUrl(environment.ownerLogo.value);
+    } else if (environment.platform === "darwin" && !environment.isPackaged) {
       const iconPaths = yield* assets.iconPaths;
       yield* Option.match(iconPaths.png, {
         onNone: () => Effect.void,

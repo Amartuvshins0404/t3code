@@ -13,7 +13,9 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Beta)";
+const ownerName = process.env.T3CODE_OWNER_NAME?.trim() ?? "";
+const APP_BASE_NAME = ownerName.length > 0 ? `${ownerName} Mode` : "Mode";
+const APP_DISPLAY_NAME = isDevelopment ? `${APP_BASE_NAME} (Dev)` : `${APP_BASE_NAME} (Beta)`;
 const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
   : "com.t3tools.t3code";
@@ -267,9 +269,8 @@ function resolveMacBundleInfoPlistStrings(executableName) {
     CFBundleIdentifier: APP_BUNDLE_ID,
     CFBundleExecutable: executableName,
     CFBundleIconFile: "icon.icns",
-    NSScreenCaptureUsageDescription:
-      "T3 Code captures the active window when you use the snapshot shortcut.",
-    NSDocumentsFolderUsageDescription: "T3 Code reads project files you open in the desktop app.",
+    NSScreenCaptureUsageDescription: `${APP_BASE_NAME} captures the active window when you use the snapshot shortcut.`,
+    NSDocumentsFolderUsageDescription: `${APP_BASE_NAME} reads project files you open in the desktop app.`,
   };
 }
 

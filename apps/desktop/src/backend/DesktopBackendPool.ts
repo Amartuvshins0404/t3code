@@ -111,6 +111,7 @@ export const layer = Layer.effect(
     const electronDialog = yield* ElectronDialog.ElectronDialog;
     const electronApp = yield* ElectronApp.ElectronApp;
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const { primaryBackendStartup } = yield* DesktopState.DesktopState;
     // Parent instance scopes to the pool so shutdown runs stop finalizers before the OS kills backends.
     const layerScope = yield* Scope.Scope;
@@ -130,7 +131,7 @@ export const layer = Layer.effect(
           );
           yield* electronDialog.showErrorBox(
             "WSL backend is still unavailable",
-            `${reason}\n\nT3 Code will use the Windows backend for this launch and retry WSL the next time the app starts.`,
+            `${reason}\n\n${environment.branding.baseName} will use the Windows backend for this launch and retry WSL the next time the app starts.`,
           );
           yield* appSettings.applyWslWindowsFallbackInMemory;
           return true;
@@ -141,7 +142,7 @@ export const layer = Layer.effect(
         });
         yield* electronDialog.showErrorBox(
           "WSL backend couldn't start",
-          `${reason}\n\nFalling back to the Windows backend so T3 Code can open. Re-enable the WSL backend from Settings > Sharing & access once the WSL distro is fixed.`,
+          `${reason}\n\nFalling back to the Windows backend so ${environment.branding.baseName} can open. Re-enable the WSL backend from Settings > Sharing & access once the WSL distro is fixed.`,
         );
         // Clear wslOnly too so enabling WSL cannot restore a failed mode.
         // Keep the in-memory fallback if persistence fails.
@@ -184,7 +185,7 @@ export const layer = Layer.effect(
           Effect.flatMap((owner) =>
             electronDialog.showErrorBox(
               "This T3 home is unavailable",
-              DesktopHomeOwner.homeOwnedMessage(owner),
+              DesktopHomeOwner.homeOwnedMessage(owner, environment.branding.baseName),
             ),
           ),
           Effect.provideContext(homeOwnerContext),

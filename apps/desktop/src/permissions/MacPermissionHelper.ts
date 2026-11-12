@@ -38,8 +38,9 @@ const escapeHtml = (value: string) =>
     }
   });
 
-function helperHtml(permission: MacPermission, icon: string) {
+function helperHtml(permission: MacPermission, icon: string, appName: string) {
   const title = MAC_PERMISSION_TITLES[permission];
+  const name = escapeHtml(appName);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
 <title>Set up ${title}</title><style>
@@ -59,13 +60,18 @@ button:focus-visible { outline: 2px solid #007aff; outline-offset: -2px; }
 img { width: 32px; height: 32px; pointer-events: none; }
 </style></head><body><main id="panel">
 <button id="close" aria-label="Close permission helper">×</button>
-<header>↑ Drag T3 Code into the list above</header>
-<button id="app" draggable="true" aria-label="Drag T3 Code to System Settings, or click to reveal in Finder"><img src="${escapeHtml(icon)}" alt="" draggable="false">T3 Code</button>
+<header>↑ Drag ${name} into the list above</header>
+<button id="app" draggable="true" aria-label="Drag ${name} to System Settings, or click to reveal in Finder"><img src="${escapeHtml(icon)}" alt="" draggable="false">${name}</button>
 </main></body></html>`;
 }
 
 export class MacPermissionHelper {
   private generation = 0;
+  private readonly appName: string;
+
+  constructor(appName: string) {
+    this.appName = appName;
+  }
   private window: Electron.BrowserWindow | undefined;
 
   close() {
@@ -92,7 +98,7 @@ export class MacPermissionHelper {
     const appIcon = iconPaths
       .map((iconPath) => Electron.nativeImage.createFromPath(iconPath))
       .find((image) => !image.isEmpty());
-    if (!appIcon) throw new Error("The packaged T3 Code icon is missing.");
+    if (!appIcon) throw new Error(`The packaged ${this.appName} icon is missing.`);
     const icon = appIcon.resize({ width: 64, height: 64 });
     const window = new Electron.BrowserWindow({
       width: 560,
@@ -192,7 +198,7 @@ export class MacPermissionHelper {
     window.webContents.on("will-navigate", (event) => event.preventDefault());
     try {
       await window.loadURL(
-        `data:text/html;charset=utf-8,${encodeURIComponent(helperHtml(permission, icon.toDataURL()))}`,
+        `data:text/html;charset=utf-8,${encodeURIComponent(helperHtml(permission, icon.toDataURL(), this.appName))}`,
       );
       if (!window.isDestroyed()) {
         stopTracking = watchMacSettingsWindow(

@@ -99,7 +99,7 @@ beforeEach(() => {
   mocks.createFromPath.mockReturnValue({ isEmpty: () => false, resize: () => icon });
   mocks.loadURL.mockResolvedValue(undefined);
   windows.length = 0;
-  helper = new MacPermissionHelper();
+  helper = new MacPermissionHelper("Mode");
 });
 afterEach(() => {
   helper.close();

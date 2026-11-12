@@ -13,7 +13,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as DesktopEarlyElectronStartup from "./DesktopEarlyElectronStartup.ts";
 import { trimmedString } from "./DesktopConfig.ts";
-import { resolveDesktopAppBranding } from "./DesktopEnvironment.ts";
+import { resolveDesktopAppBranding, resolveDesktopOwnerIdentity } from "./DesktopEnvironment.ts";
 import { renderUrlHandlerDesktopEntry } from "./DesktopLinuxUrlHandler.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 
@@ -122,6 +122,14 @@ export const make = Effect.gen(function* () {
             displayName: resolveDesktopAppBranding({
               isDevelopment: linux.isDevelopment,
               appVersion: Electron.app.getVersion(),
+              ownerName: resolveDesktopOwnerIdentity(
+                DesktopEarlyElectronStartup.resolveEarlyServerSettingsJson({
+                  env: process.env,
+                  homeDirectory,
+                  joinPath: NodePath.posix.join,
+                  readFileString: (path) => NodeFS.readFileSync(path, "utf8"),
+                }),
+              ).ownerName,
             }).displayName,
             execTarget:
               Option.getOrUndefined(

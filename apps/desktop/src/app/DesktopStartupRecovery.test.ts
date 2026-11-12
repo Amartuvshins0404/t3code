@@ -147,6 +147,7 @@ it.effect.each([
               appVersion: "0.1.3",
               stateDir: "/task/state",
               logDir: "/task/logs",
+              branding: { baseName: "Mode", stageLabel: "Beta", displayName: "Mode (Beta)" },
               path: { join: (...parts: string[]) => parts.join("/") },
             } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]),
             Layer.succeed(ElectronApp.ElectronApp, {

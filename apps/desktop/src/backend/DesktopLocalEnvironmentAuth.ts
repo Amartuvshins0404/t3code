@@ -1,6 +1,7 @@
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
 import type { RemoteEnvironmentRequestError } from "@t3tools/client-runtime/rpc";
 import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
+import { formatAppBaseName } from "@t3tools/contracts/appName";
 import { currentDesktopBootstrapToken } from "@t3tools/shared/desktopBootstrapToken";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -15,6 +16,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as HttpClient from "effect/http/HttpClient";
 
+import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
 
 const BOOTSTRAP_TRANSIENT_RETRY_TIMEOUT = Duration.seconds(15);
@@ -67,6 +69,10 @@ export class DesktopLocalEnvironmentAuth extends Context.Service<
 /** @public */
 export const make = Effect.gen(function* () {
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
+  const appName = Option.match(yield* Effect.serviceOption(DesktopEnvironment.DesktopEnvironment), {
+    onNone: () => formatAppBaseName(""),
+    onSome: (environment) => environment.branding.baseName,
+  });
   const httpClient = yield* HttpClient.HttpClient;
   const mac = yield* Mac.Mac;
   const tokenRef = yield* Ref.make(Option.none<string>());
@@ -105,7 +111,7 @@ export const make = Effect.gen(function* () {
           httpBaseUrl: config.httpBaseUrl.href,
           credential,
           clientMetadata: {
-            label: "T3 Code Desktop",
+            label: `${appName} Desktop`,
             deviceType: "desktop",
           },
         }).pipe(

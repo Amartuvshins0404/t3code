@@ -65,6 +65,7 @@ const layerElectronApp = (calls: ElectronAppCalls) =>
       Effect.sync(() => {
         calls.setDockIcon.push(iconPath);
       }),
+    setDockIconFromDataUrl: () => Effect.void,
     appendCommandLineSwitch: () => Effect.void,
     onBeforeQuitForUpdate: () => Effect.void,
     removeCommandLineSwitch: () => Effect.void,
@@ -200,9 +201,9 @@ describe("DesktopAppIdentity", () => {
 
         const runtimeName = calls.setName[0];
         assert.isDefined(runtimeName);
-        assert.equal(runtimeName, `T3 Code ${stage}`);
+        assert.equal(runtimeName, `Mode ${stage}`);
         assert.match(runtimeName.replaceAll(" ", ""), /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/);
-        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, `T3 Code (${stage})`);
+        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, `Mode (${stage})`);
       }),
       { calls, environment },
     );

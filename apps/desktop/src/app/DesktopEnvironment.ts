@@ -4,12 +4,17 @@ import type {
   DesktopRuntimeArch,
   DesktopRuntimeInfo,
 } from "@t3tools/contracts";
+import { formatAppBaseName } from "@t3tools/contracts/appName";
+import { ServerSettings } from "@t3tools/contracts/settings";
+import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
@@ -73,6 +78,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly otlpProtocol: OtlpProtocol;
     readonly branding: DesktopAppBranding;
     readonly displayName: string;
+    readonly ownerLogo: Option.Option<string>;
     readonly appUserModelId: string;
     readonly linuxDesktopEntryName: string;
     readonly linuxApplicationsDir: string;
@@ -85,7 +91,33 @@ export class DesktopEnvironment extends Context.Service<
   }
 >()("@t3tools/desktop/app/DesktopEnvironment") {}
 
-const APP_BASE_NAME = "T3 Code";
+declare const __T3CODE_BUILD_OWNER_NAME__: string | undefined;
+
+const BUILD_OWNER_NAME =
+  typeof __T3CODE_BUILD_OWNER_NAME__ === "undefined" ? "" : __T3CODE_BUILD_OWNER_NAME__;
+
+const decodeOwnerName = Schema.decodeUnknownOption(
+  fromLenientJson(Schema.Struct({ ownerName: ServerSettings.fields.ownerName })),
+);
+const decodeOwnerLogo = Schema.decodeUnknownOption(
+  fromLenientJson(Schema.Struct({ ownerLogo: ServerSettings.fields.ownerLogo })),
+);
+
+export function resolveDesktopOwnerIdentity(serverSettingsJson: Option.Option<string>): {
+  readonly ownerName: string;
+  readonly ownerLogo: Option.Option<string>;
+} {
+  const savedName = Option.flatMap(serverSettingsJson, (raw) =>
+    Option.map(decodeOwnerName(raw), (settings) => settings.ownerName),
+  ).pipe(Option.filter((name) => name.length > 0));
+  const ownerLogo = Option.flatMap(serverSettingsJson, (raw) =>
+    Option.flatMap(decodeOwnerLogo(raw), (settings) => Option.fromNullishOr(settings.ownerLogo)),
+  );
+  return {
+    ownerName: Option.getOrElse(savedName, () => BUILD_OWNER_NAME.trim()),
+    ownerLogo,
+  };
+}
 
 function resolveDesktopAppStageLabel(input: {
   readonly isDevelopment: boolean;
@@ -101,12 +133,14 @@ function resolveDesktopAppStageLabel(input: {
 export function resolveDesktopAppBranding(input: {
   readonly isDevelopment: boolean;
   readonly appVersion: string;
+  readonly ownerName?: string;
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
+  const baseName = formatAppBaseName(input.ownerName);
   return {
-    baseName: APP_BASE_NAME,
+    baseName,
     stageLabel,
-    displayName: `${APP_BASE_NAME} (${stageLabel})`,
+    displayName: `${baseName} (${stageLabel})`,
   };
 }
 
@@ -142,8 +176,13 @@ function resolveDesktopRuntimeInfo(input: {
 
 const make = Effect.fn("desktop.environment.make")(function* (
   input: MakeDesktopEnvironmentInput,
-): Effect.fn.Return<DesktopEnvironment["Service"], Config.ConfigError, Path.Path> {
+): Effect.fn.Return<
+  DesktopEnvironment["Service"],
+  Config.ConfigError,
+  Path.Path | FileSystem.FileSystem
+> {
   const path = yield* Path.Path;
+  const fileSystem = yield* FileSystem.FileSystem;
   const config = yield* DesktopConfig.DesktopConfig;
   const homeDirectory = input.homeDirectory;
   const devServerUrl = config.devServerUrl;
@@ -167,17 +206,22 @@ const make = Effect.fn("desktop.environment.make")(function* (
     input.isPackaged && input.platform === "win32"
       ? path.join(input.resourcesPath, "server.asar")
       : appRoot;
-  const branding = resolveDesktopAppBranding({
-    isDevelopment,
-    appVersion: input.appVersion,
-  });
-  const displayName = branding.displayName;
   const stateDir = resolveDesktopStateDir({
     baseDir,
     isDevelopment,
     joinPath: path.join,
     t3Home: config.t3Home,
   });
+  const serverSettingsPath = path.join(stateDir, "settings.json");
+  const owner = resolveDesktopOwnerIdentity(
+    yield* fileSystem.readFileString(serverSettingsPath).pipe(Effect.option),
+  );
+  const branding = resolveDesktopAppBranding({
+    isDevelopment,
+    appVersion: input.appVersion,
+    ownerName: owner.ownerName,
+  });
+  const displayName = branding.displayName;
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",
@@ -201,7 +245,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
     clientSettingsPath: path.join(stateDir, "client-settings.json"),
     savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),
-    serverSettingsPath: path.join(stateDir, "settings.json"),
+    serverSettingsPath,
     logDir: path.join(stateDir, "logs"),
     browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
     rootDir,
@@ -227,6 +271,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     otlpProtocol: config.otlpProtocol,
     branding,
     displayName,
+    ownerLogo: owner.ownerLogo,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
       isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
     ),

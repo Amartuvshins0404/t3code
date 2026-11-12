@@ -109,6 +109,7 @@ export async function startDesktopAppControlServer(input: {
   readonly address: string;
   readonly directory: string | null;
   readonly userId: number | undefined;
+  readonly appName: string;
   readonly handle: (request: DesktopAppActivationRequest) => Promise<DesktopAppActivationResponse>;
   readonly cancel: (requestId: string) => void;
   readonly onReclaimError: (error: unknown) => void;
@@ -162,7 +163,10 @@ export async function startDesktopAppControlServer(input: {
       activeRequestId = parsed.requestId;
       void input.handle(parsed).then(finish, () => {
         finish(
-          invalidResponse(parsed.requestId, "T3 Code could not process the desktop app request."),
+          invalidResponse(
+            parsed.requestId,
+            `${input.appName} could not process the desktop app request.`,
+          ),
         );
       });
     });
@@ -314,6 +318,7 @@ export const make = Effect.gen(function* () {
 
   const broker = new DesktopAppActivationBroker({
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
+    appName: desktopEnvironment.branding.baseName,
     activate: () => {
       void runPromise(
         desktopWindow.activate.pipe(
@@ -337,6 +342,7 @@ export const make = Effect.gen(function* () {
           startDesktopAppControlServer({
             ...address,
             userId,
+            appName: desktopEnvironment.branding.baseName,
             handle: (request) => broker.request(request),
             cancel: (requestId) => broker.cancel(requestId),
             onReclaimError: (cause) =>

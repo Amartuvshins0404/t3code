@@ -48,6 +48,7 @@ function startOkServer(target: ReturnType<typeof makeTarget>, userId: number | u
   return startDesktopAppControlServer({
     ...target,
     userId,
+    appName: "Mode",
     handle: async (input) => ({
       version: 1,
       requestId: input.requestId,
@@ -95,6 +96,7 @@ describe("desktop app control server", () => {
         const server = await startDesktopAppControlServer({
           ...target,
           userId,
+          appName: "Mode",
           handle: () => new Promise(() => undefined),
           cancel: resolveCanceled,
           onReclaimError: () => undefined,

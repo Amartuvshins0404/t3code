@@ -15,7 +15,11 @@ describe("DesktopAppActivationBroker", () => {
   it("focuses immediately and waits for renderer readiness", async () => {
     const activate = vi.fn();
     const send = vi.fn();
-    const broker = new DesktopAppActivationBroker({ requestTimeoutMs: 1_000, activate });
+    const broker = new DesktopAppActivationBroker({
+      requestTimeoutMs: 1_000,
+      activate,
+      appName: "Mode",
+    });
 
     const response = broker.request(request);
     expect(activate).toHaveBeenCalledOnce();
@@ -36,7 +40,11 @@ describe("DesktopAppActivationBroker", () => {
   });
 
   it("fails an in-flight request when the renderer goes away", async () => {
-    const broker = new DesktopAppActivationBroker({ requestTimeoutMs: 1_000, activate: vi.fn() });
+    const broker = new DesktopAppActivationBroker({
+      requestTimeoutMs: 1_000,
+      activate: vi.fn(),
+      appName: "Mode",
+    });
     broker.registerRenderer(vi.fn());
 
     const response = broker.request(request);
@@ -51,7 +59,11 @@ describe("DesktopAppActivationBroker", () => {
 
   it("never sends a canceled request that was queued behind another request", async () => {
     const send = vi.fn();
-    const broker = new DesktopAppActivationBroker({ requestTimeoutMs: 1_000, activate: vi.fn() });
+    const broker = new DesktopAppActivationBroker({
+      requestTimeoutMs: 1_000,
+      activate: vi.fn(),
+      appName: "Mode",
+    });
     broker.registerRenderer(send);
     const secondRequest = { ...request, requestId: "request-2" };
 
