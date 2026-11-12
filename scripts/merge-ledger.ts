@@ -486,6 +486,30 @@ function groupBy(changes: ReadonlyArray<LedgerChange>, keyOf: (change: LedgerCha
     .sort((a, b) => b.matureEscapes - a.matureEscapes || b.merges - a.merges);
 }
 
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+export function keptEscape(candidates: ReadonlyArray<Escape>): Escape | null {
+  return (
+    [...candidates].sort(
+      (a, b) =>
+        Number(b.kind === "revert") - Number(a.kind === "revert") ||
+        a.days - b.days ||
+        byText(a.by, b.by),
+    )[0] ?? null
+  );
+}
+
+export function sortLinks(links: ReadonlyArray<Link>): Array<Link> {
+  return [...links].sort((a, b) => byText(a.by, b.by) || byText(a.change, b.change));
+}
+
+export function sortDisagreements(
+  disagreements: ReadonlyArray<Disagreement>,
+  timeOf: (fix: string) => number,
+): Array<Disagreement> {
+  return [...disagreements].sort((a, b) => timeOf(a.fix) - timeOf(b.fix) || byText(a.fix, b.fix));
+}
+
 export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
   const options = {
     branch: "HEAD",
@@ -525,6 +549,7 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
 
   const links: Array<Link> = [];
   const disagreements: Array<Disagreement> = [];
+  const candidates = new Map<RawChange, Array<Escape>>();
   const mark = (
     target: RawChange | undefined,
     by: RawChange,
@@ -536,13 +561,10 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
     if (kind === "fix" && exact > options.windowDays) return;
     const days = Math.round(exact * 10) / 10;
     links.push({ kind, source, by: by.change.sha, change: target.change.sha, days });
-    const current = target.change.escape;
-    const better =
-      !current ||
-      (kind === "revert" && current.kind === "fix") ||
-      (kind === current.kind && days < current.days);
-    if (!better) return;
-    target.change.escape = { kind, by: by.change.sha, bySubject: by.change.subject, days };
+    candidates.set(target, [
+      ...(candidates.get(target) ?? []),
+      { kind, by: by.change.sha, bySubject: by.change.subject, days: exact },
+    ]);
   };
 
   const jobs = raws.filter((raw) => raw.kind !== null && raw.parents.length > 0);
@@ -623,6 +645,10 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
     }
   });
 
+  for (const [target, escapes] of candidates) {
+    const kept = keptEscape(escapes);
+    target.change.escape = kept && { ...kept, days: Math.round(kept.days * 10) / 10 };
+  }
   const changes = raws.map((raw) => raw.change);
   return {
     branch: options.branch,
@@ -635,10 +661,8 @@ export async function buildLedger(input: LedgerOptions): Promise<Ledger> {
     byModel: groupBy(changes, (change) => change.model),
     byChecks: groupBy(changes, (change) => change.checks),
     changes,
-    links,
-    disagreements: disagreements.sort(
-      (a, b) => (owner.get(a.fix)?.change.time ?? 0) - (owner.get(b.fix)?.change.time ?? 0),
-    ),
+    links: sortLinks(links),
+    disagreements: sortDisagreements(disagreements, (fix) => owner.get(fix)?.change.time ?? 0),
   };
 }
 
