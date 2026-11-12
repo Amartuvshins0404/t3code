@@ -88,7 +88,10 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
   );
 });
 
-function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonly size: number }) {
+export function ProjectIconGlyphView(props: {
+  readonly glyph: ProjectIconGlyph;
+  readonly size: number;
+}) {
   const { glyph, size } = props;
   if (glyph.kind === "emoji") {
     return (

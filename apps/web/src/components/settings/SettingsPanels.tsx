@@ -65,6 +65,7 @@ import { scopedIdleCompaction } from "./scopedSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { ThreadTitleInstructionsSettings } from "./ThreadTitleInstructionsSettings";
 import { SnoozePresetsRow } from "./SnoozePresetsSettings";
+import { useAppBaseName } from "../../state/appBranding";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { managedTelemetryOffMessage, usePrimaryManagedPolicy } from "../../state/managedPolicy";
 import {
@@ -2210,6 +2211,7 @@ export function AboutSettingsPanel() {
   // The Welcome page sets up this computer, so it needs one.
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const telemetryOff = managedTelemetryOffMessage(primaryPolicy);
+  const appBaseName = useAppBaseName();
   return (
     <SettingsPageContainer>
       <SettingsSection id="about" title="App">
@@ -2277,7 +2279,7 @@ export function AboutSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("open-source-licenses")}
-          description="Notices for dependencies, assets, and optional tools used by T3 Code."
+          description={`Notices for dependencies, assets, and optional tools used by ${appBaseName}.`}
           control={
             <Button
               render={<Link to="/settings/open-source-licenses" />}

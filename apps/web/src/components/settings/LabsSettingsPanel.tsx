@@ -12,6 +12,7 @@ import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
 import { firstManagedDenial, usePrimaryManagedPolicy } from "~/state/managedPolicy";
+import { useAppBaseName } from "~/state/appBranding";
 
 /** Features still settling in. */
 export function LabsSettingsPanel() {
@@ -193,6 +194,7 @@ function PromptSuggestionsRow() {
 function SimlockHostsRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const appBaseName = useAppBaseName();
   return (
     <SettingsRow
       serverScoped
@@ -213,7 +215,7 @@ function SimlockHostsRow() {
           <Link to="/settings/devices" className="underline underline-offset-2">
             Devices
           </Link>
-          . An alpha that may change or break. T3 Code never installs Simlock.
+          . An alpha that may change or break. {appBaseName} never installs Simlock.
         </>
       }
       control={

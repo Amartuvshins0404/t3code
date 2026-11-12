@@ -4,9 +4,10 @@ import { useState } from "react";
 import { Platform, View } from "react-native";
 
 import { AppText as Text } from "./ui/AppText";
-import { T3Wordmark } from "./T3Wordmark";
+import { AppLogo } from "./AppLogo";
 import { IPAD_HOME_TITLE_OFFSET } from "../lib/layoutMetrics";
 import { resolveMobileStageLabel } from "../lib/mobileBranding";
+import { useAppBranding } from "../state/appBranding";
 import { useAndroidControlSizing } from "./ui/useAndroidControlSizing";
 
 const BRAND_MAX_FONT_SCALE = 1.4;
@@ -25,6 +26,7 @@ export function CompactBrandTitle(
   } = {},
 ) {
   const stageLabel = resolveMobileStageLabel(Constants.expoConfig?.extra?.appVariant);
+  const { baseName } = useAppBranding();
   const titleOffset = brandTitleOffset();
   const { scale } = useAndroidControlSizing();
   const [availableWidth, setAvailableWidth] = useState<number | null>(null);
@@ -39,7 +41,7 @@ export function CompactBrandTitle(
         props.fit && showStage ? (event) => setFullWidth(event.nativeEvent.layout.width) : undefined
       }
       aria-level={1}
-      accessibilityLabel={props.accessibilityLabel ?? "T3 Code, Threads"}
+      accessibilityLabel={props.accessibilityLabel ?? `${baseName}, Threads`}
       accessible
       role="heading"
       className="flex-row items-center gap-1.5"
@@ -49,15 +51,15 @@ export function CompactBrandTitle(
         props.fit && { flexShrink: 0 },
       ]}
     >
-      <T3Wordmark colorClassName="accent-icon" height={Math.round(15 * scale)} />
+      <AppLogo size={Math.round(20 * scale)} />
       {/* A logo beside a fixed-size wordmark: it may grow with Dynamic Type, not crowd the bar. */}
       <Text
         allowFontScaling={props.allowFontScaling}
         maxFontSizeMultiplier={BRAND_MAX_FONT_SCALE}
-        className="font-t3-medium text-foreground-muted"
+        className="font-t3-medium text-foreground"
         style={{ fontSize: 21 * scale, letterSpacing: -0.5 * scale }}
       >
-        Code
+        {baseName}
       </Text>
       {showStage ? (
         <View

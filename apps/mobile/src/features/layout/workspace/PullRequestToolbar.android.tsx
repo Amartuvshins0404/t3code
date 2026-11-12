@@ -1,3 +1,4 @@
+import { useAppBranding } from "../../../state/appBranding";
 import { useNavigation } from "@react-navigation/native";
 import { useEffect } from "react";
 import { BackHandler, Keyboard } from "react-native";
@@ -14,6 +15,7 @@ export function PullRequestToolbar(props: {
   readonly filters: PullRequestFilterMenu | null;
   readonly onRequestVisibility?: () => void;
 }) {
+  const { baseName } = useAppBranding();
   const navigation = useNavigation();
   const { filters } = props;
   const workspace = useWorkspaceTabs()!;
@@ -54,10 +56,10 @@ export function PullRequestToolbar(props: {
   }, [searching, closeSearch, navigation, isTabActive]);
   return (
     <AppBar
-      title="T3 Code"
+      title={baseName}
       titleContent={
         <WorkspaceBrandTitle
-          accessibilityLabel="T3 Code, Pull requests"
+          accessibilityLabel={`${baseName}, Pull requests`}
           onOpenEnvironments={() => openSettings(navigation, "SettingsEnvironments")}
         />
       }

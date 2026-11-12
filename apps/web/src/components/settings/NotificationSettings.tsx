@@ -8,6 +8,7 @@ import {
   unlockNotificationAudio,
 } from "../../threadNotifications";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { useAppBaseName } from "../../state/appBranding";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -17,13 +18,14 @@ export function NotificationSettings() {
   const updateSettings = useUpdateScopedSettings();
   const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const appBaseName = useAppBaseName();
 
   return (
     <SettingsRow
       {...searchableSetting("thread-notifications")}
       description={
         permissionMessage ??
-        "System alerts when a thread finishes, fails, or needs input or approval. Applies to this device while T3 Code is open."
+        `System alerts when a thread finishes, fails, or needs input or approval. Applies to this device while ${appBaseName} is open.`
       }
       control={
         <Select

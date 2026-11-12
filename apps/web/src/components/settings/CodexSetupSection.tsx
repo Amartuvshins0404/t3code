@@ -48,6 +48,7 @@ import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingsRow } from "./settingsLayout";
 import { AddCodexAccountDialog } from "./AddCodexAccountDialog";
 import { getOnboardingProviderState } from "../../onboarding/providerReadiness.logic";
+import { useAppBaseName } from "../../state/appBranding";
 import { getProviderSummary } from "./providerStatus";
 import {
   settleAuthorizationPage,
@@ -274,6 +275,7 @@ function ManagedCodexSetup({
   readonly onAutoStartConsumed: () => void;
   readonly allowExistingCli?: boolean;
 }) {
+  const appBaseName = useAppBaseName();
   const target = { environmentId, input: { instanceId } };
   const authQuery = useEnvironmentQuery(serverEnvironment.providerAuthState(target));
   const installQuery = useEnvironmentQuery(serverEnvironment.providerInstallState(target));
@@ -619,8 +621,8 @@ function ManagedCodexSetup({
         : installation?.phase === "verifying"
           ? "Checking Codex."
           : installed
-            ? `${installation?.source === "local" ? "Using your installed Codex" : "Managed by T3 Code"}${installation?.installedVersion ? ` · v${installation.installedVersion}` : ""}.`
-            : (installation?.message ?? "T3 Code downloads and manages Codex for you.");
+            ? `${installation?.source === "local" ? "Using your installed Codex" : `Managed by ${appBaseName}`}${installation?.installedVersion ? ` · v${installation.installedVersion}` : ""}.`
+            : (installation?.message ?? `${appBaseName} downloads and manages Codex for you.`);
   const accountDescription = finishingSignIn ? (
     "Finishing sign-in..."
   ) : installActive ? (
@@ -697,7 +699,9 @@ function ManagedCodexSetup({
   const callbackCompletion =
     !handoff && auth?.phase === "waiting" && url ? (
       <div className="flex w-full flex-col gap-3 text-xs leading-relaxed text-muted-foreground">
-        <p>If sign-in doesn't return to T3 Code, paste the URL from the final localhost page.</p>
+        <p>
+          If sign-in doesn't return to {appBaseName}, paste the URL from the final localhost page.
+        </p>
         <form
           className="flex flex-col gap-2 sm:flex-row sm:items-center"
           onSubmit={(event) => {
@@ -1084,11 +1088,12 @@ export function CodexManagedRuntimeFields({
     }),
   );
   const executablePath = installation.data?.executablePath ?? "";
+  const appBaseName = useAppBaseName();
   return (
     <>
       <SettingsRow
         title="Binary path"
-        description="Selected by T3 Code."
+        description={`Selected by ${appBaseName}.`}
         control={
           <div className="w-full sm:w-80">
             <Input

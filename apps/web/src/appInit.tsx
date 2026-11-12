@@ -53,7 +53,8 @@ import { startProviderAuthDelivery } from "./providerAuthDelivery";
 import { getRouter, type AppRouter } from "./router";
 import { appAtomRegistry } from "./rpc/atomRegistry";
 import { environmentProjects } from "./state/projects";
-import { appDisplayNameAtom } from "./state/appBranding";
+import { setAppBaseName } from "@t3tools/client-runtime/app-name";
+import { appBaseNameAtom, appDisplayNameAtom } from "./state/appBranding";
 import { primaryServerConfigAtom } from "./state/server";
 import { environmentShell } from "./state/shell";
 import { installChatRouteCommands } from "./shortcuts/chatRouteCommands";
@@ -190,6 +191,7 @@ function startDocumentTitle(router: AppRouter): void {
     write();
   };
   watchOpenThread();
+  appAtomRegistry.subscribe(appBaseNameAtom, setAppBaseName, { immediate: true });
   appAtomRegistry.subscribe(primaryServerConfigAtom, write, { immediate: true });
   appAtomRegistry.subscribe(environmentProjects.projectsAtom, write);
   router.subscribe("onResolved", updateOpenThread);

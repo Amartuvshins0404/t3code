@@ -3,6 +3,7 @@ import { useNavigation, useNavigationState } from "@react-navigation/native";
 import { BackHandler, Keyboard } from "react-native";
 
 import { AppBar } from "../../../components/ui/AppBar";
+import { useAppBranding } from "../../../state/appBranding";
 import { useWorkspaceConnectionState } from "../../../state/workspace";
 import { useHardwareKeyboardCommand } from "../../keyboard/hardwareKeyboardCommands";
 import { WorkspaceBrandTitle } from "./WorkspaceBrandTitle";
@@ -13,6 +14,7 @@ import {
 } from "./WorkspaceListHeader.types";
 
 export function WorkspaceListHeader(props: WorkspaceListHeaderProps) {
+  const { baseName } = useAppBranding();
   const navigation = useNavigation();
   const workspace = useWorkspaceTabs();
   const isTabActive = workspace?.isTabActive;
@@ -58,7 +60,7 @@ export function WorkspaceListHeader(props: WorkspaceListHeaderProps) {
 
   return (
     <AppBar
-      title="T3 Code"
+      title={baseName}
       titleContent={
         <WorkspaceBrandTitle
           accessibilityLabel={props.accessibilityLabel}

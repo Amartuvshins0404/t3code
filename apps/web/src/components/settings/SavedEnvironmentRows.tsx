@@ -35,6 +35,7 @@ import {
   useConnectionDiagnosis,
 } from "./ConnectionDiagnosisDetails";
 import { usePreparedConnection } from "~/state/session";
+import { useAppBaseName } from "~/state/appBranding";
 import { EnvironmentRow, environmentTransportLabel } from "./EnvironmentRow";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Switch } from "../ui/switch";
@@ -526,6 +527,7 @@ function ConfiguredCloudLinkRow({
   readonly environmentId: EnvironmentId;
   readonly canManageRelay: boolean;
 }) {
+  const appBaseName = useAppBaseName();
   const {
     isSignedIn,
     linkState: cloudLinkState,
@@ -700,7 +702,7 @@ function ConfiguredCloudLinkRow({
       ) : isElectron ? (
         <SettingsRow
           title={searchableSetting("t3-connect").title}
-          description="Run `t3 connect link` on the host, then restart T3 Code there."
+          description={`Run \`t3 connect link\` on the host, then restart ${appBaseName} there.`}
         />
       ) : null}
       {signedOut && showSwitch ? null : (

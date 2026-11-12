@@ -52,6 +52,7 @@ import { Dialog } from "../ui/dialog";
 import { RadioGroup } from "../ui/radio-group";
 import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
+import { useAppBaseName } from "../../state/appBranding";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardSteps } from "../ui/wizard";
 import { afterFailedCheck, resolveMcpGate } from "./mcpGate";
 import { MCP_APPS, type McpApp, mcpHandoffAction, OTHER_MCP_APP_STEPS } from "./mcpApps";
@@ -76,7 +77,8 @@ export function UseInAnotherAppDialogHost() {
 
 function UseInAnotherAppDialog({ requested }: { readonly requested: EnvironmentId | null }) {
   const { environment, label } = useAccessEnvironment(requested);
-  const title = `Use T3 Code in another app (MCP) · ${label ?? "T3 Code"}`;
+  const appBaseName = useAppBaseName();
+  const title = `Use ${appBaseName} in another app (MCP) · ${label ?? appBaseName}`;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : close())}>
       <WizardPopup>
@@ -360,6 +362,7 @@ function GateScreen({
   readonly gate: Gate;
 }) {
   const name = environment.label;
+  const appBaseName = useAppBaseName();
   const turnOnHere = useT3ConnectTurnOn(environment.environmentId);
   const { openAuthPrompt } = useT3ConnectAuthPrompt();
   const retry = (onClick: () => void) => (
@@ -411,7 +414,7 @@ function GateScreen({
         </GateMessage>
       );
     case "update":
-      return <GateMessage title={`Update T3 Code on ${name}`} />;
+      return <GateMessage title={`Update ${appBaseName} on ${name}`} />;
     case "no-relay-read":
       return (
         <GateMessage
@@ -470,7 +473,9 @@ function GateScreen({
           ) : (
             <div className="space-y-2 text-sm">
               <CommandBlock command="t3 connect link" />
-              <p>Restart T3 Code on {name}.</p>
+              <p>
+                Restart {appBaseName} on {name}.
+              </p>
               {checkAgain}
             </div>
           )}

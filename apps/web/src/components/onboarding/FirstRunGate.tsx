@@ -18,6 +18,7 @@ import {
   transitionFirstRunGateState,
   type FirstRunGateState,
 } from "../../onboarding/firstRun.logic";
+import { useAppBaseName } from "../../state/appBranding";
 import { useAllEnvironmentShellsBootstrapped, useProjects } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { environmentProjects } from "../../state/projects";
@@ -188,6 +189,7 @@ function FirstRunRecovery({
   readonly retrying?: boolean;
 }) {
   const settingsReadFailed = reason === "settings";
+  const appBaseName = useAppBaseName();
   return (
     <main className="flex h-dvh min-h-0 items-center justify-center bg-background px-6 text-foreground">
       <div className="flex max-w-sm flex-col items-center text-center">
@@ -197,7 +199,7 @@ function FirstRunRecovery({
         <p className="mt-2 text-sm text-muted-foreground">
           {settingsReadFailed
             ? "Your saved settings could not be loaded."
-            : "T3 Code could not confirm this workspace."}
+            : `${appBaseName} could not confirm this workspace.`}
         </p>
         <Button
           className="mt-5"

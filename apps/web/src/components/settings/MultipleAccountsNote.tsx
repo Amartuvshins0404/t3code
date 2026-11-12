@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProviderDriverKind } from "@t3tools/contracts";
 import { InfoIcon } from "lucide-react";
 
+import { useAppBaseName } from "../../state/appBranding";
 import { serverEnvironment } from "../../state/server";
 import { Alert, AlertDescription } from "../ui/alert";
 
@@ -23,6 +24,7 @@ export function MultipleAccountsNote({
 }) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const providerName = PROVIDER_NAMES.get(driver);
+  const appBaseName = useAppBaseName();
   const hasSignedInAccount =
     providerName !== undefined &&
     providers?.some(
@@ -34,7 +36,7 @@ export function MultipleAccountsNote({
       <InfoIcon aria-hidden />
       <AlertDescription>
         <p>
-          We do not recommend managing multiple {providerName} accounts in T3 Code.{" "}
+          We do not recommend managing multiple {providerName} accounts in {appBaseName}.{" "}
           <a
             href={MULTIPLE_ACCOUNTS_FAQ_URL}
             target="_blank"

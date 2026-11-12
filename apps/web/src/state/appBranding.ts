@@ -12,7 +12,7 @@ const appOwnerNameAtom = Atom.make((get): string | null => {
   return config.settings.ownerName.length > 0 ? config.settings.ownerName : APP_OWNER_NAME_DEFAULT;
 }).pipe(Atom.withLabel("web-app-owner-name"));
 
-const appBaseNameAtom = Atom.make((get): string => {
+export const appBaseNameAtom = Atom.make((get): string => {
   const ownerName = get(appOwnerNameAtom);
   return ownerName === null ? APP_BASE_NAME : formatAppBaseName(ownerName);
 }).pipe(Atom.withLabel("web-app-base-name"));
@@ -37,6 +37,10 @@ const appOwnerLogoAtom = Atom.make(
 
 export function useAppBaseName(): string {
   return useAtomValue(appBaseNameAtom);
+}
+
+export function useAppDisplayName(): string {
+  return useAtomValue(appDisplayNameAtom);
 }
 
 export function useAppMonogram(): string {

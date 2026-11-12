@@ -1,5 +1,6 @@
 import { type EnvironmentContextRecord, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 
+import { useAppBaseName } from "~/state/appBranding";
 import { useEnvironment } from "~/state/environments";
 import { ContextChip, ContextChipLabel } from "./ContextChip";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
@@ -15,6 +16,7 @@ export function EnvironmentContextChip(props: {
 }) {
   const environment = useEnvironment(props.record.environmentId);
   const label = environment?.label.trim() || props.record.label;
+  const appBaseName = useAppBaseName();
   return (
     <Tooltip>
       <TooltipTrigger
@@ -33,7 +35,7 @@ export function EnvironmentContextChip(props: {
         }
       />
       <TooltipPopup side="top">
-        {environment ? "T3 Code environment" : "Machine not in this app"}
+        {environment ? `${appBaseName} environment` : "Machine not in this app"}
       </TooltipPopup>
     </Tooltip>
   );

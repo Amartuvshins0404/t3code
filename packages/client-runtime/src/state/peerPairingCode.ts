@@ -17,6 +17,7 @@ import * as Option from "effect/Option";
 import type { Atom } from "effect/reactivity";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
+import { getAppBaseName } from "../appName.ts";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
@@ -26,7 +27,7 @@ import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAut
 import { createEnvironmentCommand } from "./runtime.ts";
 
 const MINT_TIMEOUT_MS = 8_000;
-const PEER_PAIRING_CODE_LABEL = "T3 Code link";
+const peerPairingCodeLabel = () => `${getAppBaseName()} link`;
 const MCP_APPROVAL_CODE_LABEL = "App sign-in";
 
 /** Minting failed; the user can still paste a code from the other environment. */
@@ -100,7 +101,7 @@ export function createPeerPairingCodeCommand<R, E>(
   return createEnvironmentCommand(runtime, {
     label: "environment-data:peer-pairing-code:mint",
     execute: (access: AuthMcpClientAccess) =>
-      mintOnEnvironment({ label: PEER_PAIRING_CODE_LABEL, scopes: mcpClientScopes(access) }).pipe(
+      mintOnEnvironment({ label: peerPairingCodeLabel(), scopes: mcpClientScopes(access) }).pipe(
         Effect.map((minted) => minted.credential),
       ),
   });

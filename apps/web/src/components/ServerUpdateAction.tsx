@@ -33,6 +33,7 @@ import { environmentPresentations } from "~/state/presentation";
 import { ManagedControl } from "./ManagedPolicy";
 import { manualServerUpdateCommand } from "~/versionSkew";
 import { crossesReleaseTrack } from "@t3tools/shared/cliRelease";
+import { useAppBaseName } from "../state/appBranding";
 import { Button } from "./ui/button";
 import { toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -180,6 +181,7 @@ export function ServerUpdatesAction({
 }) {
   const update = useServerUpdate();
   const serverConfigs = useServerConfigs();
+  const appBaseName = useAppBaseName();
   const pending = useRef(false);
   const [isPending, setIsPending] = useState(false);
   const eligible = targets.filter(
@@ -201,7 +203,7 @@ export function ServerUpdatesAction({
       if (desktopTargets.length > 0) {
         const confirmed =
           (await requestConfirmDialog(
-            `Update the T3 Code desktop apps on ${desktopTargets.map((target) => target.serverLabel).join(", ")}? They will close and relaunch on those machines.`,
+            `Update the ${appBaseName} desktop apps on ${desktopTargets.map((target) => target.serverLabel).join(", ")}? They will close and relaunch on those machines.`,
             { initialFocus: "confirm" },
           )) ?? true;
         if (!confirmed) return;
@@ -276,6 +278,7 @@ export function ServerUpdateAction({
   const canUpdate = useAtomValue(sessionStateAtom, canUpdateServer);
   const updatesDenial = managedUpdatesDenial(useManagedPolicy(environmentId));
   const update = useServerUpdate();
+  const appBaseName = useAppBaseName();
   const { copyToClipboard } = useCopyToClipboard<{ command: string }>({
     target: installation?.kind === "npm-global" ? "update command" : "relaunch command",
     onCopy: ({ command }) => {
@@ -308,7 +311,7 @@ export function ServerUpdateAction({
     if (isDesktopAppUpdate) {
       const confirmed =
         (await requestConfirmDialog(
-          `Update the T3 Code desktop app that runs the ${serverLabel}? It will close and relaunch on that machine.`,
+          `Update the ${appBaseName} desktop app that runs the ${serverLabel}? It will close and relaunch on that machine.`,
           { initialFocus: "confirm" },
         )) ?? true;
       if (!confirmed) {

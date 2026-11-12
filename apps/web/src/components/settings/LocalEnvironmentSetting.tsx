@@ -13,6 +13,7 @@ import {
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
+import { useAppBaseName } from "../../state/appBranding";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
@@ -23,6 +24,7 @@ export function LocalEnvironmentSetting() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const appBaseName = useAppBaseName();
   if (!setEnabled) return null;
 
   const applyChange = async () => {
@@ -42,7 +44,7 @@ export function LocalEnvironmentSetting() {
         {...searchableSetting("local-environment")}
         description={
           enabled
-            ? "Run agents on this computer. Turn off to use T3 Code only with remote environments."
+            ? `Run agents on this computer. Turn off to use ${appBaseName} only with remote environments.`
             : "Turned off. Agents only run in remote environments."
         }
         control={
@@ -69,8 +71,8 @@ export function LocalEnvironmentSetting() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {enabled
-                ? "T3 Code will restart without running a server on this computer. Any agents and terminals running here will stop, and other devices will no longer be able to connect to this computer. Your projects, history, and remote environments are unaffected."
-                : "T3 Code will restart and start running a server on this computer again."}
+                ? `${appBaseName} will restart without running a server on this computer. Any agents and terminals running here will stop, and other devices will no longer be able to connect to this computer. Your projects, history, and remote environments are unaffected.`
+                : `${appBaseName} will restart and start running a server on this computer again.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error ? <p className="px-6 pb-4 text-sm text-destructive">{error}</p> : null}

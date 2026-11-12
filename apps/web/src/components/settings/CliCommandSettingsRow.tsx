@@ -5,6 +5,7 @@ import {
   getDesktopCliCommandBridge,
   refreshDesktopCliCommandState,
 } from "~/state/desktopCliCommand";
+import { useAppBaseName } from "~/state/appBranding";
 import { useEnvironmentQuery } from "~/state/query";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -49,13 +50,14 @@ export function useDesktopCliCommand() {
 
 export function CliCommandSettingsRow() {
   const { state, busy, run } = useDesktopCliCommand();
+  const appBaseName = useAppBaseName();
 
   if (!state?.supported) return null;
   const installed = state.installedPath !== null;
   const description = state.shadowedBy
-    ? `Another t3 at ${state.shadowedBy} runs first in a new terminal. Remove it to use T3 Code's.`
+    ? `Another t3 at ${state.shadowedBy} runs first in a new terminal. Remove it to use ${appBaseName}'s.`
     : !installed
-      ? "Run T3 Code's CLI as `t3` from any terminal."
+      ? `Run ${appBaseName}'s CLI as \`t3\` from any terminal.`
       : state.onPath
         ? `Installed at ${state.installedPath}. Open a new terminal to use it.`
         : state.pathSetup?.added

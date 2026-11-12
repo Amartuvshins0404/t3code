@@ -187,6 +187,10 @@
       "types": "./src/clock.ts",
       "default": "./src/clock.ts"
     },
+    "./app-name": {
+      "types": "./src/appName.ts",
+      "default": "./src/appName.ts"
+    },
     "./delayed-status": {
       "types": "./src/delayedStatus.ts",
       "default": "./src/delayedStatus.ts"

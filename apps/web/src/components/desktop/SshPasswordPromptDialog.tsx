@@ -17,6 +17,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
+import { useAppBaseName } from "../../state/appBranding";
 import { Input } from "../ui/input";
 
 function describeSshTarget(request: DesktopSshPasswordPromptRequest): string {
@@ -90,6 +91,7 @@ function ActiveSshPasswordPrompt({
 }: {
   readonly request: DesktopSshPasswordPromptRequest;
 }) {
+  const appBaseName = useAppBaseName();
   const [password, setPassword] = useState("");
   const [isResponding, setIsResponding] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
@@ -165,9 +167,9 @@ function ActiveSshPasswordPrompt({
         <DialogHeader>
           <DialogTitle>SSH verification required</DialogTitle>
           <DialogDescription>
-            Enter the password or verification code required by <code>{target}</code>. T3 Code
+            Enter the password or verification code required by <code>{target}</code>. {appBaseName}{" "}
             passes your response to the local SSH process and keeps it in memory to reuse for this
-            host. T3 Code does not write it to disk.
+            host. {appBaseName} does not write it to disk.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel scrollFade={false}>

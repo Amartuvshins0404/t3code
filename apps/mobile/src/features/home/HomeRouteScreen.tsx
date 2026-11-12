@@ -14,6 +14,7 @@ import {
   resolveScratchProjectScopeKey,
 } from "@t3tools/client-runtime/state/project-grouping";
 
+import { useAppBranding } from "../../state/appBranding";
 import { useProjects } from "../../state/entities";
 import { environmentThreadShells } from "../../state/threads";
 import { useLaunchingThreads, usePendingNewTasks } from "../../state/use-pending-new-tasks";
@@ -40,6 +41,7 @@ import { buildHomeListFilterMenuItems } from "./home-list-filter-menu";
 
 export function HomeRouteScreen() {
   const nativePrimaryColumn = use(NativePrimaryColumnContext);
+  const { baseName } = useAppBranding();
   const { layout, setPrimarySidebarSearchQuery, startNewTask } = useAdaptiveWorkspaceLayout();
   const { primarySidebarSearchQuery } = useWorkspacePaneState();
   const selectDetail = useSelectWorkspaceDetail();
@@ -167,7 +169,7 @@ export function HomeRouteScreen() {
     <AndroidHomeFabLayout onStartNewTask={startNewTask}>
       <>
         <WorkspaceListHeader
-          accessibilityLabel="T3 Code, Threads"
+          accessibilityLabel={`${baseName}, Threads`}
           onOpenEnvironments={() => openSettings(navigation, "SettingsEnvironments")}
           search={{
             value: searchQuery,

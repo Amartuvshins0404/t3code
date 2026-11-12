@@ -27,6 +27,7 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { useAppBaseName } from "../../state/appBranding";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 const DismissedEnvironmentIds = Schema.Array(Schema.String);
@@ -131,6 +132,7 @@ function ReclaimRow({
   readonly dismiss: ReactNode;
 }) {
   const reclaim = useAtomCommand(serverEnvironment.reclaimDatabaseSpace);
+  const appBaseName = useAppBaseName();
   const [confirming, setConfirming] = useState(false);
   const [requested, setRequested] = useState(false);
   // A failed repair reports back after the restart, which ends the wait.
@@ -145,7 +147,7 @@ function ReclaimRow({
       toastManager.add({
         type: "success",
         title: `Reclaiming ${amount} on ${label}`,
-        description: `T3 Code there restarts and is back in about ${minutes} min.`,
+        description: `${appBaseName} there restarts and is back in about ${minutes} min.`,
       });
       return;
     }
@@ -163,7 +165,7 @@ function ReclaimRow({
       title={`${amount} on ${label}`}
       description={
         status.reclaimFailure === undefined
-          ? `Restarts T3 Code there. It will be offline for about ${minutes} min.`
+          ? `Restarts ${appBaseName} there. It will be offline for about ${minutes} min.`
           : `The last attempt failed: ${status.reclaimFailure}`
       }
       control={
@@ -184,8 +186,8 @@ function ReclaimRow({
                   Reclaim {amount} on {label}?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  T3 Code on {label} stops, rebuilds its database, and starts again. It will be
-                  offline for about {minutes} min. Running agents stop when it restarts.
+                  {appBaseName} on {label} stops, rebuilds its database, and starts again. It will
+                  be offline for about {minutes} min. Running agents stop when it restarts.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

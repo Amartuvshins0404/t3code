@@ -41,6 +41,7 @@ import {
 import { refreshManagedRelayEnvironments } from "../cloud/managedRelayState";
 import { hasCloudPublicConfig, resolveRelayClerkTokenOptions } from "../cloud/publicConfig";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
+import { BUILD_APP_BASE_NAME } from "../../lib/mobileBranding";
 import { runtime } from "../../lib/runtime";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -345,7 +346,7 @@ function ConfiguredSettingsNotificationsRouteScreen() {
 
     Dialog.alert(
       "Disable notifications",
-      "Open system Settings to disable notifications for T3 Code.",
+      `Open system Settings to disable notifications for ${BUILD_APP_BASE_NAME}.`,
       [
         { text: "Cancel", style: "cancel" },
         { text: "Open Settings", onPress: () => void Linking.openSettings() },
@@ -477,7 +478,7 @@ function ConfiguredSettingsNotificationsRouteScreen() {
                 void openAndroidLiveUpdateSettings().catch(() => {
                   Dialog.alert(
                     "Couldn't open Settings",
-                    "Open Android Settings, select T3 Code, then enable Live Updates in Notifications.",
+                    `Open Android Settings, select ${BUILD_APP_BASE_NAME}, then enable Live Updates in Notifications.`,
                   );
                 });
               }}

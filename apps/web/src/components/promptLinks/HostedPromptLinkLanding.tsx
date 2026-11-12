@@ -15,6 +15,7 @@ import { isHostedStaticApp } from "~/hostedPairing";
 import { useEnvironments } from "~/state/environments";
 
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { useAppBaseName } from "../../state/appBranding";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
@@ -36,6 +37,7 @@ const PROMPT_HEADER = {
 
 function summarize(
   appPath: string,
+  appBaseName: string,
 ): { ok: true; value: LinkSummary } | { ok: false; error: string } {
   const url = new URL(appPath, window.location.origin);
   if (url.pathname !== "/new") {
@@ -47,7 +49,7 @@ function summarize(
         prompt.value === null
           ? {
               title: "Open this thread",
-              description: "It opens in T3 Code if you're connected to the machine it runs on.",
+              description: `It opens in ${appBaseName} if you're connected to the machine it runs on.`,
               prompt: null,
               details: [],
             }
@@ -120,7 +122,8 @@ function HostedPromptLinkLanding({
   readonly openInAppRemembered: boolean;
   readonly onChoose: (choice: "app" | "browser", remember: boolean) => void;
 }) {
-  const summary = summarize(appPath);
+  const appBaseName = useAppBaseName();
+  const summary = summarize(appPath, appBaseName);
   const [remember, setRemember] = useState(false);
   const deepLink = promptLinkDeepLink(appPath);
   const onPhone = /android|iphone|ipad/i.test(navigator.userAgent);
@@ -149,7 +152,7 @@ function HostedPromptLinkLanding({
         <Alert className="mt-5" variant="error">
           <AlertTitle>This prompt had hidden characters, it may be malicious</AlertTitle>
           <AlertDescription>
-            T3 Code removed {prompt.hiddenCharacters} hidden character
+            {appBaseName} removed {prompt.hiddenCharacters} hidden character
             {prompt.hiddenCharacters === 1 ? "" : "s"}. Read the prompt before you send it.
           </AlertDescription>
         </Alert>

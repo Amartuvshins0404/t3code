@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import type { RelayAgentActivityAggregateState } from "@t3tools/contracts/relay";
 
 import type { AgentActivityProps } from "./AgentActivity";
@@ -16,7 +17,7 @@ export function agentActivityWidgetTimeline(source: AgentActivityWidgetSource, n
   const updatedAt = new Date(now).toISOString();
   if (source.kind !== "snapshot" || !source.aggregate) {
     const props: AgentActivityProps = {
-      title: "T3 Code",
+      title: getAppBaseName(),
       subtitle:
         source.kind === "signed-out"
           ? "Sign in to T3 Connect to see agents"

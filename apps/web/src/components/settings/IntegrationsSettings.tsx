@@ -114,6 +114,7 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { useAppBaseName } from "../../state/appBranding";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { BrowserImportWizard, type WizardTarget } from "./BrowserImportWizard";
@@ -646,14 +647,14 @@ function BrowserRecordingFrameRateSetting({ disabled }: { readonly disabled: boo
   );
 }
 
-const LINK_TARGET_LABELS: Readonly<Record<BrowserLinkTarget, string>> = {
-  system: "Your default browser",
-  app: "T3 Code",
-};
-
 function BrowserLinkTargetSetting({ disabled }: { readonly disabled: boolean }) {
   const linkTarget = useClientSettings((settings) => settings.browserLinkTarget);
   const updateSettings = useUpdatePrimarySettings();
+  const appBaseName = useAppBaseName();
+  const linkTargetLabels: Readonly<Record<BrowserLinkTarget, string>> = {
+    system: "Your default browser",
+    app: appBaseName,
+  };
 
   return (
     <SettingsRow
@@ -678,12 +679,12 @@ function BrowserLinkTargetSetting({ disabled }: { readonly disabled: boolean }) 
           }}
         >
           <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Open links in">
-            <SelectValue>{LINK_TARGET_LABELS[linkTarget]}</SelectValue>
+            <SelectValue>{linkTargetLabels[linkTarget]}</SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
-            {(Object.keys(LINK_TARGET_LABELS) as ReadonlyArray<BrowserLinkTarget>).map((target) => (
+            {(Object.keys(linkTargetLabels) as ReadonlyArray<BrowserLinkTarget>).map((target) => (
               <SelectItem hideIndicator key={target} value={target}>
-                {LINK_TARGET_LABELS[target]}
+                {linkTargetLabels[target]}
               </SelectItem>
             ))}
           </SelectPopup>
@@ -781,15 +782,16 @@ function BrowserSearchEngineSetting() {
 export function PullRequestLinksOpenInAppSetting() {
   const openInApp = useClientSettings((settings) => settings.pullRequestLinksOpenInApp);
   const updateSettings = useUpdatePrimarySettings();
+  const appBaseName = useAppBaseName();
 
   return (
     <SettingsRow
       {...searchableSetting("pull-request-links-open-in-app")}
-      description="Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on your git host."
+      description={`Clicking a pull request link opens it in ${appBaseName}. Turn off to open pull request links like any other link, on your git host.`}
       resetAction={
         openInApp ? null : (
           <SettingResetButton
-            label="open pull requests in T3 Code"
+            label={`open pull requests in ${appBaseName}`}
             onClick={() => updateSettings({ pullRequestLinksOpenInApp: true })}
           />
         )
@@ -800,7 +802,7 @@ export function PullRequestLinksOpenInAppSetting() {
           onCheckedChange={(checked) =>
             updateSettings({ pullRequestLinksOpenInApp: Boolean(checked) })
           }
-          aria-label="Open pull requests in T3 Code"
+          aria-label={`Open pull requests in ${appBaseName}`}
         />
       }
     />

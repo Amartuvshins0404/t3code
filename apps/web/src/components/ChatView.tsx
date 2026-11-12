@@ -182,6 +182,7 @@ import {
 import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.logic";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { GuestPendingMessages } from "./chat/GuestShareControls";
+import { useAppBaseName } from "~/state/appBranding";
 import { useDeviceState } from "~/state/device";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { ComposerContextPermissions } from "./ComposerContextPermissions";
@@ -2783,6 +2784,7 @@ export default function ChatView(props: ChatViewProps) {
     if (activeThreadRef) useRightPanelStore.getState().setMaximized(activeThreadRef, false);
     runShellCommandStable(command);
   });
+  const appBaseName = useAppBaseName();
   // Main-thread surfaces show this reason; `/side` sent anyway gets it as a toast.
   const sideChatDisabledReason =
     activeThread?.lineage.sideChat === true
@@ -2792,7 +2794,7 @@ export default function ChatView(props: ChatViewProps) {
         : serverConfig === null
           ? "Side chats are not ready yet. Try again in a moment."
           : serverConfig.environment.capabilities.sideChats !== true
-            ? "Update this environment's T3 Code server to use side chats."
+            ? `Update this environment's ${appBaseName} server to use side chats.`
             : sideChatsOffered && !isServerThread
               ? "Side chats start after the first message."
               : sideChat.available &&

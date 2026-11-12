@@ -14,6 +14,7 @@ import { HeaderItemsWidthContext } from "../../../native/header-items-width";
 import { NativeStackScreenOptions } from "../../../native/StackHeader";
 import { NativePrimaryColumnContext } from "../../../native/v5-workspace-context";
 import { isDuoDevice } from "../../../lib/device-type";
+import { useAppBranding } from "../../../state/appBranding";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../../native/native-glass";
 import {
   useDeviceType,
@@ -46,6 +47,7 @@ function WorkspaceRootTitle(props: {
   readonly onOpenEnvironments: () => void;
 }) {
   const { state, settingsOpen } = useWorkspaceTabs()!;
+  const { baseName } = useAppBranding();
   const maxWidth = Math.max(0, props.columnWidth - (use(HeaderItemsWidthContext) ?? 160));
   const enabled = useEnabledNavigationTabs();
   const tabTitle = settingsOpen
@@ -56,7 +58,7 @@ function WorkspaceRootTitle(props: {
   return (
     <View style={{ width: maxWidth, minHeight: 32, justifyContent: "center" }}>
       <WorkspaceConnectionTitle
-        brand={<CompactBrandTitle accessibilityLabel={`T3 Code, ${tabTitle}`} fit />}
+        brand={<CompactBrandTitle accessibilityLabel={`${baseName}, ${tabTitle}`} fit />}
         maxWidth={maxWidth}
         onPress={props.onOpenEnvironments}
       />

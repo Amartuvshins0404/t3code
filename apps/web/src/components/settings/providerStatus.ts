@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import type {
   ServerProvider,
   ServerProviderVersionAdvisory,
@@ -55,7 +56,8 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
     return {
       headline: "Disabled",
       detail:
-        provider.message ?? "This provider is installed but disabled for new sessions in T3 Code.",
+        provider.message ??
+        `This provider is installed but disabled for new sessions in ${getAppBaseName()}.`,
     };
   }
   if (!provider.installed) {

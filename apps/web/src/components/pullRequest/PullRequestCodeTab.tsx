@@ -75,7 +75,7 @@ import {
   resolveFileDiffPreviousPath,
   type RenderablePatch,
 } from "~/lib/diffRendering";
-import { APP_BASE_NAME } from "~/branding";
+import { useAppBaseName } from "~/state/appBranding";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { cn } from "~/lib/utils";
 import { createPullRequestDiffFileContentsLoader } from "~/lib/diffFileContents";
@@ -380,6 +380,7 @@ function PullRequestCodeTab({
   revealRequest?: { readonly path: string; readonly nonce: number } | null;
 }) {
   const resolvedTheme = useRenderedAppearance();
+  const appBaseName = useAppBaseName();
   // Initialize the shared tokenizer and workers while the diff request is still pending.
   useDiffWorkerPool();
   const settings = useClientSettings((settings) => ({
@@ -1212,7 +1213,7 @@ function PullRequestCodeTab({
                 {filePaths.filter(isFileViewed).length} / {files.length}
               </span>
               <span className="truncate">
-                {viewedFilesStore === "environment" ? `viewed in ${APP_BASE_NAME}` : "viewed"}
+                {viewedFilesStore === "environment" ? `viewed in ${appBaseName}` : "viewed"}
               </span>
               {viewedFilesStore === "environment" ? (
                 <Tooltip>

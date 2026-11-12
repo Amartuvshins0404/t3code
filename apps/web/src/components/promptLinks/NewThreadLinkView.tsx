@@ -47,6 +47,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { SidebarInset } from "../ui/sidebar";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { suggestAppAccessForRemote } from "../sourceControlAppAccessToast";
+import { useAppBaseName } from "../../state/appBranding";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { placeLinkedPrompt, warnAboutHiddenCharacters } from "./linkedPrompt";
 
@@ -110,6 +111,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const handleNewThread = useNewThreadHandler();
+  const appBaseName = useAppBaseName();
   const { scratchEnvironmentId, openScratchProject } = useScratchProject();
   const startProjectClone = useAtomCommand(sourceControlEnvironment.startProjectClone, {
     reportFailure: false,
@@ -141,7 +143,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
       replace: true,
     }).catch(() => null);
     if (opened === null) {
-      setState({ status: "failed", message: "T3 Code could not open a new thread." });
+      setState({ status: "failed", message: `${appBaseName} could not open a new thread.` });
       return;
     }
     setState({ status: "opened" });
@@ -207,8 +209,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
     if (environmentId === null || serverConfig === null || newProjectsRoot === null) {
       setState({
         status: "failed",
-        message:
-          "This machine cannot clone from a link. Update T3 Code on it, or clone the repository from the command palette.",
+        message: `This machine cannot clone from a link. Update ${appBaseName} on it, or clone the repository from the command palette.`,
       });
       return;
     }

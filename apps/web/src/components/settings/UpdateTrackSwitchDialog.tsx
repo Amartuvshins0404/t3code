@@ -32,6 +32,7 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "../ui/alert-dialog";
+import { useAppBaseName } from "../../state/appBranding";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
@@ -78,6 +79,7 @@ function SwitchPlan({
   readonly onClose: () => void;
 }) {
   const updateState = useDesktopUpdateState();
+  const appBaseName = useAppBaseName();
   const { environments } = useEnvironments();
   const crossesLocal = desktopUpdateChannelOf(APP_VERSION) !== release.channel;
   const updatesOff = localUpdaterStaysPut(updateState, release.channel);
@@ -175,7 +177,7 @@ function SwitchPlan({
           ? ["This app's updates are off here, so reinstall it yourself to switch."]
           : []),
         ...(switchesLocal && isMacPlatform(navigator.platform)
-          ? ["If T3 Code does not reopen after it restarts, open it again."]
+          ? [`If ${appBaseName} does not reopen after it restarts, open it again.`]
           : []),
       ]}
       restarts={everything.restarts}

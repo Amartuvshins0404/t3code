@@ -230,6 +230,7 @@ import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ThreadMcpApp } from "./McpAppWebView";
+import { useAppBranding } from "../../state/appBranding";
 import { assetEnvironment, useAssetUrl, useRefreshAssetUrl } from "../../state/assets";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { readEnvironmentScope, usePreparedConnection } from "../../state/session";
@@ -1516,6 +1517,15 @@ function ThreadAutomationMessageRow(props: {
   );
 }
 
+function SentByAppLabel() {
+  const { baseName } = useAppBranding();
+  return (
+    <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
+      Sent by {baseName}
+    </Text>
+  );
+}
+
 /** Leads with why T3 Code compacted, when it did so without being asked. */
 function compactionLabel(label: string, title: string | undefined) {
   return title !== undefined && label.startsWith("Context compacted")
@@ -1966,11 +1976,7 @@ function renderFeedEntry(
           className={cn("items-end", props.userMessageGrouping.groupedWithNext ? "mb-1" : "mb-5")}
           {...(enterAnimated ? { entering: FadeInDown.duration(220) } : {})}
         >
-          {presentation.attribution === "t3code" ? (
-            <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
-              Sent by T3 Code
-            </Text>
-          ) : null}
+          {presentation.attribution === "t3code" ? <SentByAppLabel /> : null}
           {presentation.guestName !== undefined ? (
             <GuestMessageName name={presentation.guestName} />
           ) : null}

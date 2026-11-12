@@ -36,6 +36,7 @@ import {
   PlusIcon,
   SmartphoneIcon,
   TerminalIcon,
+  WaypointsIcon,
 } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 
@@ -108,6 +109,7 @@ import { readCodexSetupMode } from "../settings/CodexSetupSection.logic";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ACPRegistryIcon } from "../Icons";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -363,6 +365,37 @@ function WelcomeSection({
       <h2 className="text-sm leading-10 text-muted-foreground">{title}</h2>
       <div className="min-w-0">{children}</div>
     </section>
+  );
+}
+
+const CLI_PROXY_GUIDE_URL = "https://gist.github.com/t3dotgg/59a521d2ee8d70aaf90e280c175072af";
+
+function CliProxyRow() {
+  return (
+    <div className="flex min-h-10 items-center gap-3 py-1">
+      <RowIcon>
+        <WaypointsIcon className="size-4" />
+      </RowIcon>
+      <div className="min-w-0 flex-1">
+        <p className="flex flex-wrap items-center gap-2 text-sm text-foreground">
+          CLI Proxy
+          <Badge variant="outline" size="sm">
+            Recommended
+          </Badge>
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Several Claude or Codex subscriptions? Pool them behind one login. Pooling can get
+          accounts banned, so use it at your own risk.
+        </p>
+      </div>
+      <Button
+        size="xs"
+        variant="outline"
+        render={<a href={CLI_PROXY_GUIDE_URL} target="_blank" rel="noreferrer noopener" />}
+      >
+        Open guide
+      </Button>
+    </div>
   );
 }
 
@@ -715,6 +748,7 @@ function AgentsSection({
           ) : null}
         </CollapsiblePanel>
       </Collapsible>
+      <CliProxyRow />
       {codexSetupProvider !== null && serverConfig !== null ? (
         <div key={codexSetupProvider.instanceId} ref={revealOnMount} className="mt-2">
           <OnboardingCodexSetup

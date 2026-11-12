@@ -42,6 +42,7 @@ import {
   useThreadPreviewState,
 } from "~/previewStateStore";
 import { resolveDiscoveredServerUrl } from "~/browser/browserTargetResolver";
+import { useAppBaseName } from "~/state/appBranding";
 import { useEnvironmentSupportsServerBrowser } from "~/state/entities";
 import {
   useEnvironment,
@@ -161,6 +162,7 @@ export function PreviewView({
   visible,
   onSendAnnotation,
 }: Props) {
+  const appBaseName = useAppBaseName();
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const [find, setFind] = useState<{ tabId: string; requestId: number } | null>(null);
   const [pickActive, setPickActive] = useState(false);
@@ -1080,7 +1082,7 @@ export function PreviewView({
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-center">
               <p className="max-w-sm text-sm text-muted-foreground">
-                This tab is open in the T3 Code desktop app.
+                This tab is open in the {appBaseName} desktop app.
               </p>
             </div>
           )

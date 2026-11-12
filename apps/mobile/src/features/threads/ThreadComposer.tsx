@@ -9,6 +9,7 @@ import {
   useAndroidFloatingTabs,
 } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import { useAtomValue } from "@effect/atom-react";
@@ -707,7 +708,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     armAgentAwarenessLiveActivityForLocalWork({
       environmentId: props.environmentId,
       threadTitle: props.selectedThread.title,
-      projectTitle: props.environmentLabel ?? "T3 Code",
+      projectTitle: props.environmentLabel ?? getAppBaseName(),
     });
   };
 

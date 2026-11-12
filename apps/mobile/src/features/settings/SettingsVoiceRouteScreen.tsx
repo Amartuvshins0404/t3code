@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type AppSymbolName } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
+import { BUILD_APP_BASE_NAME } from "../../lib/mobileBranding";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import {
   isMicrophoneDevice,
@@ -337,7 +338,7 @@ export function SettingsVoiceRouteScreen() {
             <Text className="px-2 text-sm text-foreground-muted">
               {permission === "ask"
                 ? "Allow microphone access to record and to see your microphones."
-                : "Turn on microphone access for T3 Code in Settings to use voice input."}
+                : `Turn on microphone access for ${BUILD_APP_BASE_NAME} in Settings to use voice input.`}
             </Text>
           </>
         ) : null}

@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/http";
 
+import { getAppBaseName } from "../appName.ts";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
@@ -28,7 +29,7 @@ export class PullRequestDiffCredentialRejectedError extends Schema.TaggedError<P
   },
 ) {
   override get message(): string {
-    return "This environment session is no longer valid (invalid_credential). Refresh the page or quit and reopen T3 Code.";
+    return `This environment session is no longer valid (invalid_credential). Refresh the page or quit and reopen ${getAppBaseName()}.`;
   }
 }
 

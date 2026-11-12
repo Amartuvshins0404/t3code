@@ -76,6 +76,7 @@ import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsL
 import { keybindingSearchAnchorId, searchableSetting } from "./settingsSearch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useAppBaseName } from "../../state/appBranding";
 
 function KeybindingPill({ value }: { value: string }) {
   // Keys dedupe repeated parts; a literal "+" in a shortcut splits into empty strings.
@@ -245,6 +246,7 @@ function UnknownWhenVariableWarning({
   identifiers: ReadonlyArray<string>;
   focusable?: boolean;
 }) {
+  const appBaseName = useAppBaseName();
   if (identifiers.length === 0) return null;
   const label =
     identifiers.length === 1
@@ -253,8 +255,8 @@ function UnknownWhenVariableWarning({
 
   return (
     <WarningTooltipIcon label={label} focusable={focusable} className="size-4.5">
-      T3 Code does not recognize this condition yet. It can still be saved, but it may not match
-      unless the runtime provides it.
+      {appBaseName} does not recognize this condition yet. It can still be saved, but it may not
+      match unless the runtime provides it.
     </WarningTooltipIcon>
   );
 }

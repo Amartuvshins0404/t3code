@@ -1,6 +1,7 @@
 import { installPermissionUpdateNotice } from "./features/connection/permissionUpdateNotice";
 import { installComposerAttachmentUploads } from "./state/composer-attachment-uploads";
 import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
+import { installAppBranding } from "./state/appBranding";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { requireNativeModule } from "expo";
@@ -190,6 +191,7 @@ const appServiceDisposers = [
     pendingThreadIdsAtom: threadEnvironment.pendingThreadIdsAtom,
   }),
   installAppearanceRuntime(),
+  installAppBranding(),
   installSubscriptionUsageRefresh(),
   installPermissionUpdateNotice(),
   installThreadOutboxDelivery(),

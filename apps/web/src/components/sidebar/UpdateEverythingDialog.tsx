@@ -18,6 +18,7 @@ import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { ScrollArea } from "../ui/scroll-area";
+import { useAppBaseName } from "../../state/appBranding";
 import type { RestartingMachine, UpdateEverythingRow } from "./updateEverything.logic";
 
 const isRunning = (status: string) =>
@@ -106,6 +107,7 @@ function UpdateEverythingDialogContent({
   busy = false,
   checking = false,
 }: UpdateEverythingDialogContentProps) {
+  const appBaseName = useAppBaseName();
   const stopped = useAtomValue(
     runningThreadCountAtom(
       restarts
@@ -137,7 +139,7 @@ function UpdateEverythingDialogContent({
         <AlertDialogDescription>
           {version !== null ? (
             <>
-              T3 Code <span className="font-mono text-xs">{version}</span>
+              {appBaseName} <span className="font-mono text-xs">{version}</span>
             </>
           ) : null}
           {version !== null && providerCount > 0 ? " · " : null}
@@ -160,7 +162,7 @@ function UpdateEverythingDialogContent({
           <div className="grid grid-cols-[minmax(4rem,max-content)_max-content_minmax(min-content,1fr)_max-content] gap-x-4 text-sm">
             <div className="col-span-full grid grid-cols-subgrid border-b pb-1.5 text-muted-foreground text-xs">
               <span>Machine</span>
-              <span>T3 Code</span>
+              <span>{appBaseName}</span>
               <span>Providers</span>
               <span />
             </div>

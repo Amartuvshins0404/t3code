@@ -14,6 +14,7 @@ import {
   type T3ProjectFile,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
   clearProjectSettingsOverrides,
@@ -475,7 +476,7 @@ export async function persistScopedSettingsPatch(
       return [
         {
           ...environment,
-          message: "This environment does not support this setting. Update T3 Code on it.",
+          message: `This environment does not support this setting. Update ${getAppBaseName()} on it.`,
         },
       ];
     }

@@ -13,7 +13,7 @@ import {
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
+import { APP_VERSION } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
@@ -55,6 +55,8 @@ import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { useAtomValue } from "@effect/atom-react";
 import { primaryServerConfigAtom, primaryServerWelcomeAtom } from "../state/server";
 import { readProject } from "../state/entities";
+import { appDisplayNameAtom, useAppDisplayName } from "../state/appBranding";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
@@ -108,17 +110,18 @@ export const Route = createRootRoute({
   errorComponent: RootRouteErrorView,
   notFoundComponent: RootRouteNotFoundView,
   head: () => ({
-    meta: [{ name: "title", content: APP_DISPLAY_NAME }],
+    meta: [{ name: "title", content: appAtomRegistry.get(appDisplayNameAtom) }],
   }),
 });
 
 function RootRouteNotFoundView() {
+  const appDisplayName = useAppDisplayName();
   return (
     <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-6">
       <div className="flex max-w-sm flex-col items-center gap-4 text-center">
         <h1 className="text-lg font-medium text-foreground">Page not found</h1>
         <p className="text-sm text-muted-foreground">
-          This link doesn't point to a page in {APP_DISPLAY_NAME}. Go home to choose a project or
+          This link doesn't point to a page in {appDisplayName}. Go home to choose a project or
           start a thread.
         </p>
         <Button render={<Link to="/" replace />}>Go home</Button>
@@ -236,7 +239,8 @@ function RootRouteErrorView({ error }: ErrorComponentProps) {
   const message = errorMessage(error);
   // Router pathname rather than window.location: desktop uses hash history, where the window path is always "/".
   const pathname = useLocation({ select: (location) => location.pathname });
-  const report = errorReport(error, pathname);
+  const appDisplayName = useAppDisplayName();
+  const report = errorReport(error, pathname, appDisplayName);
 
   return (
     <StandalonePage>
@@ -304,9 +308,9 @@ function errorDetails(error: unknown): string {
 const MAX_ERROR_CAUSE_DEPTH = 5;
 
 // Use only pathname to keep query tokens off the clipboard.
-function errorReport(error: unknown, pathname: string): string {
+function errorReport(error: unknown, pathname: string, appDisplayName: string): string {
   const lines = [
-    `${APP_DISPLAY_NAME} ${APP_VERSION}`,
+    `${appDisplayName} ${APP_VERSION}`,
     `Path: ${pathname}`,
     `Time: ${new Date().toISOString()}`,
     "",

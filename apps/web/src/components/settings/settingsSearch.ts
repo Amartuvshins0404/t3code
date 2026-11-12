@@ -3,6 +3,7 @@ import { isElectron, isSecretsFeatureEnabled } from "~/env";
 import { isMacPlatform, isWindowsPlatform, normalizeSearchText } from "~/lib/utils";
 import { STATIC_KEYBINDING_COMMANDS, type KeybindingCommand } from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
   sourceControlClients,
@@ -1096,7 +1097,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "pull-request-links-open-in-app",
-    title: "Open pull requests in T3 Code",
+    get title() {
+      return `Open pull requests in ${getAppBaseName()}`;
+    },
     to: "/settings/diffs",
     searchTerms: [
       `pr commit links ${SOURCE_CONTROL_HOST_LABELS} browser external click default pull request view panel`,

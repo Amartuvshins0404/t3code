@@ -29,6 +29,7 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { RadioGroup } from "../ui/radio-group";
+import { useAppBaseName } from "../../state/appBranding";
 import { Spinner } from "../ui/spinner";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
 
@@ -145,6 +146,7 @@ export function McpConsent({
   readonly environmentLabel?: string | undefined;
   readonly footer?: ReactNode;
 }) {
+  const appBaseName = useAppBaseName();
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
   const [requestedAccess, setAccess] = useState<AuthMcpClientAccess | null>(null);
   const [pairingCode, setPairingCode] = useState("");
@@ -316,7 +318,7 @@ export function McpConsent({
               value={pairingCode}
             />
             <p className="text-xs text-muted-foreground">
-              Get one from Use T3 Code in another app (MCP), Settings → Sharing & access, or{" "}
+              Get one from Use {appBaseName} in another app (MCP), Settings → Sharing & access, or{" "}
               <code>t3 auth pairing create</code> on this machine.
             </p>
           </div>

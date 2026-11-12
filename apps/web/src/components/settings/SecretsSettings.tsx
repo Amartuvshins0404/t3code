@@ -25,6 +25,7 @@ import {
 } from "./ProviderSettingsPanel.logic";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { useAppBaseName } from "../../state/appBranding";
 import { searchableSetting } from "./settingsSearch";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
@@ -37,6 +38,7 @@ const SECRET_PROVIDER_KINDS: Readonly<
 export function SecretsSettingsPanel() {
   const { scope, environment } = useSettingsScope();
   const connected = environment?.connection.phase === "connected";
+  const appBaseName = useAppBaseName();
   return (
     <SettingsPageContainer>
       {connected &&
@@ -44,7 +46,7 @@ export function SecretsSettingsPanel() {
       environment.serverConfig.secretProviderSettings !== true ? (
         <SettingsSection {...searchableSetting("secret-providers")}>
           <p className="px-4 py-3 text-sm text-muted-foreground">
-            Update T3 Code on {environment.label} to manage its secret providers.
+            Update {appBaseName} on {environment.label} to manage its secret providers.
           </p>
         </SettingsSection>
       ) : connected ? (

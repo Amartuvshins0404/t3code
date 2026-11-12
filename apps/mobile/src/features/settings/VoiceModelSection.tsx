@@ -22,6 +22,7 @@ import { ListChoiceRow } from "../../components/ui/ListChoiceRow";
 import { ListRow } from "../../components/ui/ListRow";
 import { Progress } from "../../components/ui/Progress";
 import { formatBytes } from "../../lib/formatBytes";
+import { useAppBranding } from "../../state/appBranding";
 import { useEnvironmentScope } from "../../state/session";
 import {
   runSpeech,
@@ -278,6 +279,7 @@ export function LocalModelChoice(props: {
   readonly selected: boolean;
   readonly onSelect: () => void;
 }) {
+  const { baseName } = useAppBranding();
   const navigation = useNavigation();
   const voice = useVoiceModels(props.environmentId, props.label);
   const { status } = voice;
@@ -316,7 +318,7 @@ export function LocalModelChoice(props: {
             ? `Local model · ${formatBytes(active.size)}`
             : voice.canManage
               ? "No model installed · Choose one to download"
-              : `No model installed · Add one using T3 Code on ${props.label}`
+              : `No model installed · Add one using ${baseName} on ${props.label}`
       }
       selected={props.selected}
       onPress={() => {

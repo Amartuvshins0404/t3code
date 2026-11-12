@@ -44,6 +44,7 @@ import { LinkAccessPicker } from "./LinkAccessPicker";
 import { LinkAddressWarning, LinkMachineSelect } from "./LinkMachineSelect";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { useNowMinute } from "../../hooks/useNowMinute";
+import { useAppBaseName } from "../../state/appBranding";
 import { searchableSetting } from "./settingsSearch";
 
 const failureToast = (title: string, description: string) =>
@@ -61,6 +62,7 @@ export function LinkedEnvironmentsSettings({
   const links = useEnvironmentQuery(peerLinkEnvironment.list({ environmentId, input: {} }));
   const canLink = useAtomValue(peerLinkEnvironment.link.permissionAtom(environmentId));
   const search = searchableSetting("linked-environments");
+  const appBaseName = useAppBaseName();
   return (
     <SettingsSection
       {...(isSearchTarget ? { id: search.id } : {})}
@@ -74,7 +76,7 @@ export function LinkedEnvironmentsSettings({
       ) : links.data.links.length === 0 ? (
         <SettingsRow
           title="No linked environments"
-          description="Link another machine running T3 Code, such as a VPS, so agents here can launch and drive threads there."
+          description={`Link another machine running ${appBaseName}, such as a VPS, so agents here can launch and drive threads there.`}
         />
       ) : (
         links.data.links.map((link) => (

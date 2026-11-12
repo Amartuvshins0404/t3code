@@ -112,6 +112,7 @@ import {
   type EnvironmentQueryTarget,
 } from "~/state/pullRequests";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { useAppBaseName } from "~/state/appBranding";
 import { cn } from "~/lib/utils";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
@@ -154,6 +155,7 @@ export function PullRequestsPage() {
     sort === "ready" || sort === "largest" || sort === "smallest" ? "eager" : "visible";
   const navigate = useNavigate({ from: "/pull-requests" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const appBaseName = useAppBaseName();
   const [hostReads, setHostReads] = useState<ReadonlyMap<EnvironmentId, PullRequestHostRead>>(
     () => new Map(),
   );
@@ -1187,7 +1189,7 @@ export function PullRequestsPage() {
       ) : !pullRequestsSupported ? (
         <PullRequestsUnavailableState
           title="Pull requests unavailable"
-          error="Update your T3 Code servers to browse pull requests."
+          error={`Update your ${appBaseName} servers to browse pull requests.`}
         />
       ) : firstLoad ? (
         <PullRequestListGhost rows={7} caption="Loading pull requests…" />

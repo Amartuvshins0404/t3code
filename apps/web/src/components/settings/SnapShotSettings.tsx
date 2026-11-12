@@ -28,6 +28,7 @@ import {
 } from "../../state/desktopSnapShot";
 import { toastManager } from "../ui/toast";
 import { primaryServerKeybindingsAtom } from "../../state/server";
+import { useAppBaseName } from "../../state/appBranding";
 import { commandLabel } from "./KeybindingsSettings.logic";
 import {
   snapShotStatus,
@@ -89,6 +90,7 @@ export function SnapShotSettings() {
     snapShotSound: current.snapShotSound,
   }));
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const appBaseName = useAppBaseName();
   const bridge = getDesktopSnapShotBridge();
   const registry = useContext(RegistryContext);
   const { state, refreshError } = useAtomValue(desktopSnapShotAtom);
@@ -255,7 +257,7 @@ export function SnapShotSettings() {
   const shortcutStatus = recording
     ? "Press your shortcut. Esc cancels."
     : candidateConflict
-      ? `T3 Code already uses this for "${commandLabel(candidateConflict)}".`
+      ? `${appBaseName} already uses this for "${commandLabel(candidateConflict)}".`
       : shortcutCheck.status === "checking"
         ? "Checking shortcut…"
         : shortcutCheck.availability

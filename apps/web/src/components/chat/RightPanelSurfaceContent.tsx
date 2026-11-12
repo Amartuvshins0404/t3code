@@ -21,6 +21,7 @@ import {
 } from "../PersistentThreadTerminals";
 import { pullRequestPanelContext } from "../pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
+import { useAppBaseName } from "../../state/appBranding";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
@@ -81,6 +82,7 @@ export function RightPanelSurfaceContent(props: {
   readonly sideChatParentPanel: SideChatParentPanel;
 }) {
   const { surface, threadRef, visible, onCloseSurface } = props;
+  const appBaseName = useAppBaseName();
   if (surface === null) return null;
   switch (surface.kind) {
     case "preview":
@@ -124,7 +126,7 @@ export function RightPanelSurfaceContent(props: {
         return (
           <PullRequestsUnavailableState
             title="Pull requests unavailable"
-            error="Update this environment's T3 Code server to browse pull requests."
+            error={`Update this environment's ${appBaseName} server to browse pull requests.`}
           />
         );
       }

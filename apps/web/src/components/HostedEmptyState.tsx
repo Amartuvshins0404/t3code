@@ -4,8 +4,9 @@ import { Link } from "@tanstack/react-router";
 import { CheckIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-import { APP_DISPLAY_NAME, DESKTOP_DOWNLOAD_URL } from "~/branding";
+import { DESKTOP_DOWNLOAD_URL } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
+import { useAppBaseName, useAppDisplayName } from "~/state/appBranding";
 import { isElectron } from "../env";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { useRelayEnvironmentDiscovery } from "../state/environments";
@@ -21,6 +22,8 @@ import { WorkspacePageHeader } from "./WorkspacePageHeader";
 export function HostedEmptyState() {
   const cloudEnabled = hasCloudPublicConfig();
   const localEnvironmentOff = isLocalEnvironmentDisabled();
+  const appBaseName = useAppBaseName();
+  const appDisplayName = useAppDisplayName();
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
@@ -28,7 +31,7 @@ export function HostedEmptyState() {
         <WorkspacePageHeader electron={isElectron} className="border-b border-border">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-foreground md:text-muted-foreground/60">
-              {APP_DISPLAY_NAME}
+              {appDisplayName}
             </span>
           </div>
         </WorkspacePageHeader>
@@ -43,7 +46,7 @@ export function HostedEmptyState() {
                 ? "Turn it back on, or connect a different computer."
                 : cloudEnabled
                   ? "Your agents run on your computer."
-                  : "Your agents run on your computer. Start T3 Code there first."}
+                  : `Your agents run on your computer. Start ${appBaseName} there first.`}
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>

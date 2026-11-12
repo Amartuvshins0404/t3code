@@ -16,6 +16,7 @@ import {
   type RelayAgentActivitySnapshotResponse,
   type RelayLiveActivityRegistrationRequest,
 } from "@t3tools/contracts/relay";
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import { findErrorTraceId } from "@t3tools/client-runtime/errors";
 import { ManagedRelay } from "@t3tools/client-runtime/relay";
 import {
@@ -497,7 +498,7 @@ function armAgentAwarenessLiveActivityForLocalWorkNow(input: {
     const nowIso = new Date(Date.now()).toISOString();
     const activity = startAgentLiveActivity(
       {
-        title: "T3 Code",
+        title: getAppBaseName(),
         subtitle: "Agent work in progress",
         activeCount: 1,
         updatedAt: nowIso,

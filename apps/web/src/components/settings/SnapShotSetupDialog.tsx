@@ -11,6 +11,7 @@ import { CaptureShortcutConfig } from "./CaptureShortcutConfig";
 import { Button } from "../ui/button";
 import { Dialog, DialogDescription } from "../ui/dialog";
 import { WizardSteps, WizardPopup, WizardHeader, WizardPanel, WizardFooter } from "../ui/wizard";
+import { useAppBaseName } from "../../state/appBranding";
 import {
   captureSetupAccessReady,
   captureSetupBackend,
@@ -97,6 +98,7 @@ export function SnapShotSetupDialog({
   onClose: (completed: boolean) => Promise<void>;
   onLeaveStep: () => void;
 }) {
+  const appBaseName = useAppBaseName();
   const [step, setStep] = useState(() => captureSetupInitialStep(state, initialStep));
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -170,8 +172,7 @@ export function SnapShotSetupDialog({
                     helper?.status === "update-required"
                       ? "Update the capture helper"
                       : "Allow snapshots",
-                  description:
-                    "T3 Code's capture helper lets you capture other apps and return to your draft. It's included with T3 Code.",
+                  description: `${appBaseName}'s capture helper lets you capture other apps and return to your draft. It's included with ${appBaseName}.`,
                 }
           : backend === "niri"
             ? {
@@ -352,7 +353,7 @@ export function SnapShotSetupDialog({
                     </p>
                   ))}
                   {step === "access" && (backend === "gnome" || helperBackend) ? (
-                    <p>Included with T3 Code. No download needed.</p>
+                    <p>Included with {appBaseName}. No download needed.</p>
                   ) : null}
                   {step === "access" && backend === "gnome" && extension?.status === "enabled" ? (
                     <Button

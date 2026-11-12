@@ -73,6 +73,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { environmentAtomList, environmentIdsKey } from "../../state/environmentAtomList";
 import { useThreadSearch } from "../../state/queries";
+import { useAppBaseName } from "../../state/appBranding";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { threadFamilies } from "../../state/threads";
@@ -1346,6 +1347,7 @@ function ScheduledTaskEditorForm({
   readonly onSavingChange: (saving: boolean) => void;
   readonly onClose: () => void;
 }) {
+  const appBaseName = useAppBaseName();
   const { scope, connectedEnvironments } = useSettingsScope();
   const [environmentId, setEnvironmentId] = useState(initialEnvironmentId);
   const environment = useEnvironment(environmentId);
@@ -1487,7 +1489,7 @@ function ScheduledTaskEditorForm({
     if (schedule.type === "once" && !offersOnce) {
       reportFailure(
         "Once is not available here",
-        "This environment runs an older T3 Code. Update it to schedule a one-time task, or pick another schedule.",
+        `This environment runs an older ${appBaseName}. Update it to schedule a one-time task, or pick another schedule.`,
       );
       return;
     }

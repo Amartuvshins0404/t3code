@@ -26,6 +26,7 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { Menu } from "../../components/ui/Menu";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { useAppBranding } from "../../state/appBranding";
 import { useAssetUrl } from "../../state/assets";
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
@@ -69,6 +70,7 @@ function QueuedRunSender(props: {
   readonly message: QueuedRunMessage;
 }) {
   const { attribution, scheduledTaskId } = resolveUserMessagePresentation(props.message);
+  const { baseName } = useAppBranding();
   const senderThreadId = attribution === "agent" ? props.message.senderThreadId : undefined;
   const senderShell = useQuietThreadShell(
     senderThreadId ? scopeThreadRef(props.environmentId, senderThreadId) : null,
@@ -91,7 +93,7 @@ function QueuedRunSender(props: {
             label: senderShell?.title.trim() || "Agent",
           }
         : attribution === "t3code"
-          ? { icon: null, label: "Sent by T3 Code" }
+          ? { icon: null, label: `Sent by ${baseName}` }
           : null;
   if (sender === null) return null;
   return (
