@@ -101,6 +101,8 @@ const verdictOf = (
 ) => judge({ files }, { baseline: byFile(baseline), before: byFile(before), after: byFile(after) });
 const problemsOf = (verdict: ReturnType<typeof judge>) =>
   verdict.rows.flatMap((row) => row.problems).join("\n");
+const withoutOf = (verdict: ReturnType<typeof judge>, file: string) =>
+  verdict.rows.filter((row) => row.file === file).map((row) => row.without);
 const proven = (
   plan: ReturnType<typeof planProof>,
   baseline: ReadonlyArray<TestResult>,
@@ -200,6 +202,23 @@ describe("blind checks proof: what is planned", () => {
       onBase,
     });
     expect(sorted(plan)).toEqual([{ file: titleTest, baseFile: titleTest }]);
+  });
+
+  it("guard: a test file a commit with no checks marker deletes stays planned, and only a checks commit takes one out", () => {
+    const plan = planProof({
+      commits: [
+        commit("c", checks.message, [
+          ...checks.files,
+          changedFile(titleTest, ['it("slugs My Title", () => {});']),
+        ]),
+        code,
+        commit("e", "chore(web): drop the slug test", [removedFile(slugTest)]),
+        revise([removedFile(titleTest)]),
+      ],
+      base,
+      onBase,
+    });
+    expect(sorted(plan)).toEqual([{ file: slugTest, baseFile: null }]);
   });
 
   it("ignores test files changed by commits with no checks trailer, such as merged base branch work", () => {
@@ -559,6 +578,55 @@ const countExamples: ReadonlyArray<{
   },
 ];
 
+const freshCounts: ReadonlyArray<{
+  readonly name: string;
+  readonly old: ReadonlyArray<readonly [string, string]>;
+  readonly without: ReadonlyArray<readonly [string, string]>;
+  readonly withCode: ReadonlyArray<string>;
+  readonly counted: string;
+}> = [
+  {
+    name: "some new tests fail and some do not",
+    old: [["title > keeps the title", "passed"]],
+    without: [
+      ["title > keeps the title", "passed"],
+      ["title > slugs a", "failed"],
+      ["title > slugs b", "passed"],
+    ],
+    withCode: ["title > keeps the title", "title > slugs a", "title > slugs b"],
+    counted: "1 of 2 new tests failed",
+  },
+  {
+    name: "a name fails more often than it has new tests",
+    old: [
+      ["title > keeps the title", "passed"],
+      ["title > slugs a", "passed"],
+    ],
+    without: [
+      ["title > keeps the title", "passed"],
+      ["title > slugs a", "failed"],
+      ["title > slugs a", "failed"],
+    ],
+    withCode: ["title > keeps the title", "title > slugs a", "title > slugs a"],
+    counted: "1 of 1 new tests failed",
+  },
+  {
+    name: "an old name comes up less often with the code than in the old run",
+    old: [
+      ["title > keeps the title", "passed"],
+      ["title > slugs a", "passed"],
+      ["title > slugs a", "passed"],
+    ],
+    without: [
+      ["title > keeps the title", "passed"],
+      ["title > slugs a", "passed"],
+      ["title > slugs b", "failed"],
+    ],
+    withCode: ["title > keeps the title", "title > slugs a", "title > slugs b"],
+    counted: "1 of 1 new tests failed",
+  },
+];
+
 describe("blind checks proof: new tests are found from the test runner's results", () => {
   it("by results, old tests that pass without the code are not judged and a failing new test is proven", () => {
     expect(
@@ -632,6 +700,23 @@ describe("blind checks proof: new tests are found from the test runner's results
     expect(
       verdictOf([titled], [loaded(titleTest, old)], [loaded(titleTest, without)], [after]).ok,
     ).toBe(ok);
+  });
+
+  it.each(freshCounts)("guard: the row's count of new tests that failed: $name", (entry) => {
+    const verdict = verdictOf(
+      [titled],
+      [loaded(titleTest, entry.old)],
+      [loaded(titleTest, entry.without)],
+      [
+        loaded(
+          titleTest,
+          entry.withCode.map((name) => [name, "passed"] as const),
+        ),
+      ],
+    );
+    expect(withoutOf(verdict, titleTest)).toEqual([
+      expect.stringMatching(new RegExp(`^${entry.counted}`)),
+    ]);
   });
 
   it("by results, a test that was skipped, pending or todo in the old run counts as new", () => {
@@ -742,6 +827,7 @@ describe("blind checks proof: new tests are found from the test runner's results
     Arbitrary.all({
       name: namePool,
       without: Arbitrary.schema(Schema.Literals(["passed", "failed", "skipped"])),
+      withCode: Arbitrary.schema(Schema.Boolean),
     }),
     { minLength: 1, maxLength: 6 },
   );
@@ -750,9 +836,12 @@ describe("blind checks proof: new tests are found from the test runner's results
     "by results, for any old and head tests the proof holds exactly when each name has enough failures",
     [oldTests, headTests],
     ([old, head]) => {
+      const withCode = head.filter((test) => test.withCode);
       const holds = head.every(({ name }) => {
-        const atHead = head.filter((test) => test.name === name);
-        const failed = atHead.filter((test) => test.without === "failed").length;
+        const atHead = withCode.filter((test) => test.name === name);
+        const failed = head.filter(
+          (test) => test.name === name && test.without === "failed",
+        ).length;
         const wasOld = old.filter(
           (test) => test.name === name && (test.status === "passed" || test.status === "failed"),
         ).length;
@@ -762,6 +851,11 @@ describe("blind checks proof: new tests are found from the test runner's results
         ({ name }) =>
           head.filter((test) => test.name === name && test.without === "failed").length >
           old.filter((test) => test.name === name && test.status === "failed").length,
+      );
+      const stays = head.every(
+        ({ name }) =>
+          head.filter((test) => test.name === name).length <=
+          withCode.filter((test) => test.name === name).length,
       );
       const verdict = verdictOf(
         [titled],
@@ -780,11 +874,11 @@ describe("blind checks proof: new tests are found from the test runner's results
         [
           loaded(
             titleTest,
-            head.map((test) => [test.name, "passed"] as const),
+            withCode.map((test) => [test.name, "passed"] as const),
           ),
         ],
       );
-      expect(verdict.ok).toBe(holds && shows);
+      expect(verdict.ok).toBe(holds && shows && stays);
     },
     { arbitrary: { seed: 42 } },
   );
@@ -796,6 +890,16 @@ const problemsIn = (verdict: ReturnType<typeof judge>, file: string) =>
 const slugsA = "title > slugs a";
 const addedSlug: PlannedFile = { file: slugTest, baseFile: null };
 const gitOld: PlannedFile = { file: upstreamTest, baseFile: upstreamTest };
+const noSuite = (file: string): TestResult => ({
+  name: `/repo/${file}`,
+  message: `No test suite found in file /repo/${file}`,
+  assertionResults: [],
+});
+const loadError = (file: string): TestResult => ({
+  name: `/repo/${file}`,
+  message: `Cannot find module './slug.ts' imported from /repo/${file}`,
+  assertionResults: [],
+});
 
 describe("blind checks proof: every checked file shows a test that fails without the code", () => {
   it("floor: a file of old tests that all pass without the code is not proven, and one changed to need the code is", () => {
@@ -858,6 +962,40 @@ describe("blind checks proof: every checked file shows a test that fails without
     expect(unloaded.ok).toBe(true);
     expect(problemsIn(unloaded, slugTest)).not.toContain(nothingFailed);
   });
+
+  it("holes: a file that loads without the code but holds no tests there is judged as loaded, and only another message means it could not load", () => {
+    const keepsLetters = "slugs > keeps letters";
+    const dropsSpaces = "slugs > drops spaces";
+    const slugAfter = loaded(slugTest, [
+      [keepsLetters, "passed"],
+      [dropsSpaces, "passed"],
+    ]);
+    const titleAfter = titleRun([[slugsA, "passed"]]);
+    const empty = verdictOf(
+      [addedSlug, titled],
+      [titleOldRun],
+      [noSuite(slugTest), noSuite(titleTest)],
+      [slugAfter, titleAfter],
+    );
+    expect(empty.ok).toBe(false);
+    expect(problemsIn(empty, slugTest)).toContain(nothingFailed);
+    expect(problemsIn(empty, titleTest)).toContain(nothingFailed);
+    const slugProblems = problemsIn(empty, slugTest).join("\n");
+    expect(slugProblems).toContain(keepsLetters);
+    expect(slugProblems).toContain(dropsSpaces);
+    expect(problemsIn(empty, titleTest).join("\n")).toContain(slugsA);
+    expect(withoutOf(empty, slugTest)).toEqual([expect.stringMatching(/^0 of 2 new tests failed/)]);
+    expect(withoutOf(empty, titleTest)).toEqual([
+      expect.stringMatching(/^0 of 1 new tests failed/),
+    ]);
+    const unloaded = verdictOf(
+      [addedSlug, titled],
+      [titleOldRun],
+      [loadError(slugTest), loadError(titleTest)],
+      [slugAfter, titleAfter],
+    );
+    expect(unloaded.ok).toBe(true);
+  });
 });
 
 describe("blind checks proof: a file must run, load and pass with the code", () => {
@@ -900,6 +1038,51 @@ describe("blind checks proof: a file must run, load and pass with the code", () 
     );
     expect(verdict.ok).toBe(false);
     expect(problemsOf(verdict)).toContain("slugs > drops spaces");
+  });
+
+  it("holes: a test that fails without the code and is gone with it did not pass, so the row names it", () => {
+    const vanished = "title > slugs only without the code";
+    const verdict = verdictOf(
+      [titled],
+      [titleOldRun],
+      [titleRun([[vanished, "failed"]])],
+      [titleRun([])],
+    );
+    expect(verdict.ok).toBe(false);
+    expect(problemsIn(verdict, titleTest).join("\n")).toContain(vanished);
+  });
+
+  it("holes: a name that comes up more often without the code than with it did not pass, even next to a real new test", () => {
+    const slugsB = "title > slugs b";
+    const verdict = verdictOf(
+      [titled],
+      [titleRun([[slugsA, "passed"]])],
+      [
+        titleRun([
+          [slugsA, "passed"],
+          [slugsA, "passed"],
+          [slugsB, "failed"],
+        ]),
+      ],
+      [
+        titleRun([
+          [slugsA, "passed"],
+          [slugsB, "passed"],
+        ]),
+      ],
+    );
+    expect(verdict.ok).toBe(false);
+    expect(problemsIn(verdict, titleTest).join("\n")).toContain(slugsA);
+  });
+
+  it("guard: a file that ran without the code but has no run with the code is not proven, and judging it does not throw", () => {
+    const verdict = verdictOf(
+      [addedSlug],
+      [],
+      [loaded(slugTest, [["slugs > keeps letters", "failed"]])],
+      [],
+    );
+    expect(verdict.ok).toBe(false);
   });
 });
 
