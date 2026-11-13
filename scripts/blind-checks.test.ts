@@ -1075,6 +1075,20 @@ describe("blind checks proof: a file must run, load and pass with the code", () 
     expect(problemsIn(verdict, titleTest).join("\n")).toContain(slugsA);
   });
 
+  it("holes: a top-level test whose title holds the join text is not the test of that name inside a describe block", () => {
+    const run = (ancestorTitles: ReadonlyArray<string>, title: string, status: string) =>
+      byFile([
+        { name: `/repo/${slugTest}`, assertionResults: [{ ancestorTitles, title, status }] },
+      ]);
+    const judged = (before: ReturnType<typeof run>) =>
+      judge(
+        { files: [addedSlug] },
+        { baseline: byFile([]), before, after: run(["slugs"], "keeps letters", "passed") },
+      );
+    expect(judged(run(["slugs"], "keeps letters", "failed")).ok).toBe(true);
+    expect(judged(run([], "slugs > keeps letters", "failed")).ok).toBe(false);
+  });
+
   it("guard: a file that ran without the code but has no run with the code is not proven, and judging it does not throw", () => {
     const verdict = verdictOf(
       [addedSlug],
