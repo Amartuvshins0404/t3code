@@ -1293,3 +1293,149 @@ describe("blind checks proof: the commands the job runs", () => {
     }
   });
 });
+
+describe("the bots run the base branch's tools as they are when the job starts", () => {
+  const workflowStep = (workflow: string, name: string) => {
+    const text = NodeFS.readFileSync(
+      new URL(`../.github/workflows/${workflow}`, import.meta.url),
+      "utf8",
+    );
+    const run = text
+      .split(`      - name: ${name}\n`)[1]
+      ?.split("\n      - name:")[0]
+      ?.split("        run: |\n")[1];
+    if (!run) throw new Error(`no run block in ${workflow}: ${name}`);
+    return run
+      .split("\n")
+      .map((line) => line.replace(/^ {10}/, ""))
+      .join("\n");
+  };
+
+  const withMovedBase = (
+    check: (fixture: {
+      openedOn: string;
+      first: string;
+      head: string;
+      run: (args: ReadonlyArray<string>) => string;
+      runStep: (script: string, env: Record<string, string>) => void;
+      read: (...path: ReadonlyArray<string>) => string;
+    }) => void,
+  ) => {
+    const root = NodeFS.realpathSync(
+      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "blind-checks-")),
+    );
+    const origin = NodePath.join(root, "host", "owner", "repo.git");
+    const work = NodePath.join(root, "work");
+    const temp = NodePath.join(root, "temp");
+    for (const dir of [origin, work, temp]) NodeFS.mkdirSync(dir, { recursive: true });
+    const { run, commitFiles } = gitIn(origin);
+    try {
+      run(["init", "-q", "-b", "amaraa-mode"]);
+      run(["config", "uploadpack.allowFilter", "true"]);
+      run(["config", "uploadpack.allowAnySHA1InWant", "true"]);
+      const openedOn = commitFiles("feat: start", {
+        ".github/scripts/blind-checks.cjs": "old judge\n",
+        ".github/scripts/merge-lane.cjs": "old rules\n",
+        "src/slug.js": "export const slug = (text) => text;\n",
+      });
+      run(["checkout", "-q", "-b", "fix/slugs"]);
+      const first = commitFiles(
+        "test: checks for slugs\n\nBlind-checks: written from the request",
+        { "src/slug.test.js": 'it("lowercases", () => {});\n' },
+      );
+      const head = commitFiles("feat: slugs lowercase", {
+        "src/slug.js": "export const slug = (text) => text.toLowerCase();\n",
+      });
+      run(["checkout", "-q", "amaraa-mode"]);
+      commitFiles("feat: a newer judge and newer rules", {
+        ".github/scripts/blind-checks.cjs": "new judge\n",
+        ".github/scripts/merge-lane.cjs": "new rules\n",
+      });
+      check({
+        openedOn,
+        first,
+        head,
+        run,
+        runStep: (script, env) => {
+          NodeChildProcess.execFileSync("bash", ["-c", script], {
+            cwd: work,
+            encoding: "utf8",
+            stdio: "pipe",
+            env: {
+              PATH: process.env.PATH,
+              HOME: root,
+              GIT_CONFIG_GLOBAL: "/dev/null",
+              GIT_CONFIG_NOSYSTEM: "1",
+              GITHUB_SERVER_URL: `file://${NodePath.join(root, "host")}`,
+              GITHUB_REPOSITORY: "owner/repo",
+              GITHUB_OUTPUT: NodePath.join(temp, "output.txt"),
+              RUNNER_TEMP: temp,
+              ...env,
+            },
+          });
+        },
+        read: (...path) => NodeFS.readFileSync(NodePath.join(root, ...path), "utf8"),
+      });
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  it("the proof job takes the judge from the newest commit on the base branch, not from the commit the pull request was opened on", () => {
+    withMovedBase(({ openedOn, first, head, runStep, read }) => {
+      runStep(
+        workflowStep(
+          "blind-checks.yml",
+          "Fetch the pull request commits and the judge from the base branch",
+        ),
+        { HEAD_SHA: head, BASE_SHA: openedOn, BASE_REF: "amaraa-mode" },
+      );
+      expect({
+        judge: read("temp", "judge", ".github", "scripts", "blind-checks.cjs"),
+        outputs: read("temp", "output.txt").trim().split("\n"),
+      }).toEqual({
+        judge: "new judge\n",
+        outputs: [`base=${openedOn}`, `first=${first}`],
+      });
+    });
+  });
+
+  it("the proof runs without the code from the newest base commit the pull request merged in, not from the commit it was opened on", () => {
+    withMovedBase(({ openedOn, first, run, runStep, read }) => {
+      const tip = run(["rev-parse", "amaraa-mode"]);
+      run(["checkout", "-q", "fix/slugs"]);
+      run([
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "Merge branch 'amaraa-mode' into fix/slugs",
+        "amaraa-mode",
+      ]);
+      runStep(
+        workflowStep(
+          "blind-checks.yml",
+          "Fetch the pull request commits and the judge from the base branch",
+        ),
+        { HEAD_SHA: run(["rev-parse", "HEAD"]), BASE_SHA: openedOn, BASE_REF: "amaraa-mode" },
+      );
+      expect(read("temp", "output.txt").trim().split("\n")).toEqual([
+        `base=${tip}`,
+        `first=${first}`,
+      ]);
+    });
+  });
+
+  it("the lane bot runs the rules from the newest commit on the base branch, not from the commit the pull request was opened on", () => {
+    withMovedBase(({ openedOn, runStep, read }) => {
+      runStep(
+        workflowStep(
+          "merge-lane.yml",
+          "Checkout base branch rules without the vendored .repos tree",
+        ),
+        { CHECKOUT_REF: openedOn, BASE_REF: "amaraa-mode" },
+      );
+      expect(read("work", ".github", "scripts", "merge-lane.cjs")).toBe("new rules\n");
+    });
+  });
+});
