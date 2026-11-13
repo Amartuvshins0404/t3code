@@ -39,6 +39,7 @@ export function planProof(input: {
   }>;
   readonly base: string;
   readonly onBase: (file: string) => boolean;
+  readonly changed: (file: string) => boolean;
 }): Plan;
 
 export function pullRequestCommits(

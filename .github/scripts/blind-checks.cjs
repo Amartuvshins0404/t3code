@@ -12,7 +12,7 @@ function git(cwd, args) {
   });
 }
 
-function planProof({ commits, base, onBase }) {
+function planProof({ commits, base, onBase, changed }) {
   const marker = commits[0] ? checksMarker(commits[0].message) : null;
   if (!marker) {
     return { run: false, note: "No checks commit came first, so there is nothing to prove." };
@@ -36,7 +36,7 @@ function planProof({ commits, base, onBase }) {
     }
   }
   const files = [...touched]
-    .filter(([file]) => TEST_FILE.test(file))
+    .filter(([file]) => TEST_FILE.test(file) && changed(file))
     .map(([file, names]) => ({ file, baseFile: names.findLast(onBase) ?? null }));
   if (files.length === 0) {
     return {
@@ -44,7 +44,7 @@ function planProof({ commits, base, onBase }) {
       note:
         marker.kind === "none"
           ? `The first commit says no test is needed: ${marker.reason || "(no reason given)"}.`
-          : "The checks commit has no test file to run.",
+          : "The checks commit has no changed test file to run.",
     };
   }
   for (const entry of files) support.delete(entry.file);
@@ -224,13 +224,16 @@ function main() {
   const dir = flag("--dir");
   if (command === "plan" && flag("--base") && flag("--head") && dir) {
     const base = flag("--base");
+    const head = flag("--head");
+    const entryAt = (rev, file) => git(cwd, ["ls-tree", "-z", "--full-tree", rev, "--", file]);
     const planned = planProof({
-      commits: pullRequestCommits(cwd, base, flag("--head")),
+      commits: pullRequestCommits(cwd, base, head),
       base,
       onBase: (file) =>
         git(cwd, ["ls-tree", "-z", "--full-tree", "--name-only", base, "--", file])
           .split("\0")
           .includes(file),
+      changed: (file) => entryAt(base, file) !== entryAt(head, file),
     });
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "plan.json"), `${JSON.stringify(planned, null, 2)}\n`);
