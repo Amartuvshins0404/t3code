@@ -1160,6 +1160,14 @@ describe("the Merge lane check fails only for a red lane on the pull request's o
     }
   });
 
+  it("the summary of a red path on the pull request's own run says this check fails only when the switch is passed in", () => {
+    const result = laneFrom(["path"]);
+    expect(saysItFails(summarize(result, { required: true, event: "pull_request_target" }))).toBe(
+      true,
+    );
+    expect(saysItFails(summarize(result, { event: "pull_request_target" }))).toBe(false);
+  });
+
   effectIt.prop(
     "the summary says this check fails exactly when checkOutcome says it fails",
     laneInputs,
@@ -1705,9 +1713,15 @@ const resolveCases: ReadonlyArray<{
     resolved: { ref: "yesterday", onBase: false, inHistory: false },
   },
 ];
+const repairErrors = [
+  { name: "the commit lookup", repairs: "c1c1c1c", status: 500 },
+  { name: "the head compare", repairs: "c2c2c2c", status: 403 },
+  { name: "the pull request lookup", repairs: "#47", status: 502 },
+  { name: "the merge commit compare", repairs: "#48", status: 429 },
+];
 
 describe("Repairs: targets are looked up on the base and in the history of the fix's head", () => {
-  it.each(resolveCases)("$name", async ({ repairs, answers, resolved }) => {
+  it.each(resolveCases)("the Repairs lookup: $name", async ({ repairs, answers, resolved }) => {
     await expect(
       resolveRepairs(repairsApi(answers), repairsRepo, repairsPullRequest(repairs)),
     ).resolves.toEqual([resolved]);
@@ -1724,12 +1738,7 @@ describe("Repairs: targets are looked up on the base and in the history of the f
     ).resolves.toEqual(resolveCases.map((row) => row.resolved));
   });
 
-  it.each([
-    { name: "the commit lookup", repairs: "c1c1c1c", status: 500 },
-    { name: "the head compare", repairs: "c2c2c2c", status: 403 },
-    { name: "the pull request lookup", repairs: "#47", status: 502 },
-    { name: "the merge commit compare", repairs: "#48", status: 429 },
-  ])("throws when $name fails with $status", async ({ repairs, status }) => {
+  it.each(repairErrors)("the Repairs lookup throws when $name fails with $status", async (row) => {
     const answers: Readonly<Record<string, RepairAnswer>> = {
       "commits/c1c1c1c": { status: 500 },
       "commits/c2c2c2c": { data: { sha: fullSha("c2") } },
@@ -1740,8 +1749,8 @@ describe("Repairs: targets are looked up on the base and in the history of the f
       [`compare/${fullSha("c4")}...${repairHead}`]: { status: 429 },
     };
     await expect(
-      resolveRepairs(repairsApi(answers), repairsRepo, repairsPullRequest(repairs)),
-    ).rejects.toMatchObject({ status });
+      resolveRepairs(repairsApi(answers), repairsRepo, repairsPullRequest(row.repairs)),
+    ).rejects.toMatchObject({ status: row.status });
   });
 });
 
@@ -1958,23 +1967,28 @@ const syncCases: ReadonlyArray<{
 ];
 
 describe("the Merge lane job fails the check only for a red lane on the pull request's own run", () => {
-  it.each(syncCases)("$name", async (row) => {
-    using _env = { [Symbol.dispose]: () => vi.unstubAllEnvs() };
-    vi.stubEnv("BLIND_CHECKS_MODE", row.required ? "required" : "report");
-    vi.stubEnv("TEST_STRENGTH_MODE", row.strengthRequired ? "required" : "report");
-    const pr = lanePullRequest(row.listed);
-    const failed: Array<string> = [];
-    const result = await syncPullRequest({
-      github: laneGithub(pr, row.commits, row.firstFiles, row.listed),
-      context: laneContext(row.event, pr),
-      core: laneCore(failed),
-    });
-    expect(result?.lane).toBe(row.lane);
-    expect(result?.reasons.map((entry) => entry.rule)).toEqual(row.rules);
-    const why = (result?.reasons ?? [])
-      .filter((entry) => row.failsFor.includes(entry.rule))
-      .map((entry) => entry.why)
-      .join("; ");
-    expect(failed).toEqual(row.failsFor.length > 0 ? [why] : []);
+  it("the Merge lane job fails exactly when the switch is on, the run is the pull request's own and the lane is red for a reason other than test strength", async () => {
+    for (const row of syncCases) {
+      using _env = { [Symbol.dispose]: () => vi.unstubAllEnvs() };
+      vi.stubEnv("BLIND_CHECKS_MODE", row.required ? "required" : "report");
+      vi.stubEnv("TEST_STRENGTH_MODE", row.strengthRequired ? "required" : "report");
+      const pr = lanePullRequest(row.listed);
+      const failed: Array<string> = [];
+      const result = await syncPullRequest({
+        github: laneGithub(pr, row.commits, row.firstFiles, row.listed),
+        context: laneContext(row.event, pr),
+        core: laneCore(failed),
+      });
+      expect(result?.lane, row.name).toBe(row.lane);
+      expect(
+        result?.reasons.map((entry) => entry.rule),
+        row.name,
+      ).toEqual(row.rules);
+      const why = (result?.reasons ?? [])
+        .filter((entry) => row.failsFor.includes(entry.rule))
+        .map((entry) => entry.why)
+        .join("; ");
+      expect(failed, row.name).toEqual(row.failsFor.length > 0 ? [why] : []);
+    }
   });
 });
