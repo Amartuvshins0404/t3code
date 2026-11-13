@@ -225,15 +225,28 @@ function main() {
   if (command === "plan" && flag("--base") && flag("--head") && dir) {
     const base = flag("--base");
     const head = flag("--head");
-    const entryAt = (rev, file) => git(cwd, ["ls-tree", "-z", "--full-tree", rev, "--", file]);
+    const entryAt = (rev, file) =>
+      git(cwd, ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", rev, "--", file]);
     const planned = planProof({
       commits: pullRequestCommits(cwd, base, head),
       base,
       onBase: (file) =>
-        git(cwd, ["ls-tree", "-z", "--full-tree", "--name-only", base, "--", file])
+        git(cwd, [
+          "--literal-pathspecs",
+          "ls-tree",
+          "-z",
+          "--full-tree",
+          "--name-only",
+          base,
+          "--",
+          file,
+        ])
           .split("\0")
           .includes(file),
-      changed: (file) => entryAt(base, file) !== entryAt(head, file),
+      changed: (file) => {
+        const atBase = entryAt(base, file);
+        return atBase === "" || atBase !== entryAt(head, file);
+      },
     });
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "plan.json"), `${JSON.stringify(planned, null, 2)}\n`);
