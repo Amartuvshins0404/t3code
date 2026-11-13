@@ -2418,4 +2418,62 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
       }
     },
   );
+
+  it("keeps other bots' markers out of its comment, whatever the names", () => {
+    const marked: ApiFile = {
+      filename: "apps/web/src/a<!-- t3-thread-transfer-report -->.test.ts",
+      status: "added",
+      patch: '@@ -0,0 +1,1 @@\n+it("keeps <!-- test-delta --> out", () => {});',
+    };
+    const markedAgain: ApiFile = {
+      ...marked,
+      patch:
+        '@@ -0,0 +1,2 @@\n+it("keeps <!-- test-delta --> out", () => {});\n+it("adds <!-- web-preview-deploy -->", () => {});',
+    };
+    const later: ApiFile = {
+      ...marked,
+      filename: "apps/web/src/b<!-- desktop-macos-preview -->.test.ts",
+    };
+    const input = { ...checked, firstFiles: [marked], prFiles: [marked, slugSource] };
+    const lock = judgeChecks(input).lock;
+    const verdict = judgeChecks({ ...input, prFiles: [markedAgain, later, slugSource], lock });
+    expect(verdict.changes.length).toBeGreaterThan(0);
+    const strength = renderStrength(
+      {
+        ...weakStrength,
+        examples: [
+          { file: "c<!-- test-delta -->.ts", line: 1, kind: "ConditionalExpression", ran: true },
+        ],
+      },
+      { required: false },
+    );
+    const first = renderBotComment({ previous: null, checks: verdict, strength });
+    const again = renderBotComment({ previous: first, checks: greenChecks, strength });
+    for (const body of [first, again]) {
+      expect(countOf(body, /<!--/g)).toBe(2);
+      expect(readLock(body)).toEqual(lock);
+    }
+  });
+
+  it.each([
+    { text: "🙂", times: 17_000 },
+    { text: "很", times: 22_000 },
+    { text: "é", times: 33_000 },
+    { text: "a", times: 66_000 },
+  ])(
+    "never writes an empty or oversized comment for a reason of $text repeated $times times",
+    ({ text, times }) => {
+      const verdict = judgeChecks({
+        ...checked,
+        commits: [noTest(`none, ${text.repeat(times)}`), code],
+        firstFiles: [],
+        prFiles: [slugSource],
+      });
+      for (const strength of [firstStrength, null]) {
+        const body = renderBotComment({ previous: null, checks: verdict, strength });
+        expect(body.length).toBeGreaterThan(0);
+        expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(githubLimit);
+      }
+    },
+  );
 });
