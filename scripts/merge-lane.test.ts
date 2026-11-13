@@ -1,7 +1,7 @@
 import { it as effectIt } from "@effect/vitest";
 import * as Arbitrary from "effect/Arbitrary";
 import * as Schema from "effect/Schema";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { judge, type TestResult } from "../.github/scripts/blind-checks.cjs";
 import { readWorkspace } from "../.github/scripts/ci-changes.cjs";
@@ -18,8 +18,10 @@ import {
   renderBotComment,
   renderChanges,
   renderLockComment,
+  resolveRepairs,
   runForPullRequest,
   summarize,
+  syncPullRequest,
   type ApiFile,
   type ChangedFile,
   type ChecksLock,
@@ -1529,4 +1531,450 @@ describe("the lane bot comment holds each pull request's own result, as plain te
     },
     { arbitrary: { seed: 26602, runs: 300 } },
   );
+});
+
+type RepairsApi = Parameters<typeof resolveRepairs>[0];
+type RepairAnswer = { readonly data: object } | { readonly status: number };
+const repairsRepo = "/repos/acme/lanes";
+const repairBase = "1".repeat(40);
+const repairHead = "2".repeat(40);
+const fullSha = (pair: string) => pair.repeat(20);
+const compared = (status: string): RepairAnswer => ({ data: { status, ahead_by: 0 } });
+const merged = (base: string, mergeSha: string | null): RepairAnswer => ({
+  data: { merged_at: "2026-11-12T10:00:00Z", base: { ref: base }, merge_commit_sha: mergeSha },
+});
+const repairsApi = (answers: Readonly<Record<string, RepairAnswer>>): RepairsApi => ({
+  get: async (path: string) => {
+    const answer = answers[path.slice(repairsRepo.length + 1)];
+    if (!answer) throw new Error(`no answer for ${path}`);
+    if ("status" in answer) throw Object.assign(new Error(`HTTP ${answer.status}`), answer);
+    return answer.data;
+  },
+});
+const repairsPullRequest = (repairs: string) => ({
+  body: `Fixes the slug bug.\n\nRepairs: ${repairs}`,
+  base: { ref: "amaraa-mode", sha: repairBase },
+  head: { sha: repairHead },
+});
+const resolveCases: ReadonlyArray<{
+  readonly name: string;
+  readonly repairs: string;
+  readonly answers: Readonly<Record<string, RepairAnswer>>;
+  readonly resolved: ResolvedRepair;
+}> = [
+  {
+    name: "a commit on the base and in the head's history",
+    repairs: "a1a1a1a",
+    answers: {
+      "commits/a1a1a1a": { data: { sha: fullSha("a1") } },
+      [`compare/${fullSha("a1")}...${repairBase}`]: compared("ahead"),
+      [`compare/${fullSha("a1")}...${repairHead}`]: compared("ahead"),
+    },
+    resolved: { ref: "a1a1a1a", onBase: true, inHistory: true },
+  },
+  {
+    name: "a commit that is the head itself",
+    repairs: "A2A2A2A2",
+    answers: {
+      "commits/a2a2a2a2": { data: { sha: fullSha("a2") } },
+      [`compare/${fullSha("a2")}...${repairBase}`]: compared("identical"),
+      [`compare/${fullSha("a2")}...${repairHead}`]: compared("identical"),
+    },
+    resolved: { ref: "a2a2a2a2", onBase: true, inHistory: true },
+  },
+  {
+    name: "a commit on the base that is newer than the head",
+    repairs: "a3a3a3a",
+    answers: {
+      "commits/a3a3a3a": { data: { sha: fullSha("a3") } },
+      [`compare/${fullSha("a3")}...${repairBase}`]: compared("ahead"),
+      [`compare/${fullSha("a3")}...${repairHead}`]: compared("behind"),
+    },
+    resolved: { ref: "a3a3a3a", onBase: true, inHistory: false },
+  },
+  {
+    name: "a commit on the base that the head's history does not hold",
+    repairs: "a4a4a4a",
+    answers: {
+      "commits/a4a4a4a": { data: { sha: fullSha("a4") } },
+      [`compare/${fullSha("a4")}...${repairBase}`]: compared("identical"),
+      [`compare/${fullSha("a4")}...${repairHead}`]: compared("diverged"),
+    },
+    resolved: { ref: "a4a4a4a", onBase: true, inHistory: false },
+  },
+  {
+    name: "a commit only on the fix's own branch",
+    repairs: "a5a5a5a",
+    answers: {
+      "commits/a5a5a5a": { data: { sha: fullSha("a5") } },
+      [`compare/${fullSha("a5")}...${repairBase}`]: compared("behind"),
+      [`compare/${fullSha("a5")}...${repairHead}`]: compared("ahead"),
+    },
+    resolved: { ref: "a5a5a5a", onBase: false, inHistory: true },
+  },
+  {
+    name: "a commit that does not exist",
+    repairs: "a6a6a6a",
+    answers: { "commits/a6a6a6a": { status: 404 } },
+    resolved: { ref: "a6a6a6a", onBase: false, inHistory: false },
+  },
+  {
+    name: "a short sha GitHub cannot resolve",
+    repairs: "a7a7a7a",
+    answers: { "commits/a7a7a7a": { status: 422 } },
+    resolved: { ref: "a7a7a7a", onBase: false, inHistory: false },
+  },
+  {
+    name: "a commit on the base whose head compare is not found",
+    repairs: "a8a8a8a",
+    answers: {
+      "commits/a8a8a8a": { data: { sha: fullSha("a8") } },
+      [`compare/${fullSha("a8")}...${repairBase}`]: compared("ahead"),
+      [`compare/${fullSha("a8")}...${repairHead}`]: { status: 404 },
+    },
+    resolved: { ref: "a8a8a8a", onBase: true, inHistory: false },
+  },
+  {
+    name: "a commit on the base whose head compare cannot be made",
+    repairs: "a9a9a9a",
+    answers: {
+      "commits/a9a9a9a": { data: { sha: fullSha("a9") } },
+      [`compare/${fullSha("a9")}...${repairBase}`]: compared("ahead"),
+      [`compare/${fullSha("a9")}...${repairHead}`]: { status: 422 },
+    },
+    resolved: { ref: "a9a9a9a", onBase: true, inHistory: false },
+  },
+  {
+    name: "a pull request merged into the base whose merge commit is in the head's history",
+    repairs: "#41",
+    answers: {
+      "pulls/41": merged("amaraa-mode", fullSha("b1")),
+      [`compare/${fullSha("b1")}...${repairBase}`]: compared("diverged"),
+      [`compare/${fullSha("b1")}...${repairHead}`]: compared("ahead"),
+    },
+    resolved: { ref: "#41", onBase: true, inHistory: true },
+  },
+  {
+    name: "a pull request merged into the base whose merge commit is not in the head's history",
+    repairs: "#42",
+    answers: {
+      "pulls/42": merged("amaraa-mode", fullSha("b2")),
+      [`compare/${fullSha("b2")}...${repairBase}`]: compared("ahead"),
+      [`compare/${fullSha("b2")}...${repairHead}`]: compared("diverged"),
+    },
+    resolved: { ref: "#42", onBase: true, inHistory: false },
+  },
+  {
+    name: "a pull request that is not merged",
+    repairs: "#43",
+    answers: {
+      "pulls/43": {
+        data: { merged_at: null, base: { ref: "amaraa-mode" }, merge_commit_sha: fullSha("b3") },
+      },
+      [`compare/${fullSha("b3")}...${repairBase}`]: compared("ahead"),
+      [`compare/${fullSha("b3")}...${repairHead}`]: compared("ahead"),
+    },
+    resolved: { ref: "#43", onBase: false, inHistory: false },
+  },
+  {
+    name: "a pull request merged into another base",
+    repairs: "#44",
+    answers: {
+      "pulls/44": merged("infra/self-hosted-auth", fullSha("b4")),
+      [`compare/${fullSha("b4")}...${repairBase}`]: compared("ahead"),
+      [`compare/${fullSha("b4")}...${repairHead}`]: compared("ahead"),
+    },
+    resolved: { ref: "#44", onBase: false, inHistory: false },
+  },
+  {
+    name: "a merged pull request with no merge commit",
+    repairs: "#45",
+    answers: { "pulls/45": merged("amaraa-mode", null) },
+    resolved: { ref: "#45", onBase: true, inHistory: false },
+  },
+  {
+    name: "a pull request that does not exist",
+    repairs: "#46",
+    answers: { "pulls/46": { status: 404 } },
+    resolved: { ref: "#46", onBase: false, inHistory: false },
+  },
+  {
+    name: "a target that is neither a commit nor a pull request",
+    repairs: "yesterday",
+    answers: {},
+    resolved: { ref: "yesterday", onBase: false, inHistory: false },
+  },
+];
+
+describe("Repairs: targets are looked up on the base and in the history of the fix's head", () => {
+  it.each(resolveCases)("$name", async ({ repairs, answers, resolved }) => {
+    await expect(
+      resolveRepairs(repairsApi(answers), repairsRepo, repairsPullRequest(repairs)),
+    ).resolves.toEqual([resolved]);
+  });
+
+  it("looks up every target on one line", async () => {
+    const answers = Object.assign({}, ...resolveCases.map((row) => row.answers));
+    await expect(
+      resolveRepairs(
+        repairsApi(answers),
+        repairsRepo,
+        repairsPullRequest(resolveCases.map((row) => row.repairs).join(", ")),
+      ),
+    ).resolves.toEqual(resolveCases.map((row) => row.resolved));
+  });
+
+  it.each([
+    { name: "the commit lookup", repairs: "c1c1c1c", status: 500 },
+    { name: "the head compare", repairs: "c2c2c2c", status: 403 },
+    { name: "the pull request lookup", repairs: "#47", status: 502 },
+    { name: "the merge commit compare", repairs: "#48", status: 429 },
+  ])("throws when $name fails with $status", async ({ repairs, status }) => {
+    const answers: Readonly<Record<string, RepairAnswer>> = {
+      "commits/c1c1c1c": { status: 500 },
+      "commits/c2c2c2c": { data: { sha: fullSha("c2") } },
+      [`compare/${fullSha("c2")}...${repairBase}`]: compared("ahead"),
+      [`compare/${fullSha("c2")}...${repairHead}`]: { status: 403 },
+      "pulls/47": { status: 502 },
+      "pulls/48": merged("amaraa-mode", fullSha("c4")),
+      [`compare/${fullSha("c4")}...${repairHead}`]: { status: 429 },
+    };
+    await expect(
+      resolveRepairs(repairsApi(answers), repairsRepo, repairsPullRequest(repairs)),
+    ).rejects.toMatchObject({ status });
+  });
+});
+
+type SyncInput = Parameters<typeof syncPullRequest>[0];
+const laneRepo = { owner: "acme", repo: "lanes" };
+const migrationFile: ApiFile = {
+  filename: "apps/server/src/persistence/Migrations/065_ThreadIndexes.ts",
+  status: "added",
+  patch: "@@ -0,0 +1,1 @@\n+export {};",
+};
+const lanePullRequest = (listed: ReadonlyArray<ApiFile>) => ({
+  number: 17,
+  title: "feat(server): thread indexes",
+  body: request,
+  state: "open",
+  changed_files: listed.length,
+  base: { ref: "amaraa-mode", sha: repairBase },
+  head: { sha: repairHead, ref: "feat/thread-indexes", repo: { full_name: "acme/lanes" } },
+});
+type LanePullRequest = ReturnType<typeof lanePullRequest>;
+const laneGithub = (
+  pr: LanePullRequest,
+  commits: ReadonlyArray<CommitInfo>,
+  firstFiles: ReadonlyArray<ApiFile>,
+  listed: ReadonlyArray<ApiFile>,
+): SyncInput["github"] => {
+  const answer = (data: unknown) => async () => ({ data });
+  const rest = {
+    pulls: { get: answer(pr), list: answer([pr]), listFiles: answer(listed) },
+    issues: {
+      addLabels: answer({}),
+      createComment: answer({}),
+      createLabel: answer({}),
+      getLabel: answer({}),
+      listLabelsOnIssue: answer([]),
+      removeLabel: answer({}),
+      updateComment: answer({}),
+    },
+    actions: {
+      downloadArtifact: answer(null),
+      listWorkflowRunArtifacts: answer({ artifacts: [] }),
+      listWorkflowRuns: answer({ workflow_runs: [] }),
+    },
+  };
+  const repoPath = `/repos/${laneRepo.owner}/${laneRepo.repo}`;
+  const pages = new Map<unknown, ReadonlyArray<unknown>>([
+    [rest.pulls.list, [pr]],
+    [rest.pulls.listFiles, listed],
+    [rest.issues.listLabelsOnIssue, []],
+    [
+      `GET ${repoPath}/pulls/${pr.number}/commits`,
+      commits.map((entry) => ({
+        sha: entry.sha,
+        commit: { message: entry.message, committer: { date: "2026-11-12T10:00:00Z" } },
+      })),
+    ],
+    [`GET ${repoPath}/issues/${pr.number}/comments`, []],
+  ]);
+  const requests = new Map<string, unknown>(
+    commits
+      .slice(0, 1)
+      .map((entry) => [`GET ${repoPath}/commits/${entry.sha}`, { files: firstFiles }]),
+  );
+  return {
+    rest,
+    paginate: async (route) => {
+      const page = pages.get(route);
+      if (!page) throw new Error(`no page for ${String(route)}`);
+      return page;
+    },
+    request: async (route) => {
+      if (!requests.has(route)) throw new Error(`no answer for ${route}`);
+      return { data: requests.get(route) };
+    },
+  };
+};
+const laneContext = (event: LaneEvent, pr: LanePullRequest): SyncInput["context"] =>
+  event === "pull_request_target"
+    ? { eventName: event, repo: laneRepo, payload: { pull_request: pr } }
+    : {
+        eventName: event,
+        repo: laneRepo,
+        payload: {
+          workflow_run: {
+            event: "pull_request",
+            head_sha: pr.head.sha,
+            head_branch: pr.head.ref,
+            head_repository: pr.head.repo,
+          },
+          repository: { default_branch: "amaraa-mode" },
+        },
+      };
+const laneCore = (failed: Array<string>): SyncInput["core"] => {
+  const summary: SyncInput["core"]["summary"] = {
+    addRaw: () => summary,
+    write: async () => summary,
+  };
+  return {
+    info: () => undefined,
+    setFailed: (message) => {
+      failed.push(message);
+    },
+    summary,
+  };
+};
+const syncCases: ReadonlyArray<{
+  readonly name: string;
+  readonly listed: ReadonlyArray<ApiFile>;
+  readonly commits: ReadonlyArray<CommitInfo>;
+  readonly firstFiles: ReadonlyArray<ApiFile>;
+  readonly required: boolean;
+  readonly strengthRequired: boolean;
+  readonly event: LaneEvent;
+  readonly lane: Lane;
+  readonly rules: ReadonlyArray<string>;
+  readonly failsFor: ReadonlyArray<string>;
+}> = [
+  {
+    name: "a red path, switch on, own run",
+    listed: [migrationFile],
+    commits: [code],
+    firstFiles: [],
+    required: true,
+    strengthRequired: false,
+    event: "pull_request_target",
+    lane: "red",
+    rules: ["migrations", "app-code"],
+    failsFor: ["migrations"],
+  },
+  {
+    name: "a red path and unmeasured tests, switch on, own run",
+    listed: [slugTest, migrationFile],
+    commits: [checks, code],
+    firstFiles: [slugTest],
+    required: true,
+    strengthRequired: true,
+    event: "pull_request_target",
+    lane: "red",
+    rules: ["migrations", "test-strength", "app-code"],
+    failsFor: ["migrations"],
+  },
+  {
+    name: "a red path, switch on, after Blind Checks",
+    listed: [migrationFile],
+    commits: [code],
+    firstFiles: [],
+    required: true,
+    strengthRequired: false,
+    event: "workflow_run",
+    lane: "red",
+    rules: ["migrations", "app-code"],
+    failsFor: [],
+  },
+  {
+    name: "a red path, switch off, own run",
+    listed: [migrationFile],
+    commits: [code],
+    firstFiles: [],
+    required: false,
+    strengthRequired: false,
+    event: "pull_request_target",
+    lane: "red",
+    rules: ["migrations", "app-code"],
+    failsFor: [],
+  },
+  {
+    name: "red checks, switch on, after Blind Checks",
+    listed: [slugTest, slugSource],
+    commits: [code],
+    firstFiles: [],
+    required: true,
+    strengthRequired: false,
+    event: "workflow_run",
+    lane: "red",
+    rules: ["checks-missing", "app-code"],
+    failsFor: [],
+  },
+  {
+    name: "red only from test strength, switch on, own run",
+    listed: [slugTest, slugSource],
+    commits: [checks, code],
+    firstFiles: [slugTest],
+    required: true,
+    strengthRequired: true,
+    event: "pull_request_target",
+    lane: "red",
+    rules: ["test-strength", "app-code"],
+    failsFor: [],
+  },
+  {
+    name: "amber, switch on, own run",
+    listed: [slugTest, slugSource],
+    commits: [checks, code],
+    firstFiles: [slugTest],
+    required: true,
+    strengthRequired: false,
+    event: "pull_request_target",
+    lane: "amber",
+    rules: ["app-code"],
+    failsFor: [],
+  },
+  {
+    name: "green, switch on, own run",
+    listed: [docsEdit],
+    commits: [docsOnly],
+    firstFiles: [],
+    required: true,
+    strengthRequired: false,
+    event: "pull_request_target",
+    lane: "green",
+    rules: ["docs"],
+    failsFor: [],
+  },
+];
+
+describe("the Merge lane job fails the check only for a red lane on the pull request's own run", () => {
+  it.each(syncCases)("$name", async (row) => {
+    using _env = { [Symbol.dispose]: () => vi.unstubAllEnvs() };
+    vi.stubEnv("BLIND_CHECKS_MODE", row.required ? "required" : "report");
+    vi.stubEnv("TEST_STRENGTH_MODE", row.strengthRequired ? "required" : "report");
+    const pr = lanePullRequest(row.listed);
+    const failed: Array<string> = [];
+    const result = await syncPullRequest({
+      github: laneGithub(pr, row.commits, row.firstFiles, row.listed),
+      context: laneContext(row.event, pr),
+      core: laneCore(failed),
+    });
+    expect(result?.lane).toBe(row.lane);
+    expect(result?.reasons.map((entry) => entry.rule)).toEqual(row.rules);
+    const why = (result?.reasons ?? [])
+      .filter((entry) => row.failsFor.includes(entry.rule))
+      .map((entry) => entry.why)
+      .join("; ");
+    expect(failed).toEqual(row.failsFor.length > 0 ? [why] : []);
+  });
 });
