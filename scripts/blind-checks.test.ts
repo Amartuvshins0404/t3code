@@ -1316,6 +1316,7 @@ describe("the bots run the base branch's tools as they are when the job starts",
       openedOn: string;
       first: string;
       head: string;
+      run: (args: ReadonlyArray<string>) => string;
       runStep: (script: string, env: Record<string, string>) => void;
       read: (...path: ReadonlyArray<string>) => string;
     }) => void,
@@ -1354,6 +1355,7 @@ describe("the bots run the base branch's tools as they are when the job starts",
         openedOn,
         first,
         head,
+        run,
         runStep: (script, env) => {
           NodeChildProcess.execFileSync("bash", ["-c", script], {
             cwd: work,
@@ -1395,6 +1397,32 @@ describe("the bots run the base branch's tools as they are when the job starts",
         judge: "new judge\n",
         outputs: [`base=${openedOn}`, `first=${first}`],
       });
+    });
+  });
+
+  it("the proof runs without the code from the newest base commit the pull request merged in, not from the commit it was opened on", () => {
+    withMovedBase(({ openedOn, first, run, runStep, read }) => {
+      const tip = run(["rev-parse", "amaraa-mode"]);
+      run(["checkout", "-q", "fix/slugs"]);
+      run([
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "Merge branch 'amaraa-mode' into fix/slugs",
+        "amaraa-mode",
+      ]);
+      runStep(
+        workflowStep(
+          "blind-checks.yml",
+          "Fetch the pull request commits and the judge from the base branch",
+        ),
+        { HEAD_SHA: run(["rev-parse", "HEAD"]), BASE_SHA: openedOn, BASE_REF: "amaraa-mode" },
+      );
+      expect(read("temp", "output.txt").trim().split("\n")).toEqual([
+        `base=${tip}`,
+        `first=${first}`,
+      ]);
     });
   });
 
