@@ -47,7 +47,6 @@ export interface RepairsLine {
 export interface CommitInfo {
   readonly sha: string;
   readonly message: string;
-  readonly time?: number;
 }
 
 export interface LockedFile {
@@ -81,7 +80,7 @@ export interface ChecksVerdict {
 export interface ResolvedRepair {
   readonly ref: string;
   readonly onBase: boolean;
-  readonly time: number | null;
+  readonly inHistory: boolean;
 }
 
 export interface ApiFile extends ChangedFile {
@@ -98,11 +97,18 @@ export function classify(
   options?: { readonly packageDirs?: ReadonlyArray<string>; readonly fileListComplete?: boolean },
 ): LaneResult;
 
+export function checkOutcome(input: {
+  readonly result: LaneResult;
+  readonly required: boolean;
+  readonly event: string;
+}): { readonly fails: boolean; readonly reasons: Array<LaneReason> };
+
 export function summarize(
   result: LaneResult,
   options?: {
     readonly maxFiles?: number;
     readonly required?: boolean;
+    readonly event?: string;
     readonly changes?: ReadonlyArray<TestChange>;
   },
 ): string;
@@ -125,8 +131,82 @@ export function judgeRepairs(input: {
   readonly title: string;
   readonly body: string | null;
   readonly resolved: ReadonlyArray<ResolvedRepair>;
-  readonly fixTime: number;
 }): Array<LaneReason>;
+
+export function resolveRepairs(
+  api: {
+    get(path: string, params?: Readonly<Record<string, string | number>>): Promise<unknown>;
+  },
+  repoPath: string,
+  pr: {
+    readonly body: string | null;
+    readonly base: { readonly ref: string; readonly sha: string };
+    readonly head: { readonly sha: string };
+  },
+): Promise<Array<ResolvedRepair>>;
+
+type GithubCall = (
+  params: Readonly<Record<string, unknown>>,
+) => Promise<{ readonly data: unknown }>;
+
+interface LanePullRequest extends PullRequestHead {
+  readonly number: number;
+  readonly title: string;
+  readonly body: string | null;
+  readonly state?: string;
+  readonly changed_files: number;
+  readonly base: { readonly ref: string; readonly sha: string };
+}
+
+interface LaneSummary {
+  addRaw(text: string): LaneSummary;
+  write(): Promise<unknown>;
+}
+
+export function syncPullRequest(input: {
+  readonly github: {
+    readonly rest: {
+      readonly pulls: Readonly<Record<"get" | "list" | "listFiles", GithubCall>>;
+      readonly issues: Readonly<
+        Record<
+          | "addLabels"
+          | "createComment"
+          | "createLabel"
+          | "getLabel"
+          | "listLabelsOnIssue"
+          | "removeLabel"
+          | "updateComment",
+          GithubCall
+        >
+      >;
+      readonly actions: Readonly<
+        Record<"downloadArtifact" | "listWorkflowRunArtifacts" | "listWorkflowRuns", GithubCall>
+      >;
+    };
+    paginate(
+      route: string | GithubCall,
+      params: Readonly<Record<string, unknown>>,
+    ): Promise<ReadonlyArray<unknown>>;
+    request(
+      route: string,
+      params?: Readonly<Record<string, unknown>>,
+    ): Promise<{ readonly data: unknown }>;
+  };
+  readonly context: {
+    readonly eventName: string;
+    readonly repo: { readonly owner: string; readonly repo: string };
+    readonly payload: {
+      readonly pull_request?: LanePullRequest;
+      readonly workflow_run?: BlindChecksRun & { readonly event: string };
+      readonly repository?: { readonly default_branch: string };
+    };
+  };
+  readonly core: {
+    info(message: string): void;
+    setFailed(message: string): void;
+    readonly summary: LaneSummary;
+  };
+}): Promise<LaneResult | null>;
 
 export function renderChanges(changes: ReadonlyArray<TestChange>): string;
 export function renderLockComment(lock: ChecksLock, checks: ChecksVerdict): string;
