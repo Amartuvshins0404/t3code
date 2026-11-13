@@ -56,10 +56,4 @@ test("reports only growth worth a reviewer's attention", () => {
     render(countTestDelta(diff)),
     /New browser test files: `apps\/web\/src\/Panel\.browser\.test\.tsx`/,
   );
-  const marked = render({
-    kinds: { browser: 1, server: 0, unit: 0 },
-    net: 1,
-    newBrowserFiles: ["docs/a<!-- test-strength -->.browser.test.md"],
-  });
-  assert.equal(marked.match(/<!--/g)?.length, 1);
 });

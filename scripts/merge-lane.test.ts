@@ -37,6 +37,7 @@ import {
   strengthReasons,
   type StrengthVerdict,
 } from "../.github/scripts/test-strength.cjs";
+import { render as renderSizeComment } from "../.github/scripts/test-delta.cjs";
 
 const packageDirs = readWorkspace().map((pkg) => pkg.dir);
 
@@ -2220,6 +2221,13 @@ const expectCappedLock = (files: number, tests: number, length: number) => {
         lock: back,
       }).changes.filter((change) => change.before === null),
     ).toEqual([]);
+    const afterRewrite = { ...input, firstFiles: rewritten, prFiles: [...rewritten, slugSource] };
+    const secondBody = renderBotComment({
+      previous: body,
+      checks: judgeChecks({ ...afterRewrite, lock: back }),
+      strength: nextStrength,
+    });
+    expect(rulesOf({ ...afterRewrite, lock: readLock(secondBody) })).toContain("checks-rewritten");
   }
   return { lock: verdict.lock, first, again };
 };
@@ -2242,6 +2250,24 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
       [editedSlugTest],
     );
     expect(result?.reasons.map((entry) => entry.rule)).toContain("checks-rewritten");
+    const pr = lanePullRequest([editedSlugTest, slugSource]);
+    const strengthOnly: LaneComment = {
+      id: 3,
+      user: { login: laneBot },
+      body: renderBotComment({ previous: null, checks: greenChecks, strength: firstStrength }),
+    };
+    const behind = await syncPullRequest({
+      github: laneGithub(
+        pr,
+        [rebased, code],
+        [editedSlugTest],
+        [editedSlugTest, slugSource],
+        [strengthOnly, ...editedComments],
+      ),
+      context: laneContext("pull_request_target", pr),
+      core: laneCore([]),
+    });
+    expect(behind?.reasons.map((entry) => entry.rule)).toContain("checks-rewritten");
     expect(writes).toEqual(updatedOwnComment);
     expect(readLock(bodyOf(writes[0]))).toEqual(originalLock);
   });
@@ -2258,6 +2284,7 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
       const edited = crlf ? withCrlf(typed) : typed;
       expect(readLock(edited)).toEqual(originalLock);
       expect(readLock(`${above.join("")}\n\n${plantedComment}`)).toBeNull();
+      expect(readLock(`${strengthMarker}\n- \`s/${plantedLock}.ts\` line 1`)).toBeNull();
       for (const broken of [
         "{}",
         "5",
@@ -2438,6 +2465,12 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
     const lock = judgeChecks(input).lock;
     const verdict = judgeChecks({ ...input, prFiles: [markedAgain, later, slugSource], lock });
     expect(verdict.changes.length).toBeGreaterThan(0);
+    const sizeComment = renderSizeComment({
+      kinds: { browser: 1, server: 0, unit: 0 },
+      net: 1,
+      newBrowserFiles: ["docs/a<!-- test-strength -->.browser.test.md"],
+    });
+    expect(countOf(sizeComment ?? "", /<!--/g)).toBe(1);
     const strength = renderStrength(
       {
         ...weakStrength,
