@@ -106,11 +106,14 @@ function judgeFile(entry, baseline, before, after) {
     }
   }
 
+  const unloaded =
+    before?.assertionResults.length === 0 &&
+    !firstLine(before.message).startsWith("No test suite found");
   let without;
   if (!before) {
     without = "did not run";
     problems.push("It did not run without the code.");
-  } else if (before.assertionResults.length === 0) {
+  } else if (unloaded) {
     without = `could not load: ${firstLine(before.message)}${oldNote}`;
     if (after && after.assertionResults.length === 0) {
       problems.push("It cannot load with the code either, so the test setup is broken.");
@@ -132,6 +135,13 @@ function judgeFile(entry, baseline, before, after) {
     if (held.length > 0) {
       problems.push(`These new tests did not fail without the code: ${listed(held)}.`);
     }
+    const kept = countNames(after?.assertionResults ?? []);
+    const gone = [...countNames(before.assertionResults)]
+      .filter(([name, count]) => count > (kept.get(name) ?? 0))
+      .map(([name]) => name);
+    if (gone.length > 0) {
+      problems.push(`These tests ran without the code but are gone with it: ${listed(gone)}.`);
+    }
     const oldFailed = countNames(oldTests.filter((test) => test.status === "failed"));
     if (![...failed].some(([name, count]) => count > (oldFailed.get(name) ?? 0))) {
       problems.push("Nothing in it failed without the code.");
@@ -144,7 +154,7 @@ function judgeFile(entry, baseline, before, after) {
     problems.push("It did not run with the code.");
   } else if (after.assertionResults.length === 0) {
     withCode = `could not load: ${firstLine(after.message)}`;
-    if (before && before.assertionResults.length > 0) {
+    if (before && !unloaded) {
       problems.push("It loads without the code but not with it.");
     } else if (!problems.some((problem) => problem.includes("setup is broken"))) {
       problems.push("It cannot load with the code.");
