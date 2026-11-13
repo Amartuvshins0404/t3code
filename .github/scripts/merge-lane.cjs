@@ -630,13 +630,20 @@ function renderChanges(changes) {
   ].join("\n");
 }
 
+const isLock = (value) =>
+  typeof value?.commit === "string" &&
+  typeof value.fingerprint === "string" &&
+  Array.isArray(value.files) &&
+  value.files.every((entry) => typeof entry?.file === "string" && Array.isArray(entry.tests));
+
 function readLock(body) {
   const start = body.indexOf(LOCK_MARKER);
   const strength = body.indexOf(STRENGTH_MARKER);
   if (start === -1 || (strength !== -1 && strength < start)) return null;
   const json = body.slice(start + LOCK_MARKER.length);
   try {
-    return JSON.parse(json.slice(0, json.indexOf("-->")));
+    const lock = JSON.parse(json.slice(0, json.indexOf("-->")));
+    return isLock(lock) ? lock : null;
   } catch {
     return null;
   }
@@ -652,7 +659,9 @@ function renderLockComment(lock, checks) {
     "### Locked checks",
     "",
     lock.kind === "none"
-      ? `The first commit \`${short}\` says no test is needed: ${lock.reason ? asText(lock.reason) : "(no reason given)"}.`
+      ? lock.shortened
+        ? `The first commit \`${short}\` says no test is needed. Its reason is too long to show here.`
+        : `The first commit \`${short}\` says no test is needed: ${lock.reason ? asText(lock.reason) : "(no reason given)"}.`
       : lock.shortened
         ? `Locked at commit \`${short}\`.`
         : `Locked at commit \`${short}\`: ${tests.length} test files with ${count} tests.`,
@@ -665,7 +674,7 @@ function renderLockComment(lock, checks) {
         : "The checks are as they were locked.",
     "",
     lock.shortened
-      ? "This comment was too long for GitHub, so it leaves out the list of locked tests and how they changed. The lock still holds the checks commit and its fingerprint, so a rewritten checks commit is still caught."
+      ? "The full lock was too long for one GitHub comment, so it leaves out the list of locked tests. Its fingerprint still catches a rewritten checks commit, but this comment does not list how the tests changed."
       : renderChanges(checks.changes),
     "",
     "The lane bot wrote this lock the first time it saw the checks commit, and keeps it. An edit to this comment shows in its edit history.",
@@ -681,12 +690,11 @@ function renderBotComment({ previous, checks, strength }) {
     ].join("\n\n");
   const full = render(lock);
   if (Buffer.byteLength(full) <= GITHUB_COMMENT_BYTES) return full;
-  let short = render(lock && { ...lock, files: [], shortened: true });
-  for (let over = Buffer.byteLength(short) - GITHUB_COMMENT_BYTES; over > 0;) {
-    short = short.slice(0, short.length - over);
-    over = Buffer.byteLength(short) - GITHUB_COMMENT_BYTES;
-  }
-  return short;
+  const short = render(lock && { ...lock, files: [], shortened: true });
+  if (Buffer.byteLength(short) <= GITHUB_COMMENT_BYTES) return short;
+  let cut = Buffer.from(short).subarray(0, GITHUB_COMMENT_BYTES).toString();
+  while (Buffer.byteLength(cut) > GITHUB_COMMENT_BYTES) cut = cut.slice(0, -1);
+  return cut;
 }
 
 function isBotComment(comment) {
