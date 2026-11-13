@@ -2212,6 +2212,14 @@ const expectCappedLock = (files: number, tests: number, length: number) => {
     expect(
       rulesOf({ ...input, firstFiles: rewritten, prFiles: [...rewritten, slugSource], lock: back }),
     ).toContain("checks-rewritten");
+    expect(
+      judgeChecks({
+        ...input,
+        firstFiles: rewritten,
+        prFiles: [...rewritten, slugSource],
+        lock: back,
+      }).changes.filter((change) => change.before === null),
+    ).toEqual([]);
   }
   return { lock: verdict.lock, first, again };
 };
@@ -2250,6 +2258,21 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
       const edited = crlf ? withCrlf(typed) : typed;
       expect(readLock(edited)).toEqual(originalLock);
       expect(readLock(`${above.join("")}\n\n${plantedComment}`)).toBeNull();
+      for (const broken of [
+        "{}",
+        "5",
+        '"x"',
+        '{"commit":"abc"}',
+        '{"commit":"a","fingerprint":"b","files":[null]}',
+      ]) {
+        const hand = `${above.join("")}\n\n${lockMarker}${broken}-->`;
+        expect(readLock(hand)).toBeNull();
+        expect(
+          readLock(
+            renderBotComment({ previous: hand, checks: greenChecks, strength: nextStrength }),
+          ),
+        ).toBeNull();
+      }
       expect(
         readLock(
           renderBotComment({
@@ -2361,4 +2384,38 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
       expect(lockIds(readLock(body))).toEqual(lockIds(originalLock));
     }
   });
+  it.each([
+    { text: "🙂", times: 10_900 },
+    { text: "很", times: 13_100 },
+    { text: "é", times: 21_800 },
+  ])(
+    "keeps the lock when a reason for no tests is $text repeated $times times",
+    ({ text, times }) => {
+      const input = {
+        ...checked,
+        commits: [noTest(`none, ${text.repeat(times)}`), code],
+        firstFiles: [],
+        prFiles: [slugSource],
+      };
+      const verdict = judgeChecks(input);
+      const first = renderBotComment({ previous: null, checks: verdict, strength: firstStrength });
+      const again = renderBotComment({
+        previous: first,
+        checks: greenChecks,
+        strength: nextStrength,
+      });
+      for (const body of [first, again]) {
+        expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(githubLimit);
+        const back = readLock(body);
+        expect(lockIds(back)).toEqual(lockIds(verdict.lock));
+        expect(
+          rulesOf({
+            ...input,
+            commits: [noTest(`none, ${text.repeat(times - 1)}`), code],
+            lock: back,
+          }),
+        ).toContain("checks-rewritten");
+      }
+    },
+  );
 });
