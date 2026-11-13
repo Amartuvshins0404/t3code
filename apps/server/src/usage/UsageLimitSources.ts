@@ -386,6 +386,18 @@ export const make = Effect.gen(function* () {
 
   const providersLock = yield* Semaphore.make(1);
 
+  const sharedKeyRoute = Effect.fn("UsageLimitSources.sharedKeyRoute")(function* (
+    url: string,
+    keys: { readonly managementKey: string },
+  ) {
+    for (const base of new Set([url, new URL(url).origin])) {
+      if (yield* api.servesModels(base, keys.managementKey)) {
+        return { url: base, clientKey: keys.managementKey };
+      }
+    }
+    return yield* localFailure("clientKeyFailed");
+  });
+
   const addProviders = Effect.fn("UsageLimitSources.addProviders")(function* (
     settings: ServerSettings,
     id: string,
@@ -400,10 +412,11 @@ export const make = Effect.gen(function* () {
         .updateSettings({ usageLimitSources: { [id]: { ...config, clientKey } } })
         .pipe(Effect.mapError(() => localFailure("saveFailed")));
     }
-    yield* api
+    const added = yield* api
       .addClientKey({ url, managementKey: keys.managementKey }, clientKey)
-      .pipe(Effect.mapError(() => localFailure("clientKeyFailed")));
-    const routes = proxyInstances(url, clientKey, input);
+      .pipe(Effect.result);
+    const route = added._tag === "Success" ? { url, clientKey } : yield* sharedKeyRoute(url, keys);
+    const routes = proxyInstances(route.url, route.clientKey, input);
     for (const route of routes) {
       yield* settingsService
         .updateProviderInstance({

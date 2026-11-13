@@ -683,6 +683,23 @@ export const makeCliproxyApi = Effect.gen(function* () {
     yield* management(hub, "api-keys", { old: clientKey, new: clientKey }, "PATCH");
   });
 
+  const servesModels = Effect.fn("CliproxyApi.servesModels")(function* (
+    baseUrl: string,
+    key: string,
+  ) {
+    return yield* client
+      .execute(
+        HttpClientRequest.get(new URL("v1/models", `${baseUrl}/`).toString()).pipe(
+          HttpClientRequest.setHeader("Authorization", `Bearer ${key}`),
+        ),
+      )
+      .pipe(
+        Effect.map((response) => response.status >= 200 && response.status < 300),
+        Effect.timeout("5 seconds"),
+        Effect.orElseSucceed(() => false),
+      );
+  });
+
   const manage = Effect.fn("CliproxyApi.manage")(function* (
     hub: CliproxyHub,
     method: "GET" | "PUT" | "PATCH" | "DELETE",
@@ -798,6 +815,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
     isRunning,
     checkKey,
     addClientKey,
+    servesModels,
     listAccounts,
     startSignIn,
     signInStatus,
