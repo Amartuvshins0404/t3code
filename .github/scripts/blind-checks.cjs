@@ -2,7 +2,14 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { TEST_FILE, checksMarker, gitFiles, isTestSupport, testNames } = require("./merge-lane.cjs");
+const {
+  NAMELESS_TEST,
+  TEST_FILE,
+  checksMarker,
+  gitFiles,
+  isTestSupport,
+  testNamesInText,
+} = require("./merge-lane.cjs");
 
 function git(cwd, args) {
   return execFileSync("git", ["-c", "core.quotePath=false", ...args], {
@@ -12,17 +19,33 @@ function git(cwd, args) {
   });
 }
 
-function planProof({ commits, base }) {
+function newNames(head, base) {
+  const left = new Map();
+  for (const name of testNamesInText(base)) left.set(name, (left.get(name) ?? 0) + 1);
+  const found = new Set();
+  for (const name of testNamesInText(head)) {
+    const count = left.get(name) ?? 0;
+    if (count > 0) left.set(name, count - 1);
+    else found.add(name);
+  }
+  return [...found];
+}
+
+function planProof({ commits, base, read }) {
   const marker = commits[0] ? checksMarker(commits[0].message) : null;
   if (!marker) {
     return { run: false, note: "No checks commit came first, so there is nothing to prove." };
   }
   const touched = new Map();
   const support = new Set();
+  const origin = new Map();
   for (const commit of commits) {
     const checks = checksMarker(commit.message);
     for (const file of commit.files) {
       const from = file.previous_filename ?? file.filename;
+      const start = origin.get(from) ?? from;
+      origin.delete(from);
+      if (file.status !== "removed") origin.set(file.filename, start);
       support.delete(from);
       if (file.status !== "removed" && isTestSupport(file.filename)) support.add(file.filename);
       if (!checks) continue;
@@ -32,11 +55,15 @@ function planProof({ commits, base }) {
       touched.set(file.filename, {
         file: file.filename,
         added: was ? was.added : file.status === "added",
-        tests: [...new Set([...(was?.tests ?? []), ...testNames(file.patch)])],
       });
     }
   }
-  const files = [...touched.values()].filter((entry) => TEST_FILE.test(entry.file));
+  const files = [...touched.values()]
+    .filter((entry) => TEST_FILE.test(entry.file))
+    .map((entry) => ({
+      ...entry,
+      tests: newNames(read("head", entry.file), read("base", origin.get(entry.file) ?? entry.file)),
+    }));
   if (files.length === 0) {
     return {
       run: false,
@@ -61,10 +88,24 @@ function pullRequestCommits(cwd, base, head) {
     }));
 }
 
-function namePattern(name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${escaped.replace(/\\\$[\w.]+|%[sdifjoc#%]/g, ".+")}$`);
+function readAt(cwd, sha, file) {
+  if (!git(cwd, ["--literal-pathspecs", "ls-tree", "--name-only", sha, "--", file])) return null;
+  return git(cwd, ["cat-file", "blob", `${sha}:${file}`]);
 }
+
+const PLACEHOLDER = /\\\$[\w.]+|%[sdifjoc#%]/g;
+const escaped = (name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function namePattern(name) {
+  return new RegExp(`^${escaped(name).replace(PLACEHOLDER, ".+")}$`);
+}
+
+const placeholdersOnly = (name) => !/[\p{L}\p{N}]/u.test(escaped(name).replace(PLACEHOLDER, ""));
+
+const unusableName = (name) =>
+  name === NAMELESS_TEST
+    ? `It has ${name}, so that test cannot be picked out. Put its name on the \`it(\` line.`
+    : `The new test name "${name}" is only placeholders, so it matches every test in the file. Give the title fixed words.`;
 
 function readReport(file, cwd) {
   if (!fs.existsSync(file)) return new Map();
@@ -87,7 +128,11 @@ const firstLine = (text) =>
 const listed = (tests) => tests.map((test) => `"${test.title}"`).join(", ");
 
 function judgeFile(entry, before, after) {
-  const problems = [];
+  const unusable = entry.added
+    ? []
+    : entry.tests.filter((name) => name === NAMELESS_TEST || placeholdersOnly(name));
+  const names = entry.tests.filter((name) => !unusable.includes(name));
+  const problems = unusable.map(unusableName);
   let without;
   if (!before) {
     without = "did not run";
@@ -101,7 +146,7 @@ function judgeFile(entry, before, after) {
     const all = before.assertionResults;
     const matched = entry.added
       ? all
-      : all.filter((test) => entry.tests.some((name) => namePattern(name).test(test.title)));
+      : all.filter((test) => names.some((name) => namePattern(name).test(test.title)));
     if (matched.length > 0) {
       const held = matched.filter((test) => test.status !== "failed");
       without = `${matched.length - held.length} of ${matched.length} new tests failed`;
@@ -183,9 +228,11 @@ function main() {
   const cwd = flag("--cwd") ?? process.cwd();
   const dir = flag("--dir");
   if (command === "plan" && flag("--base") && flag("--head") && dir) {
+    const sides = { base: flag("--base"), head: flag("--head") };
     const planned = planProof({
-      commits: pullRequestCommits(cwd, flag("--base"), flag("--head")),
-      base: flag("--base"),
+      commits: pullRequestCommits(cwd, sides.base, sides.head),
+      base: sides.base,
+      read: (at, file) => readAt(cwd, sides[at], file),
     });
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "plan.json"), `${JSON.stringify(planned, null, 2)}\n`);

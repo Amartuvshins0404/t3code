@@ -35,6 +35,7 @@ export function planProof(input: {
     readonly files: ReadonlyArray<ChangedFile>;
   }>;
   readonly base: string;
+  readonly read: (at: "base" | "head", file: string) => string | null;
 }): Plan;
 
 export function pullRequestCommits(
@@ -44,7 +45,7 @@ export function pullRequestCommits(
 ): Array<{ sha: string; message: string; files: Array<ChangedFile> }>;
 
 export function judge(
-  planned: { readonly commit: string; readonly files: ReadonlyArray<PlannedFile> },
+  planned: { readonly commit?: string; readonly files: ReadonlyArray<PlannedFile> },
   before: ReadonlyMap<string, TestResult>,
   after: ReadonlyMap<string, TestResult>,
 ): { readonly ok: boolean; readonly rows: ReadonlyArray<ProofRow> };

@@ -424,10 +424,18 @@ function parseRepairs(text) {
   return { none: false, targets };
 }
 
-function testNames(patch) {
-  return addedLines(patch ?? "")
+function namesOf(lines) {
+  return lines
     .filter((line) => TEST_CASE.test(line))
     .map((line) => TEST_NAME.exec(line)?.[2] ?? NAMELESS_TEST);
+}
+
+function testNames(patch) {
+  return namesOf(addedLines(patch ?? ""));
+}
+
+function testNamesInText(text) {
+  return namesOf((text ?? "").split("\n"));
 }
 
 function patchKey(file) {
@@ -1204,7 +1212,9 @@ module.exports = {
   isTestSupport,
   checksMarker,
   parseRepairs,
+  NAMELESS_TEST,
   testNames,
+  testNamesInText,
   judgeChecks,
   judgeRepairs,
   renderChanges,

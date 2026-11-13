@@ -110,7 +110,9 @@ export function summarize(
 export function isTestSupport(file: string): boolean;
 export function checksMarker(message: string | null | undefined): ChecksMarker | null;
 export function parseRepairs(text: string | null | undefined): RepairsLine | null;
+export const NAMELESS_TEST: string;
 export function testNames(patch: string | null | undefined): Array<string>;
+export function testNamesInText(text: string | null | undefined): Array<string>;
 
 export function judgeChecks(input: {
   readonly lane: Lane;
