@@ -226,7 +226,10 @@ const CHECKS_RULES = {
     lane: "red",
     why: "A Repairs: target is not a change on the base branch",
   },
-  "repairs-not-older": { lane: "red", why: "A Repairs: target is not older than the fix" },
+  "repairs-not-older": {
+    lane: "red",
+    why: "A Repairs: target is not in the history this fix was built on",
+  },
 };
 
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
@@ -1225,6 +1228,7 @@ module.exports = {
   testNames,
   judgeChecks,
   judgeRepairs,
+  resolveRepairs,
   renderChanges,
   renderLockComment,
   readLock,
