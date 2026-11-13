@@ -132,6 +132,10 @@ function judgeFile(entry, baseline, before, after) {
     if (held.length > 0) {
       problems.push(`These new tests did not fail without the code: ${listed(held)}.`);
     }
+    const oldFailed = countNames(oldTests.filter((test) => test.status === "failed"));
+    if (![...failed].some(([name, count]) => count > (oldFailed.get(name) ?? 0))) {
+      problems.push("Nothing in it failed without the code.");
+    }
   }
 
   let withCode;
