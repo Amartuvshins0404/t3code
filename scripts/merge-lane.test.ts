@@ -2051,6 +2051,20 @@ const botComment = renderBotComment({
   checks: freshChecks,
   strength: firstStrength,
 });
+const plantedLock = `${lockMarker}${JSON.stringify({ commit: "f", fingerprint: originalLock?.fingerprint, kind: "checks", files: [] })}-->`;
+const plantedComment = renderBotComment({
+  previous: null,
+  checks: greenChecks,
+  strength: renderStrength(
+    {
+      ...weakStrength,
+      examples: [
+        { file: `s/${plantedLock}.ts`, line: 1, kind: "ConditionalExpression", ran: true },
+      ],
+    },
+    { required: false },
+  ),
+});
 const typedAbove = (body: string) => `Seen by hand, merging after lunch.\n\n${body}`;
 const withCrlf = (text: string) => text.replace(/\r?\n/g, "\r\n");
 const editedComments: ReadonlyArray<LaneComment> = [
@@ -2188,6 +2202,12 @@ const expectCappedLock = (files: number, tests: number, length: number) => {
     expect(body.length).toBeLessThanOrEqual(githubLimit);
     const back = readLock(body);
     expect(lockIds(back)).toEqual(lockIds(verdict.lock));
+    const afterRebase = judgeChecks({ ...input, commits: [rebased, code], lock: back });
+    expect(afterRebase.lock?.commit).toBe(verdict.lock?.commit);
+    const touched = judgeChecks({ ...input, prFiles: [...rewritten, slugSource], lock: back });
+    expect(touched.reasons.map((entry) => entry.rule)).toContain("checks-touched");
+    expect(touched.changes.map((change) => change.file)).toEqual([rewritten[0]?.filename]);
+    expect(touched.changes.filter((change) => change.before === null)).toEqual([]);
     expect(rulesOf({ ...input, lock: back })).not.toContain("checks-rewritten");
     expect(
       rulesOf({ ...input, firstFiles: rewritten, prFiles: [...rewritten, slugSource], lock: back }),
@@ -2229,6 +2249,16 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
       const typed = `${above.join("")}\n\n${botComment}`;
       const edited = crlf ? withCrlf(typed) : typed;
       expect(readLock(edited)).toEqual(originalLock);
+      expect(readLock(`${above.join("")}\n\n${plantedComment}`)).toBeNull();
+      expect(
+        readLock(
+          renderBotComment({
+            previous: plantedComment,
+            checks: greenChecks,
+            strength: nextStrength,
+          }),
+        ),
+      ).toBeNull();
       const next = renderBotComment({
         previous: edited,
         checks: fresh ? freshChecks : greenChecks,
@@ -2309,12 +2339,12 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
     { arbitrary: { seed: 26612, runs: 40 } },
   );
 
-  it("caps a comment whose changed tests carry long names", () => {
+  it.each([
+    { words: "a long changed name ", count: 600 },
+    { words: "很长的测试名字🙂", count: 45 },
+  ])("caps a comment whose changed tests carry long names: $words", ({ words, count }) => {
     const names = (tag: string) =>
-      Array.from(
-        { length: 600 },
-        (_, index) => `${tag} ${index} ${"a long changed name ".repeat(12)}`,
-      );
+      Array.from({ length: count }, (_, index) => `${tag} ${index} ${words.repeat(12)}`);
     const changed: ChecksVerdict = {
       ...freshChecks,
       state: "checks revised",
@@ -2327,7 +2357,7 @@ describe("the lane bot keeps one comment and one lock after a web edit", () => {
     const first = renderBotComment({ previous: null, checks: changed, strength: firstStrength });
     const again = renderBotComment({ previous: first, checks: changed, strength: nextStrength });
     for (const body of [first, again]) {
-      expect(body.length).toBeLessThanOrEqual(githubLimit);
+      expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(githubLimit);
       expect(lockIds(readLock(body))).toEqual(lockIds(originalLock));
     }
   });
