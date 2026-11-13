@@ -890,12 +890,17 @@ const notLoaded = (name: string): TestResult => ({
   message: "Cannot find module './slug.ts'",
   assertionResults: [],
 });
-const newFile = { file: slugTest.filename, added: true, tests: ["keeps letters"] };
+const newFile: { readonly file: string; readonly baseFile: string | null } = {
+  file: slugTest.filename,
+  baseFile: null,
+};
 const changedFile = {
   file: "apps/web/src/lib/title.test.ts",
-  added: false,
-  tests: ["slugs $title"],
+  baseFile: "apps/web/src/lib/title.test.ts",
 };
+const oldRuns = new Map([
+  [changedFile.baseFile, loaded(changedFile.baseFile, [["keeps the title", "passed"]])],
+]);
 const proofCases: ReadonlyArray<{
   readonly name: string;
   readonly file: typeof newFile;
@@ -957,9 +962,10 @@ describe("blind checks proof", () => {
   it.each(proofCases)("$name", ({ file, before, after, ok }) => {
     const report = (result: TestResult | null) =>
       new Map(result ? [[file.file, result] as const] : []);
-    expect(judge({ commit: "c".repeat(40), files: [file] }, report(before), report(after)).ok).toBe(
-      ok,
-    );
+    expect(
+      judge({ files: [file] }, { baseline: oldRuns, before: report(before), after: report(after) })
+        .ok,
+    ).toBe(ok);
   });
 
   effectIt.prop(
@@ -975,14 +981,25 @@ describe("blind checks proof", () => {
     ([picks]) => {
       const cases = picks.map((pick, index) => {
         const { file, before, after, ok } = proofCases[pick]!;
-        return { file: { ...file, file: `${index}/${file.file}` }, before, after, ok };
+        const baseFile = file.baseFile === null ? null : `${index}/${file.baseFile}`;
+        const baseline = file.baseFile === null ? undefined : oldRuns.get(file.baseFile);
+        return { file: { file: `${index}/${file.file}`, baseFile }, baseline, before, after, ok };
       });
       const report = (pick: (entry: (typeof cases)[number]) => TestResult | null) =>
         new Map(cases.flatMap((entry) => (pick(entry) ? [[entry.file.file, pick(entry)!]] : [])));
       const verdict = judge(
-        { commit: "c".repeat(40), files: cases.map((entry) => entry.file) },
-        report((entry) => entry.before),
-        report((entry) => entry.after),
+        { files: cases.map((entry) => entry.file) },
+        {
+          baseline: new Map(
+            cases.flatMap((entry) =>
+              entry.file.baseFile !== null && entry.baseline
+                ? [[entry.file.baseFile, entry.baseline] as const]
+                : [],
+            ),
+          ),
+          before: report((entry) => entry.before),
+          after: report((entry) => entry.after),
+        },
       );
       expect(verdict.ok).toBe(cases.every((entry) => entry.ok));
     },

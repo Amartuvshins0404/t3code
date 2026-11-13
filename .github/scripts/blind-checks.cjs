@@ -2,7 +2,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { TEST_FILE, checksMarker, gitFiles, isTestSupport, testNames } = require("./merge-lane.cjs");
+const { TEST_FILE, checksMarker, gitFiles, isTestSupport } = require("./merge-lane.cjs");
 
 function git(cwd, args) {
   return execFileSync("git", ["-c", "core.quotePath=false", ...args], {
@@ -12,7 +12,7 @@ function git(cwd, args) {
   });
 }
 
-function planProof({ commits, base }) {
+function planProof({ commits, base, onBase }) {
   const marker = commits[0] ? checksMarker(commits[0].message) : null;
   if (!marker) {
     return { run: false, note: "No checks commit came first, so there is nothing to prove." };
@@ -25,18 +25,19 @@ function planProof({ commits, base }) {
       const from = file.previous_filename ?? file.filename;
       support.delete(from);
       if (file.status !== "removed" && isTestSupport(file.filename)) support.add(file.filename);
-      if (!checks) continue;
-      const was = touched.get(from);
+      const names = touched.get(from);
+      if (!checks && !names) continue;
+      if (file.status === "removed") {
+        if (checks) touched.delete(from);
+        continue;
+      }
       touched.delete(from);
-      if (file.status === "removed") continue;
-      touched.set(file.filename, {
-        file: file.filename,
-        added: was ? was.added : file.status === "added",
-        tests: [...new Set([...(was?.tests ?? []), ...testNames(file.patch)])],
-      });
+      touched.set(file.filename, [...(names ?? [from]), file.filename]);
     }
   }
-  const files = [...touched.values()].filter((entry) => TEST_FILE.test(entry.file));
+  const files = [...touched]
+    .filter(([file]) => TEST_FILE.test(file))
+    .map(([file, names]) => ({ file, baseFile: names.findLast(onBase) ?? null }));
   if (files.length === 0) {
     return {
       run: false,
@@ -61,11 +62,6 @@ function pullRequestCommits(cwd, base, head) {
     }));
 }
 
-function namePattern(name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${escaped.replace(/\\\$[\w.]+|%[sdifjoc#%]/g, ".+")}$`);
-}
-
 function readReport(file, cwd) {
   if (!fs.existsSync(file)) return new Map();
   const report = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -84,34 +80,71 @@ const firstLine = (text) =>
     .find(Boolean)
     ?.slice(0, 200) ?? "no error message";
 
-const listed = (tests) => tests.map((test) => `"${test.title}"`).join(", ");
+const nameKey = (test) => JSON.stringify([...(test.ancestorTitles ?? []), test.title]);
 
-function judgeFile(entry, before, after) {
+const countNames = (tests) => {
+  const counts = new Map();
+  for (const test of tests) counts.set(nameKey(test), (counts.get(nameKey(test)) ?? 0) + 1);
+  return counts;
+};
+
+const listed = (keys) => keys.map((key) => `"${JSON.parse(key).join(" > ")}"`).join(", ");
+
+function judgeFile(entry, baseline, before, after) {
   const problems = [];
+  let oldTests = [];
+  let oldNote = "";
+  if (entry.baseFile !== null) {
+    if (!baseline) {
+      problems.push("Its old tests did not run, so its new tests cannot be told from them.");
+    } else if (baseline.assertionResults.length === 0) {
+      oldNote = `; the old run could not load (${firstLine(baseline.message)}), so every test counts as new`;
+    } else {
+      oldTests = baseline.assertionResults.filter(
+        (test) => test.status === "passed" || test.status === "failed",
+      );
+    }
+  }
+
+  const unloaded =
+    before?.assertionResults.length === 0 &&
+    !firstLine(before.message).startsWith("No test suite found");
   let without;
   if (!before) {
     without = "did not run";
     problems.push("It did not run without the code.");
-  } else if (before.assertionResults.length === 0) {
-    without = `could not load: ${firstLine(before.message)}`;
+  } else if (unloaded) {
+    without = `could not load: ${firstLine(before.message)}${oldNote}`;
     if (after && after.assertionResults.length === 0) {
       problems.push("It cannot load with the code either, so the test setup is broken.");
     }
   } else {
-    const all = before.assertionResults;
-    const matched = entry.added
-      ? all
-      : all.filter((test) => entry.tests.some((name) => namePattern(name).test(test.title)));
-    if (matched.length > 0) {
-      const held = matched.filter((test) => test.status !== "failed");
-      without = `${matched.length - held.length} of ${matched.length} new tests failed`;
-      if (held.length > 0) {
-        problems.push(`These new tests did not fail without the code: ${listed(held)}.`);
-      }
-    } else {
-      const failed = all.filter((test) => test.status === "failed");
-      without = `the new tests could not be told apart by name; ${failed.length} of ${all.length} tests failed`;
-      if (failed.length === 0) problems.push("No test in it failed without the code.");
+    const old = countNames(oldTests);
+    const failed = countNames(before.assertionResults.filter((test) => test.status === "failed"));
+    const held = [];
+    let fresh = 0;
+    let failedFresh = 0;
+    for (const [name, count] of countNames(after?.assertionResults ?? [])) {
+      const added = count - (old.get(name) ?? 0);
+      if (added <= 0) continue;
+      fresh += added;
+      failedFresh += Math.min(added, failed.get(name) ?? 0);
+      if ((failed.get(name) ?? 0) < added) held.push(name);
+    }
+    without = `${failedFresh} of ${fresh} new tests failed${oldNote}`;
+    if (held.length > 0) {
+      problems.push(`These new tests did not fail without the code: ${listed(held)}.`);
+    }
+    const kept = countNames(after?.assertionResults ?? []);
+    const gone = [...countNames(before.assertionResults)]
+      .filter(([name, count]) => count > (kept.get(name) ?? 0))
+      .map(([name]) => name);
+    if (gone.length > 0) {
+      problems.push(`These tests ran without the code but are gone with it: ${listed(gone)}.`);
+    }
+    const oldFailed = countNames(oldTests.filter((test) => test.status === "failed"));
+    if (![...failed].some(([name, count]) => count > (oldFailed.get(name) ?? 0))) {
+      problems.push("Nothing in it failed without the code.");
     }
   }
 
@@ -121,7 +154,7 @@ function judgeFile(entry, before, after) {
     problems.push("It did not run with the code.");
   } else if (after.assertionResults.length === 0) {
     withCode = `could not load: ${firstLine(after.message)}`;
-    if (before && before.assertionResults.length > 0) {
+    if (before && !unloaded) {
       problems.push("It loads without the code but not with it.");
     } else if (!problems.some((problem) => problem.includes("setup is broken"))) {
       problems.push("It cannot load with the code.");
@@ -130,15 +163,22 @@ function judgeFile(entry, before, after) {
     const notPassed = after.assertionResults.filter((test) => test.status !== "passed");
     withCode = `${after.assertionResults.length - notPassed.length} of ${after.assertionResults.length} passed`;
     if (notPassed.length > 0) {
-      problems.push(`These tests did not pass with the code: ${listed(notPassed)}.`);
+      problems.push(
+        `These tests did not pass with the code: ${listed([...new Set(notPassed.map(nameKey))])}.`,
+      );
     }
   }
   return { file: entry.file, without, withCode, problems };
 }
 
-function judge(planned, before, after) {
+function judge(planned, { baseline, before, after }) {
   const rows = planned.files.map((entry) =>
-    judgeFile(entry, before.get(entry.file), after.get(entry.file)),
+    judgeFile(
+      entry,
+      entry.baseFile === null ? undefined : baseline.get(entry.baseFile),
+      before.get(entry.file),
+      after.get(entry.file),
+    ),
   );
   return { ok: rows.every((row) => row.problems.length === 0), rows };
 }
@@ -147,7 +187,7 @@ function render(planned, verdict, required) {
   const lines = [
     `### Blind checks: ${verdict.ok ? "proven" : "not proven"}`,
     "",
-    `The checks were run as they are at the head: without the code on \`${planned.base.slice(0, 10)}\`, where this pull request left the base branch, then with the code. Every new test has to fail without the code and pass with it.`,
+    `The old checks ran on \`${planned.base.slice(0, 10)}\`, where this pull request left the base branch. Then the checks as they are at the head ran on that code, without the code, and at the head, with the code. A test is new when its name comes up more often with the code than in the old run. Every new test has to fail without the code, and every test has to pass with it.`,
     "",
     "| Test file | Without the code | With the code |",
     "| --- | --- | --- |",
@@ -183,9 +223,14 @@ function main() {
   const cwd = flag("--cwd") ?? process.cwd();
   const dir = flag("--dir");
   if (command === "plan" && flag("--base") && flag("--head") && dir) {
+    const base = flag("--base");
     const planned = planProof({
-      commits: pullRequestCommits(cwd, flag("--base"), flag("--head")),
-      base: flag("--base"),
+      commits: pullRequestCommits(cwd, base, flag("--head")),
+      base,
+      onBase: (file) =>
+        git(cwd, ["ls-tree", "-z", "--full-tree", "--name-only", base, "--", file])
+          .split("\0")
+          .includes(file),
     });
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "plan.json"), `${JSON.stringify(planned, null, 2)}\n`);
@@ -193,6 +238,10 @@ function main() {
       fs.writeFileSync(
         path.join(dir, "files.txt"),
         `${planned.files.map((entry) => entry.file).join("\n")}\n`,
+      );
+      fs.writeFileSync(
+        path.join(dir, "base-files.txt"),
+        planned.files.flatMap((entry) => (entry.baseFile ? [`${entry.baseFile}\n`] : [])).join(""),
       );
     } else {
       writeSummary(`### Blind checks: skipped\n\n${planned.note}`);
@@ -209,11 +258,11 @@ function main() {
   }
   if (command === "judge" && dir) {
     const planned = JSON.parse(fs.readFileSync(path.join(dir, "plan.json"), "utf8"));
-    const verdict = judge(
-      planned,
-      readReport(path.join(dir, "before.json"), cwd),
-      readReport(path.join(dir, "after.json"), cwd),
-    );
+    const verdict = judge(planned, {
+      baseline: readReport(path.join(dir, "baseline.json"), cwd),
+      before: readReport(path.join(dir, "before.json"), cwd),
+      after: readReport(path.join(dir, "after.json"), cwd),
+    });
     const required = process.env.BLIND_CHECKS_MODE === "required";
     writeSummary(render(planned, verdict, required));
     if (!verdict.ok && required) process.exit(1);
@@ -225,13 +274,13 @@ function main() {
       "  node .github/scripts/blind-checks.cjs plan --base <sha> --head <sha> --dir <dir> [--cwd <repo>]",
       "  node .github/scripts/blind-checks.cjs judge --dir <dir> [--cwd <repo>]",
       "",
-      "plan reads the pull request's commits since it left the base branch and lists the test files its checks commits added or changed.",
-      "judge reads before.json and after.json, the vitest JSON reports of those files as they are at the head, without and with the code.",
+      "plan reads the pull request's commits since it left the base branch, lists the test files its checks commits added or changed, and where each one was on the base.",
+      "judge reads baseline.json, before.json and after.json, the vitest JSON reports of those files as they were on the base, then as they are at the head without and with the code.",
     ].join("\n"),
   );
   process.exit(2);
 }
 
-module.exports = { planProof, pullRequestCommits, judge, namePattern };
+module.exports = { planProof, pullRequestCommits, judge };
 
 if (require.main === module) main();

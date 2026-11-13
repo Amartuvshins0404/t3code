@@ -17,7 +17,7 @@ jobs:
     name: Blind checks
     if: github.repository == 'Amartuvshins0404/t3code'
     runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    timeout-minutes: 22
+    timeout-minutes: 27
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -57,15 +57,11 @@ jobs:
           fi
           node "$judge" plan --base "$PROOF_BASE" --head "$HEAD_SHA" --commit "$FIRST_SHA" --dir "$RUNNER_TEMP/proof"
 
-      - name: Check out the base code with the checks from the head
+      - name: Check out the base code
         if: steps.plan.outputs.run == 'true'
-        shell: bash
         env:
           PROOF_BASE: ${{ steps.fetch.outputs.base }}
-        run: |
-          set -euo pipefail
-          git checkout -q --detach "$PROOF_BASE"
-          jq -r '.files[].file, .support[]?' "$RUNNER_TEMP/proof/plan.json" | tr '\n' '\0' | xargs -0 git checkout -q "$HEAD_SHA" --
+        run: git checkout -q --detach "$PROOF_BASE"
 
       - name: Setup Vite+
         if: steps.plan.outputs.run == 'true'
@@ -83,6 +79,22 @@ jobs:
         if: steps.plan.outputs.run == 'true' && steps.plan.outputs.desktop == 'true'
         run: vp run --filter @t3tools/desktop ensure:electron
 
+      - name: Run the old checks on the base code
+        if: steps.plan.outputs.run == 'true'
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          [[ -s "$RUNNER_TEMP/proof/base-files.txt" ]] || exit 0
+          mapfile -t files < "$RUNNER_TEMP/proof/base-files.txt"
+          vp test run --reporter=json --outputFile="$RUNNER_TEMP/proof/baseline.json" "${files[@]}" || true
+
+      - name: Bring in the checks from the head
+        if: steps.plan.outputs.run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -r '.files[].file, .support[]?' "$RUNNER_TEMP/proof/plan.json" | tr '\n' '\0' | xargs -0 git checkout -q "$HEAD_SHA" --
+
       - name: Run the checks without the code
         if: steps.plan.outputs.run == 'true'
         timeout-minutes: 5
@@ -93,8 +105,16 @@ jobs:
 
       - name: Check out the pull request head
         if: steps.plan.outputs.run == 'true'
+        shell: bash
         run: |
+          set -euo pipefail
           git checkout -q --detach "$HEAD_SHA"
+          changed="$(git status --porcelain)"
+          if [[ -n "$changed" ]]; then
+            echo "::error::A check left changed or new files in the repo while it ran without the code, so the run with the code would not use the pull request's own files. Write temp files to the system temp folder, or clean up in a finally block."
+            echo "$changed"
+            exit 1
+          fi
           vp install
 
       - name: Run the checks with the code
