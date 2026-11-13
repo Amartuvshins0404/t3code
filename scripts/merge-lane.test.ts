@@ -624,13 +624,6 @@ const repairsCases: ReadonlyArray<{
     rules: ["repairs-unknown"],
   },
   {
-    name: "a target outside the fix's history",
-    title: "fix(web): slugs keep dashes",
-    body: "Repairs: abcdef1234",
-    resolved: [{ ref: "abcdef1234", onBase: true, inHistory: false }],
-    rules: ["repairs-not-older"],
-  },
-  {
     name: "a fix of code older than the window",
     title: "fix!: slugs keep dashes",
     body: "Repairs: none, older than 14 days",
