@@ -111,7 +111,7 @@ jobs:
           git checkout -q --detach "$HEAD_SHA"
           changed="$(git status --porcelain)"
           if [[ -n "$changed" ]]; then
-            echo "::error::Files changed while the checks ran without the code, so the run with the code would not use the pull request's own files."
+            echo "::error::A check left changed or new files in the repo while it ran without the code, so the run with the code would not use the pull request's own files. Write temp files to the system temp folder, or clean up in a finally block."
             echo "$changed"
             exit 1
           fi
