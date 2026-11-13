@@ -24,6 +24,8 @@ const upstreamTest = "packages/shared/src/git.test.ts";
 const basePaths = [titleTest, upstreamTest];
 const onBaseOf = (paths: ReadonlyArray<string>) => (file: string) => paths.includes(file);
 const onBase = onBaseOf(basePaths);
+const unchangedAt = (paths: ReadonlyArray<string>) => (file: string) => !paths.includes(file);
+const changed = unchangedAt([]);
 
 const addedFile = (filename: string, lines: ReadonlyArray<string>): ChangedFile => ({
   filename,
@@ -37,6 +39,15 @@ const changedFile = (filename: string, lines: ReadonlyArray<string>): ChangedFil
     `@@ -1,1 +1,${lines.length + 1} @@`,
     ' it("keeps the title", () => {});',
     ...lines.map((line) => `+${line}`),
+  ].join("\n"),
+});
+const revertedFile = (filename: string, lines: ReadonlyArray<string>): ChangedFile => ({
+  filename,
+  status: "modified",
+  patch: [
+    `@@ -1,${lines.length + 1} +1,1 @@`,
+    ' it("keeps the title", () => {});',
+    ...lines.map((line) => `-${line}`),
   ].join("\n"),
 });
 const renamedFile = (from: string, filename: string): ChangedFile => ({
@@ -147,12 +158,15 @@ const gitIn = (dir: string) => {
 
 describe("blind checks proof: what is planned", () => {
   it("a pull request whose checks were never revised plans the checks commit's test files, as before", () => {
-    const plan = planProof({ commits: [checks, code], base, onBase });
+    const plan = planProof({ commits: [checks, code], base, onBase, changed });
     expect(sorted(plan)).toEqual([{ file: slugTest, baseFile: null }]);
   });
 
   it("runs without the code on the point where the pull request left the base branch", () => {
-    expect(planProof({ commits: [checks, code], base, onBase })).toMatchObject({ run: true, base });
+    expect(planProof({ commits: [checks, code], base, onBase, changed })).toMatchObject({
+      run: true,
+      base,
+    });
   });
 
   it("plans a test file that only a revision adds or changes, with its path on the base", () => {
@@ -167,6 +181,7 @@ describe("blind checks proof: what is planned", () => {
       ],
       base,
       onBase,
+      changed,
     });
     expect(sorted(plan)).toEqual([
       { file: slugTest, baseFile: null },
@@ -184,6 +199,7 @@ describe("blind checks proof: what is planned", () => {
       ],
       base,
       onBase,
+      changed,
     });
     expect(sorted(plan)).toEqual([{ file: titleTest, baseFile: titleTest }]);
   });
@@ -200,6 +216,7 @@ describe("blind checks proof: what is planned", () => {
       ],
       base,
       onBase,
+      changed,
     });
     expect(sorted(plan)).toEqual([{ file: titleTest, baseFile: titleTest }]);
   });
@@ -217,6 +234,7 @@ describe("blind checks proof: what is planned", () => {
       ],
       base,
       onBase,
+      changed,
     });
     expect(sorted(plan)).toEqual([{ file: slugTest, baseFile: null }]);
   });
@@ -226,7 +244,7 @@ describe("blind checks proof: what is planned", () => {
       addedFile(upstreamTest, ['it("reads refs", () => {});']),
       changedFile(titleTest, ['it("trims", () => {});']),
     ]);
-    const plan = planProof({ commits: [checks, mergedBase, code], base, onBase });
+    const plan = planProof({ commits: [checks, mergedBase, code], base, onBase, changed });
     expect(sorted(plan)).toEqual([{ file: slugTest, baseFile: null }]);
   });
 
@@ -235,6 +253,7 @@ describe("blind checks proof: what is planned", () => {
       commits: [checks, code, revise([changedFile(slugTest, ['it("keeps digits", () => {});'])])],
       base,
       onBase,
+      changed,
     });
     expect(sorted(plan)).toEqual([{ file: slugTest, baseFile: null }]);
   });
@@ -261,6 +280,7 @@ describe("blind checks proof: what is planned", () => {
       ],
       base,
       onBase,
+      changed,
     });
     expect(sorted(plan)).toEqual([{ file: renamedTest, baseFile: null }]);
   });
@@ -275,9 +295,121 @@ describe("blind checks proof: what is planned", () => {
       ],
       base,
       onBase,
+      changed,
     });
     expect(sorted(plan)).toEqual([{ file: urlTest, baseFile: null }]);
   });
+
+  it.each([
+    { by: "a revision", later: revise },
+    {
+      by: "a commit with no checks trailer",
+      later: (files: ReadonlyArray<ChangedFile>) =>
+        commit("e", "chore(web): put the title test back", files),
+    },
+  ])("leaves out a test file $by put back as on the base, and plans the others", ({ later }) => {
+    const plan = planProof({
+      commits: [
+        commit("c", checks.message, [
+          ...checks.files,
+          changedFile(titleTest, ['it("slugs My Title", () => {});']),
+          changedFile(upstreamTest, ['it("reads tags", () => {});']),
+        ]),
+        code,
+        later([
+          revertedFile(titleTest, ['it("slugs My Title", () => {});']),
+          changedFile(upstreamTest, ['it("reads notes", () => {});']),
+        ]),
+      ],
+      base,
+      onBase,
+      changed: unchangedAt([titleTest]),
+    });
+    expect(sorted(plan)).toEqual([
+      { file: slugTest, baseFile: null },
+      { file: upstreamTest, baseFile: upstreamTest },
+    ]);
+  });
+
+  it("does not run when every test file the checks touched is back as on the base", () => {
+    const plan = planProof({
+      commits: [
+        commit("c", checks.message, [
+          changedFile(titleTest, ['it("slugs My Title", () => {});']),
+          changedFile(upstreamTest, ['it("reads tags", () => {});']),
+        ]),
+        code,
+        revise([
+          revertedFile(titleTest, ['it("slugs My Title", () => {});']),
+          revertedFile(upstreamTest, ['it("reads tags", () => {});']),
+        ]),
+      ],
+      base,
+      onBase,
+      changed: unchangedAt([titleTest, upstreamTest]),
+    });
+    expect(plan).toMatchObject({ run: false, note: expect.stringMatching(/changed test file/) });
+  });
+
+  const fileHistory = Arbitrary.all({
+    checks: Arbitrary.schema(Schema.Boolean),
+    revision: Arbitrary.schema(Schema.Boolean),
+    plain: Arbitrary.schema(Schema.Boolean),
+    back: Arbitrary.schema(Schema.Boolean),
+  });
+
+  effectIt.prop(
+    "for any history, plans exactly the test files checks touched that still differ from the base",
+    [fileHistory, fileHistory, fileHistory, Arbitrary.schema(Schema.Boolean)],
+    ([title, upstream, notes, added]) => {
+      const notesTest = "apps/web/src/lib/notes.test.ts";
+      const paths = [titleTest, upstreamTest, notesTest];
+      const histories = [
+        { file: titleTest, ...title },
+        { file: upstreamTest, ...upstream },
+        { file: notesTest, ...notes },
+      ];
+      const kinds = ["checks", "revision", "plain"] as const;
+      const touches = (entry: (typeof histories)[number]) => kinds.filter((kind) => entry[kind]);
+      const unchanged = histories
+        .filter((entry) => entry.back && touches(entry).length >= 2)
+        .map((entry) => entry.file);
+      const differing = histories
+        .filter((entry) => touches(entry).length > 0 && !unchanged.includes(entry.file))
+        .map((entry) => entry.file);
+      const filesOf = (kind: (typeof kinds)[number]) =>
+        histories
+          .filter((entry) => entry[kind])
+          .map((entry) =>
+            unchanged.includes(entry.file) && touches(entry).at(-1) === kind
+              ? revertedFile(entry.file, ['it("slugs emoji", () => {});'])
+              : changedFile(entry.file, ['it("slugs emoji", () => {});']),
+          );
+      const plan = planProof({
+        commits: [
+          commit("c", checks.message, [
+            ...(added ? [addedFile(slugTest, ['it("keeps letters", () => {});'])] : []),
+            ...filesOf("checks"),
+          ]),
+          code,
+          revise(filesOf("revision")),
+          commit("e", "chore(web): tidy the tests", filesOf("plain")),
+        ],
+        base,
+        onBase: onBaseOf(paths),
+        changed: (file: string) => !paths.includes(file) || differing.includes(file),
+      });
+      const planned: Array<PlannedFile> = [
+        ...(added ? [{ file: slugTest, baseFile: null }] : []),
+        ...histories
+          .filter((entry) => (entry.checks || entry.revision) && differing.includes(entry.file))
+          .map((entry) => ({ file: entry.file, baseFile: entry.file })),
+      ].sort((a, b) => a.file.localeCompare(b.file));
+      expect(plan.run).toBe(planned.length > 0);
+      expect(sorted(plan)).toEqual(planned);
+    },
+    { arbitrary: { seed: 42 } },
+  );
 });
 
 const headingTest = "apps/web/src/lib/heading.test.ts";
@@ -347,23 +479,30 @@ const baseFileCases: ReadonlyArray<{
 
 describe("blind checks proof: where each planned file was on the base", () => {
   it.each(baseFileCases)("by results, the plan's path on the base: $name", (entry) => {
-    const plan = planProof({ commits: entry.commits, base, onBase: onBaseOf(entry.basePaths) });
+    const plan = planProof({
+      commits: entry.commits,
+      base,
+      onBase: onBaseOf(entry.basePaths),
+      changed,
+    });
     expect(sorted(plan)).toEqual(entry.planned);
   });
 });
 
 describe("blind checks proof: which files the base branch run takes from the newest commit", () => {
   it("takes a test-support file the checks commit changed", () => {
-    expect(supportOf(planProof({ commits: [checks, code], base, onBase }))).toEqual([slugInputs]);
+    expect(supportOf(planProof({ commits: [checks, code], base, onBase, changed }))).toEqual([
+      slugInputs,
+    ]);
   });
 
   it("takes a test-support file that only a commit with no checks trailer changed", () => {
     const setupFix = commit("e", "fix(web): slug test setup", [
       changedFile(testSetup, ["export const locale = 'en';"]),
     ]);
-    expect(supportOf(planProof({ commits: [checks, code, setupFix], base, onBase }))).toEqual(
-      [slugInputs, testSetup].sort(),
-    );
+    expect(
+      supportOf(planProof({ commits: [checks, code, setupFix], base, onBase, changed })),
+    ).toEqual([slugInputs, testSetup].sort());
   });
 
   it("leaves code a revision edits as the base branch has it, and still plans the revision's test file", () => {
@@ -378,6 +517,7 @@ describe("blind checks proof: which files the base branch run takes from the new
       ],
       base,
       onBase,
+      changed,
     });
     expect(supportOf(plan)).not.toContain("src/real.ts");
     expect(sorted(plan)).toEqual([
@@ -455,6 +595,7 @@ describe("blind checks proof: revised checks are judged as they are at the newes
       commits: [checks, code, revise([changedFile(titleTest, ['it("slugs emoji", () => {});'])])],
       base,
       onBase,
+      changed,
     });
   const titleOld = loaded(titleTest, [["keeps the title", "passed"]]);
   const slugPassed = loaded(slugTest, [
@@ -1159,12 +1300,14 @@ describe("blind checks proof: the commands the job runs", () => {
     NodeFS.mkdirSync(repo);
     const { run, commitFiles } = gitIn(repo);
     const oldTests = 'it("keeps letters", () => {});\nit("drops spaces", () => {});\n';
+    const keptTests = 'it("keeps the case", () => {});\n';
     try {
       run(["init", "-q", "-b", "amaraa-mode"]);
       commitFiles("feat: start", {
         "src/slug.js": "export const slug = (text) => text;\n",
         "src/title.test.js": 'it("keeps the title", () => {});\n',
         "src/old.test.js": `${oldTests}it("keeps digits", () => {});\n`,
+        "src/kept.test.js": keptTests,
       });
       run(["checkout", "-q", "-b", "fix/slugs"]);
       commitFiles(
@@ -1174,12 +1317,17 @@ describe("blind checks proof: the commands the job runs", () => {
             'it("keeps the title", () => {});\nit("slugs My Title", () => {});\n',
           "src/slug.test.js": 'it("lowercases", () => {});\n',
           "src/renamed.test.js": `${oldTests}it("keeps digits", () => {});\nit("keeps dashes", () => {});\n`,
+          "src/kept.test.js": `${keptTests}it("keeps accents", () => {});\n`,
         },
         ["src/old.test.js"],
       );
-      const head = commitFiles("feat: slugs lowercase", {
+      commitFiles("feat: slugs lowercase", {
         "src/slug.js": "export const slug = (text) => text.toLowerCase();\n",
       });
+      const head = commitFiles(
+        "test: drop the accent check\n\nBlind-checks: revised after an objection",
+        { "src/kept.test.js": keptTests },
+      );
       const left = run(["merge-base", "amaraa-mode", "fix/slugs"]);
       node(["plan", "--base", left, "--head", head, "--dir", out, "--cwd", repo]);
       expect(linesOf(NodePath.join(out, "files.txt"))).toEqual([
