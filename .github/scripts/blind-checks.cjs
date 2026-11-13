@@ -80,15 +80,15 @@ const firstLine = (text) =>
     .find(Boolean)
     ?.slice(0, 200) ?? "no error message";
 
-const fullName = (test) => [...(test.ancestorTitles ?? []), test.title].join(" > ");
+const nameKey = (test) => JSON.stringify([...(test.ancestorTitles ?? []), test.title]);
 
 const countNames = (tests) => {
   const counts = new Map();
-  for (const test of tests) counts.set(fullName(test), (counts.get(fullName(test)) ?? 0) + 1);
+  for (const test of tests) counts.set(nameKey(test), (counts.get(nameKey(test)) ?? 0) + 1);
   return counts;
 };
 
-const listed = (names) => names.map((name) => `"${name}"`).join(", ");
+const listed = (keys) => keys.map((key) => `"${JSON.parse(key).join(" > ")}"`).join(", ");
 
 function judgeFile(entry, baseline, before, after) {
   const problems = [];
@@ -164,7 +164,7 @@ function judgeFile(entry, baseline, before, after) {
     withCode = `${after.assertionResults.length - notPassed.length} of ${after.assertionResults.length} passed`;
     if (notPassed.length > 0) {
       problems.push(
-        `These tests did not pass with the code: ${listed([...new Set(notPassed.map(fullName))])}.`,
+        `These tests did not pass with the code: ${listed([...new Set(notPassed.map(nameKey))])}.`,
       );
     }
   }
