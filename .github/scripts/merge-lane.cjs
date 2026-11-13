@@ -248,6 +248,7 @@ const TEST_NAME =
 const NAMELESS_TEST = "a test whose name is not on its first line";
 const LOCK_MARKER = "<!-- merge-lane-lock";
 const STRENGTH_MARKER = "<!-- test-strength -->";
+const GITHUB_COMMENT_LIMIT = 65_536;
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_MEASUREMENT_BYTES = 4 * 1024 * 1024;
 const STRENGTH_LABEL_LOOK = {
@@ -497,8 +498,8 @@ function judgeChecks({ lane, body, commits, firstFiles, prFiles, lock }) {
   const reasons = [];
   if (!hasRequest(body)) reasons.push(reason("request-missing"));
   const current = marker ? lockOf(first, marker, firstFiles) : null;
-  const saved = lock ?? current;
   const rewritten = Boolean(lock && lock.fingerprint !== current?.fingerprint);
+  const saved = lock?.shortened && !rewritten ? current : (lock ?? current);
   if (rewritten) reasons.push(reason("checks-rewritten"));
 
   if (marker?.kind === "none") {
@@ -554,7 +555,10 @@ function judgeChecks({ lane, body, commits, firstFiles, prFiles, lock }) {
     state: revised ? "checks revised" : saved.kind === "none" ? "none needed" : "checked blind",
     reasons,
     lock: saved,
-    changes: revised && saved.kind === "checks" ? compareTests(lockedTests(saved), nowEntries) : [],
+    changes:
+      revised && saved.kind === "checks" && !saved.shortened
+        ? compareTests(lockedTests(saved), nowEntries)
+        : [],
   };
 }
 
@@ -624,9 +628,11 @@ function renderChanges(changes) {
 }
 
 function readLock(body) {
-  if (!body.startsWith(LOCK_MARKER)) return null;
+  const start = body.indexOf(LOCK_MARKER);
+  if (start === -1) return null;
+  const json = body.slice(start + LOCK_MARKER.length);
   try {
-    return JSON.parse(body.slice(LOCK_MARKER.length, body.indexOf("-->")));
+    return JSON.parse(json.slice(0, json.indexOf("-->")));
   } catch {
     return null;
   }
@@ -643,36 +649,42 @@ function renderLockComment(lock, checks) {
     "",
     lock.kind === "none"
       ? `The first commit \`${short}\` says no test is needed: ${lock.reason ? asText(lock.reason) : "(no reason given)"}.`
-      : `Locked at commit \`${short}\`: ${tests.length} test files with ${count} tests.`,
+      : lock.shortened
+        ? `Locked at commit \`${short}\`.`
+        : `Locked at commit \`${short}\`: ${tests.length} test files with ${count} tests.`,
     ...tests.map((entry) => `- ${codeSpan(entry.file)}: ${entry.tests.length} tests`),
     "",
-    broken.length > 0
-      ? ["Broken since the lock:", ...broken.map((entry) => `- **${entry.why}**`)].join("\n")
-      : "The checks are as they were locked.",
+    checks.state === null
+      ? "The lane is green, so this run did not judge the checks."
+      : broken.length > 0
+        ? ["Broken since the lock:", ...broken.map((entry) => `- **${entry.why}**`)].join("\n")
+        : "The checks are as they were locked.",
     "",
-    renderChanges(checks.changes),
+    lock.shortened
+      ? "This comment was too long for GitHub, so it leaves out the list of locked tests and how they changed. The lock still holds the checks commit and its fingerprint, so a rewritten checks commit is still caught."
+      : renderChanges(checks.changes),
     "",
     "The lane bot wrote this lock the first time it saw the checks commit, and keeps it. An edit to this comment shows in its edit history.",
   ].join("\n");
 }
 
 function renderBotComment({ previous, checks, strength }) {
-  const text = normalizeText(previous);
-  const split = text.indexOf(`\n${STRENGTH_MARKER}`);
-  const kept = text.startsWith(LOCK_MARKER)
-    ? text.slice(0, split === -1 ? undefined : split).trimEnd()
-    : null;
-  const lockBlock = checks.lock ? renderLockComment(checks.lock, checks) : kept;
-  return [
-    ...(lockBlock ? [lockBlock] : []),
-    ...(strength === null ? [] : [`${STRENGTH_MARKER}\n${strength}`]),
-  ].join("\n\n");
+  const lock = checks.lock ?? readLock(previous ?? "");
+  const render = (saved) =>
+    [
+      ...(saved ? [renderLockComment(saved, checks)] : []),
+      ...(strength === null ? [] : [`${STRENGTH_MARKER}\n${strength}`]),
+    ].join("\n\n");
+  const full = render(lock);
+  if (full.length <= GITHUB_COMMENT_LIMIT) return full;
+  return render(lock && { ...lock, files: [], shortened: true }).slice(0, GITHUB_COMMENT_LIMIT);
 }
 
 function isBotComment(comment) {
+  const body = comment.body ?? "";
   return (
     comment.user?.login === LANE_BOT &&
-    Boolean(comment.body?.startsWith(LOCK_MARKER) || comment.body?.startsWith(STRENGTH_MARKER))
+    (body.includes(LOCK_MARKER) || body.includes(STRENGTH_MARKER))
   );
 }
 
@@ -894,8 +906,7 @@ async function judgePullRequest(api, repoPath, pr, listed) {
   if (base.lane !== "green") {
     const comments = await api.all(`${repoPath}/issues/${pr.number}/comments`);
     lockComment =
-      comments.find((comment) => isBotComment(comment) && comment.body.startsWith(LOCK_MARKER)) ??
-      null;
+      comments.find((comment) => isBotComment(comment) && readLock(comment.body) !== null) ?? null;
     const firstFiles =
       commits[0] && checksMarker(commits[0].message)
         ? ((await api.get(`${repoPath}/commits/${commits[0].sha}`)).files ?? [])
@@ -947,14 +958,16 @@ async function syncComment(github, { owner, repo, number }, checks, comment, str
   }
 }
 
+const same = (a, b) => typeof a === "string" && a === b;
+
 function runForPullRequest({ runs, pr }) {
   return (
     runs
       .filter(
         (run) =>
-          run.head_sha === pr.head.sha &&
-          run.head_branch === pr.head.ref &&
-          run.head_repository?.full_name === pr.head.repo?.full_name,
+          same(run.head_sha, pr.head.sha) &&
+          same(run.head_branch, pr.head.ref) &&
+          same(run.head_repository?.full_name, pr.head.repo?.full_name),
       )
       .sort((a, b) => b.run_number - a.run_number || b.run_attempt - a.run_attempt)[0] ?? null
   );

@@ -62,6 +62,7 @@ export interface ChecksLock {
   readonly kind: ChecksMarker["kind"];
   readonly reason?: string;
   readonly files: ReadonlyArray<LockedFile>;
+  readonly shortened?: true;
 }
 
 export interface TestChange {
