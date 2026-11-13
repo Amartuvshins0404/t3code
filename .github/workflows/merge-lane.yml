@@ -31,13 +31,13 @@ jobs:
       - name: Checkout base branch rules without the vendored .repos tree
         shell: bash
         env:
-          CHECKOUT_REF: ${{ github.event.pull_request.base.sha || github.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
           git init .
           git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
+          git fetch --no-tags --depth=1 origin "refs/heads/$BASE_REF"
           git sparse-checkout set --no-cone '/*' '!/.repos/'
           git checkout --detach FETCH_HEAD
 

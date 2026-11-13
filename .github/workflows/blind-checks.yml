@@ -19,7 +19,7 @@ jobs:
     runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 27
     env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       BLIND_CHECKS_MODE: ${{ vars.BLIND_CHECKS_MODE }}
     steps:
@@ -32,12 +32,13 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-          git fetch -q --no-tags --filter=tree:0 origin "$HEAD_SHA" "$BASE_SHA"
-          base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git fetch -q --no-tags --filter=tree:0 origin "$HEAD_SHA" "+refs/heads/$BASE_REF:refs/remotes/origin/base"
+          tip="$(git rev-parse refs/remotes/origin/base)"
+          base="$(git merge-base "$tip" "$HEAD_SHA")"
           first="$(git rev-list --reverse --first-parent "$base..$HEAD_SHA" | sed -n 1p)"
           git sparse-checkout set --no-cone '/*' '!/.repos/'
           mkdir -p "$RUNNER_TEMP/judge" "$RUNNER_TEMP/proof"
-          git archive "$BASE_SHA" .github/scripts | tar -x -C "$RUNNER_TEMP/judge"
+          git archive "$tip" .github/scripts | tar -x -C "$RUNNER_TEMP/judge"
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "first=$first" >> "$GITHUB_OUTPUT"
 
@@ -136,6 +137,7 @@ jobs:
         timeout-minutes: 6
         shell: bash
         env:
+          PROOF_BASE: ${{ steps.fetch.outputs.base }}
           FIRST_SHA: ${{ steps.fetch.outputs.first }}
           TEST_STRENGTH_MODE: ${{ vars.TEST_STRENGTH_MODE }}
         run: |
@@ -144,7 +146,7 @@ jobs:
             printf '### Test strength: skipped\n\nThe base branch has no test-strength check yet.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          node "$runner" measure --first "$FIRST_SHA" --base "$BASE_SHA" --head "$HEAD_SHA" --out "$RUNNER_TEMP/strength"
+          node "$runner" measure --first "$FIRST_SHA" --base "$PROOF_BASE" --head "$HEAD_SHA" --out "$RUNNER_TEMP/strength"
 
       - name: Upload the test strength measurement
         if: always() && steps.strength.outcome != 'skipped'
