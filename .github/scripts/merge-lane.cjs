@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { readWorkspace } = require("./ci-changes.cjs");
-const { countTestDelta, TEST_CASE } = require("./test-delta.cjs");
+const { countTestDelta, hideMarkers, TEST_CASE } = require("./test-delta.cjs");
 
 const LANES = ["green", "amber", "red"];
 
@@ -583,7 +583,7 @@ const PLAIN_TEXT = /^[A-Za-z0-9 .,:;'"()/+=?!-]*$/;
 const LINK_LIKE = /:\/\/|www\.|[0-9a-f]{7}|gh-\d/i;
 
 function codeSpan(text) {
-  const flat = text.replace(/\r\n?|\n/g, " ");
+  const flat = hideMarkers(text).replace(/\r\n?|\n/g, " ");
   const longest = Math.max(0, ...(flat.match(/`+/g) ?? []).map((run) => run.length));
   const fence = "`".repeat(longest + 1);
   const pad = /^[` ]|[` ]$/.test(flat) ? " " : "";
@@ -655,12 +655,14 @@ function renderLockComment(lock, checks) {
   const count = tests.reduce((total, entry) => total + entry.tests.length, 0);
   const broken = checks.reasons.filter((entry) => entry.rule in CHECKS_RULES);
   return [
-    `${LOCK_MARKER}${JSON.stringify(lock).replace(/--(!?)>/g, "--$1\\u003e")}-->`,
+    `${LOCK_MARKER}${JSON.stringify(lock)
+      .replace(/</g, "\\u003c")
+      .replace(/--(!?)>/g, "--$1\\u003e")}-->`,
     "### Locked checks",
     "",
     lock.kind === "none"
       ? lock.shortened
-        ? `The first commit \`${short}\` says no test is needed. Its reason is too long to show here.`
+        ? `The first commit \`${short}\` says no test is needed. Its reason is left out here to keep the comment within GitHub's size limit.`
         : `The first commit \`${short}\` says no test is needed: ${lock.reason ? asText(lock.reason) : "(no reason given)"}.`
       : lock.shortened
         ? `Locked at commit \`${short}\`.`
@@ -674,7 +676,7 @@ function renderLockComment(lock, checks) {
         : "The checks are as they were locked.",
     "",
     lock.shortened
-      ? "The full lock was too long for one GitHub comment, so it leaves out the list of locked tests. Its fingerprint still catches a rewritten checks commit, but this comment does not list how the tests changed."
+      ? "This lock leaves out the list of locked tests and how they changed, to keep the comment within GitHub's size limit. Its fingerprint still catches a rewritten checks commit."
       : renderChanges(checks.changes),
     "",
     "The lane bot wrote this lock the first time it saw the checks commit, and keeps it. An edit to this comment shows in its edit history.",
