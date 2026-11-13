@@ -25,13 +25,18 @@ import {
   type ApiFile,
   type ChangedFile,
   type ChecksLock,
+  type ChecksVerdict,
   type CommitInfo,
   type Lane,
   type LaneReason,
   type LaneResult,
   type ResolvedRepair,
 } from "../.github/scripts/merge-lane.cjs";
-import { strengthReasons, type StrengthVerdict } from "../.github/scripts/test-strength.cjs";
+import {
+  renderStrength,
+  strengthReasons,
+  type StrengthVerdict,
+} from "../.github/scripts/test-strength.cjs";
 
 const packageDirs = readWorkspace().map((pkg) => pkg.dir);
 
@@ -792,49 +797,58 @@ describe("locked checks", () => {
 
 const head = "1".repeat(40);
 const moved = "2".repeat(40);
-const openPull = (number: number, sha: string, base = "amaraa-mode") => ({
+const ownRepo = "Amartuvshins0404/t3code";
+const adaRepo = "ada/t3code";
+const openPull = (number: number, sha: string, base = "amaraa-mode", repo = ownRepo) => ({
   number,
-  head: { sha },
+  head: { sha, ref: "fix-slugs", repo: { full_name: repo } },
   base: { ref: base },
 });
 const runCases: ReadonlyArray<{
   readonly name: string;
+  readonly repo: string;
   readonly linked: ReadonlyArray<{ readonly number: number }>;
   readonly open: ReadonlyArray<ReturnType<typeof openPull>>;
   readonly writes: number | null;
 }> = [
   {
     name: "a pull request from a branch in this repository",
+    repo: ownRepo,
     linked: [{ number: 11 }],
     open: [openPull(9, moved), openPull(11, head)],
     writes: 11,
   },
   {
     name: "a pull request from another fork, which the run does not link",
+    repo: adaRepo,
     linked: [],
-    open: [openPull(9, moved), openPull(12, head)],
+    open: [openPull(9, moved, "amaraa-mode", adaRepo), openPull(12, head, "amaraa-mode", adaRepo)],
     writes: 12,
   },
   {
     name: "a fork pull request that moved on to a newer commit",
+    repo: adaRepo,
     linked: [],
-    open: [openPull(12, moved)],
+    open: [openPull(12, moved, "amaraa-mode", adaRepo)],
     writes: null,
   },
   {
     name: "a linked pull request that moved on to a newer commit",
+    repo: ownRepo,
     linked: [{ number: 11 }],
     open: [openPull(11, moved)],
     writes: null,
   },
   {
     name: "an open pull request at that commit into another branch",
+    repo: ownRepo,
     linked: [],
     open: [openPull(14, head, "release")],
     writes: null,
   },
   {
     name: "no open pull request at all",
+    repo: ownRepo,
     linked: [],
     open: [],
     writes: null,
@@ -842,10 +856,15 @@ const runCases: ReadonlyArray<{
 ];
 
 describe("which pull request a finished Blind Checks run writes to", () => {
-  it.each(runCases)("$name -> $writes", ({ linked, open, writes }) => {
+  it.each(runCases)("$name -> $writes", ({ repo, linked, open, writes }) => {
     expect(
       pullRequestForRun({
-        run: { head_sha: head, pull_requests: linked },
+        run: {
+          head_sha: head,
+          head_branch: "fix-slugs",
+          head_repository: { full_name: repo },
+          pull_requests: linked,
+        },
         open,
         defaultBranch: "amaraa-mode",
       }),
@@ -1781,23 +1800,40 @@ const lanePullRequest = (listed: ReadonlyArray<ApiFile>) => ({
   head: { sha: repairHead, ref: "feat/thread-indexes", repo: { full_name: "acme/lanes" } },
 });
 type LanePullRequest = ReturnType<typeof lanePullRequest>;
+interface LaneComment {
+  readonly id: number;
+  readonly user: { readonly login: string };
+  readonly body: string;
+}
+interface CommentWrite {
+  readonly action: "create" | "update";
+  readonly id: unknown;
+  readonly body: unknown;
+}
 const laneGithub = (
   pr: LanePullRequest,
   commits: ReadonlyArray<CommitInfo>,
   firstFiles: ReadonlyArray<ApiFile>,
   listed: ReadonlyArray<ApiFile>,
+  comments: ReadonlyArray<LaneComment> = [],
+  writes: Array<CommentWrite> = [],
 ): SyncInput["github"] => {
   const answer = (data: unknown) => async () => ({ data });
+  const record =
+    (action: CommentWrite["action"]) => async (params: Readonly<Record<string, unknown>>) => {
+      writes.push({ action, id: params.comment_id, body: params.body });
+      return { data: {} };
+    };
   const rest = {
     pulls: { get: answer(pr), list: answer([pr]), listFiles: answer(listed) },
     issues: {
       addLabels: answer({}),
-      createComment: answer({}),
+      createComment: record("create"),
       createLabel: answer({}),
       getLabel: answer({}),
       listLabelsOnIssue: answer([]),
       removeLabel: answer({}),
-      updateComment: answer({}),
+      updateComment: record("update"),
     },
     actions: {
       downloadArtifact: answer(null),
@@ -1817,7 +1853,7 @@ const laneGithub = (
         commit: { message: entry.message, committer: { date: "2026-11-12T10:00:00Z" } },
       })),
     ],
-    [`GET ${repoPath}/issues/${pr.number}/comments`, []],
+    [`GET ${repoPath}/issues/${pr.number}/comments`, comments],
   ]);
   const requests = new Map<string, unknown>(
     commits
@@ -1999,6 +2035,300 @@ describe("the Merge lane job fails the check only for a red lane on the pull req
         .map((entry) => entry.why)
         .join("; ");
       expect(failed, row.name).toEqual(row.failsFor.length > 0 ? [why] : []);
+    }
+  });
+});
+
+const laneBot = "github-actions[bot]";
+const lockMarker = "<!-- merge-lane-lock";
+const githubLimit = 65_536;
+const firstStrength = renderStrength(weakStrength, { required: false });
+const nextStrength = renderStrength(weakStrength, { required: true });
+const freshChecks = judgeChecks(checked);
+const greenChecks = judgeChecks({ ...checked, lane: "green" });
+const botComment = renderBotComment({
+  previous: null,
+  checks: freshChecks,
+  strength: firstStrength,
+});
+const typedAbove = (body: string) => `Seen by hand, merging after lunch.\n\n${body}`;
+const withCrlf = (text: string) => text.replace(/\r?\n/g, "\r\n");
+const editedComments: ReadonlyArray<LaneComment> = [
+  { id: 4, user: { login: "ada" }, body: typedAbove(botComment) },
+  { id: 5, user: { login: laneBot }, body: typedAbove(botComment) },
+];
+const syncWithComments = async (
+  listed: ReadonlyArray<ApiFile>,
+  commits: ReadonlyArray<CommitInfo>,
+  firstFiles: ReadonlyArray<ApiFile>,
+) => {
+  const pr = lanePullRequest(listed);
+  const writes: Array<CommentWrite> = [];
+  const result = await syncPullRequest({
+    github: laneGithub(pr, commits, firstFiles, listed, editedComments, writes),
+    context: laneContext("pull_request_target", pr),
+    core: laneCore([]),
+  });
+  return { result, writes };
+};
+const bodyOf = (write: CommentWrite | undefined) =>
+  typeof write?.body === "string" ? write.body : "";
+const updatedOwnComment = [
+  { action: "update", id: 5, body: expect.stringMatching(/^<!-- merge-lane-lock/) },
+];
+const editedLanes: ReadonlyArray<{
+  readonly lane: Lane;
+  readonly listed: ReadonlyArray<ApiFile>;
+  readonly commits: ReadonlyArray<CommitInfo>;
+  readonly firstFiles: ReadonlyArray<ApiFile>;
+}> = [
+  {
+    lane: "amber",
+    listed: [slugTest, slugSource],
+    commits: [checks, code],
+    firstFiles: [slugTest],
+  },
+  { lane: "green", listed: [docsEdit], commits: [docsOnly], firstFiles: [] },
+];
+const abovePieces = [
+  "Seen.",
+  "@octocat",
+  "fine words",
+  "-->",
+  "<!-- note -->",
+  "`",
+  "# ",
+  "\n",
+  "\r\n",
+] as const;
+const markerEditNames = [
+  "the marker line deleted",
+  "the marker indented",
+  "text before the marker",
+] as const;
+const markerEdits: Record<(typeof markerEditNames)[number], (text: string) => string> = {
+  "the marker line deleted": (text) => text.replace(`${strengthMarker}\n`, ""),
+  "the marker indented": (text) => text.replace(`\n${strengthMarker}`, `\n  ${strengthMarker}`),
+  "text before the marker": (text) =>
+    text.replace(`\n${strengthMarker}`, `\nSeen. ${strengthMarker}`),
+};
+const pickerRun = (branch: string | undefined, repo: string | null | undefined) => ({
+  id: 7,
+  run_number: 7,
+  run_attempt: 1,
+  head_sha: sharedHead,
+  ...(branch === undefined ? {} : { head_branch: branch }),
+  ...(repo === undefined ? {} : { head_repository: repo === null ? null : { full_name: repo } }),
+});
+const pickerPull = (branch: string | undefined, repo: string | null | undefined) => ({
+  number: 31,
+  head: {
+    sha: sharedHead,
+    ...(branch === undefined ? {} : { ref: branch }),
+    ...(repo === undefined ? {} : { repo: repo === null ? null : { full_name: repo } }),
+  },
+  base: { ref: "amaraa-mode" },
+});
+const pickerPair = (run: Parameters<typeof pickerRun>, pull: Parameters<typeof pickerPull>) => ({
+  own: runForPullRequest({ runs: [pickerRun(...run)], pr: pickerPull(...pull) })?.id ?? null,
+  writes: pullRequestForRun({
+    run: pickerRun(...run),
+    open: [pickerPull(...pull)],
+    defaultBranch: "amaraa-mode",
+  }),
+});
+const unmatchedCases: ReadonlyArray<{
+  readonly name: string;
+  readonly run: Parameters<typeof pickerRun>;
+  readonly pull: Parameters<typeof pickerPull>;
+}> = [
+  { name: "both lack a branch", run: [undefined, ownRepo], pull: [undefined, ownRepo] },
+  {
+    name: "both lack a head repository",
+    run: ["fix-slugs", undefined],
+    pull: ["fix-slugs", undefined],
+  },
+  { name: "both have a null head repository", run: ["fix-slugs", null], pull: ["fix-slugs", null] },
+  {
+    name: "the run has a null head repository and the pull request none",
+    run: ["fix-slugs", null],
+    pull: ["fix-slugs", undefined],
+  },
+  {
+    name: "the run has no head repository and the pull request a null one",
+    run: ["fix-slugs", undefined],
+    pull: ["fix-slugs", null],
+  },
+];
+const longName = (file: number, test: number, length: number) =>
+  `${"keeps a long name --> ".repeat(Math.ceil(length / 22)).slice(0, length)} ${file}.${test}`;
+const longTestFile = (file: number, tests: number, length: number): ApiFile => ({
+  filename: `apps/web/src/lib/long-names-${file}.test.ts`,
+  status: "added",
+  patch: [
+    `@@ -0,0 +1,${tests} @@`,
+    ...Array.from(
+      { length: tests },
+      (_, test) => `+it(${JSON.stringify(longName(file, test, length))}, () => {});`,
+    ),
+  ].join("\n"),
+});
+const lockIds = (lock: ChecksLock | null) =>
+  lock && { commit: lock.commit, fingerprint: lock.fingerprint };
+const rulesOf = (input: Parameters<typeof judgeChecks>[0]) =>
+  judgeChecks(input).reasons.map((entry) => entry.rule);
+const expectCappedLock = (files: number, tests: number, length: number) => {
+  const firstFiles = Array.from({ length: files }, (_, file) => longTestFile(file, tests, length));
+  const input = { ...checked, firstFiles, prFiles: [...firstFiles, slugSource] };
+  const verdict = judgeChecks(input);
+  const rewritten = [longTestFile(0, tests + 1, length), ...firstFiles.slice(1)];
+  const first = renderBotComment({ previous: null, checks: verdict, strength: firstStrength });
+  const again = renderBotComment({ previous: first, checks: greenChecks, strength: nextStrength });
+  for (const body of [first, again]) {
+    expect(body.length).toBeLessThanOrEqual(githubLimit);
+    const back = readLock(body);
+    expect(lockIds(back)).toEqual(lockIds(verdict.lock));
+    expect(rulesOf({ ...input, lock: back })).not.toContain("checks-rewritten");
+    expect(
+      rulesOf({ ...input, firstFiles: rewritten, prFiles: [...rewritten, slugSource], lock: back }),
+    ).toContain("checks-rewritten");
+  }
+  return { lock: verdict.lock, first, again };
+};
+
+describe("the lane bot keeps one comment and one lock after a web edit", () => {
+  it.each(editedLanes)(
+    "updates its own comment with text typed above the lock, $lane lane",
+    async ({ lane, listed, commits, firstFiles }) => {
+      const { result, writes } = await syncWithComments(listed, commits, firstFiles);
+      expect(result?.lane).toBe(lane);
+      expect(writes).toEqual(updatedOwnComment);
+      expect(readLock(bodyOf(writes[0]))).toEqual(originalLock);
+    },
+  );
+
+  it("still reports a checks commit rewritten after text was typed above the lock", async () => {
+    const { result, writes } = await syncWithComments(
+      [editedSlugTest, slugSource],
+      [rebased, code],
+      [editedSlugTest],
+    );
+    expect(result?.reasons.map((entry) => entry.rule)).toContain("checks-rewritten");
+    expect(writes).toEqual(updatedOwnComment);
+    expect(readLock(bodyOf(writes[0]))).toEqual(originalLock);
+  });
+
+  effectIt.prop(
+    "reads the lock under typed text and writes it back first",
+    {
+      above: Schema.NonEmptyArray(Schema.Literals(abovePieces)).check(Schema.isMaxLength(5)),
+      crlf: Schema.Boolean,
+      fresh: Schema.Boolean,
+    },
+    ({ above, crlf, fresh }) => {
+      const typed = `${above.join("")}\n\n${botComment}`;
+      const edited = crlf ? withCrlf(typed) : typed;
+      expect(readLock(edited)).toEqual(originalLock);
+      const next = renderBotComment({
+        previous: edited,
+        checks: fresh ? freshChecks : greenChecks,
+        strength: nextStrength,
+      });
+      expect(next.startsWith(lockMarker)).toBe(true);
+      expect(readLock(next)).toEqual(originalLock);
+    },
+    { arbitrary: { seed: 26611, runs: 200 } },
+  );
+
+  it.each(markerEditNames)("keeps one strength marker and one heading after %s", (name) => {
+    for (const edited of [markerEdits[name](botComment), withCrlf(markerEdits[name](botComment))]) {
+      expect(edited.replace(/\r\n/g, "\n")).not.toBe(botComment);
+      for (const checks of [freshChecks, greenChecks]) {
+        const next = renderBotComment({ previous: edited, checks, strength: nextStrength });
+        expect(countOf(next, /<!-- test-strength -->/g)).toBe(1);
+        expect(countOf(next, /^### Test strength/gm)).toBe(1);
+        expect(readLock(next)).toEqual(originalLock);
+      }
+    }
+  });
+
+  it.each(unmatchedCases)("does not match a run to a pull request when $name", ({ run, pull }) => {
+    expect(pickerPair(run, pull)).toEqual({ own: null, writes: null });
+  });
+
+  it("matches a run only when commit, branch and head repository are present and equal", () => {
+    const branches = [undefined, "fix-slugs", "fix-other"] as const;
+    const repos = [undefined, null, ownRepo, adaRepo] as const;
+    const wrong = branches.flatMap((runBranch) =>
+      branches.flatMap((pullBranch) =>
+        repos.flatMap((runRepo) =>
+          repos.flatMap((pullRepo) => {
+            const matches =
+              runBranch !== undefined &&
+              runBranch === pullBranch &&
+              typeof runRepo === "string" &&
+              runRepo === pullRepo;
+            const got = pickerPair([runBranch, runRepo], [pullBranch, pullRepo]);
+            const want = matches ? { own: 7, writes: 31 } : { own: null, writes: null };
+            return got.own === want.own && got.writes === want.writes
+              ? []
+              : [{ runBranch, pullBranch, runRepo, pullRepo, got }];
+          }),
+        ),
+      ),
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it("caps a comment with many long test names and still catches a rewrite", () => {
+    expectCappedLock(120, 30, 300);
+    const small = renderBotComment({
+      previous: null,
+      checks: freshChecks,
+      strength: firstStrength,
+    });
+    expect(readLock(small)).toEqual(originalLock);
+    expect(
+      readLock(renderBotComment({ previous: small, checks: greenChecks, strength: nextStrength })),
+    ).toEqual(originalLock);
+  });
+
+  effectIt.prop(
+    "keeps every comment within the limit with the lock's commit and fingerprint",
+    {
+      files: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 80 })),
+      tests: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 40 })),
+      length: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 400 })),
+    },
+    ({ files, tests, length }) => {
+      const { lock, first, again } = expectCappedLock(files, tests, length);
+      if (files * tests * length > 2000) return;
+      expect(readLock(first)).toEqual(lock);
+      expect(readLock(again)).toEqual(lock);
+    },
+    { arbitrary: { seed: 26612, runs: 40 } },
+  );
+
+  it("caps a comment whose changed tests carry long names", () => {
+    const names = (tag: string) =>
+      Array.from(
+        { length: 600 },
+        (_, index) => `${tag} ${index} ${"a long changed name ".repeat(12)}`,
+      );
+    const changed: ChecksVerdict = {
+      ...freshChecks,
+      state: "checks revised",
+      changes: Array.from({ length: 4 }, (_, index) => ({
+        file: `apps/web/src/lib/changed-${index}.test.ts`,
+        before: names("was"),
+        after: names("now"),
+      })),
+    };
+    const first = renderBotComment({ previous: null, checks: changed, strength: firstStrength });
+    const again = renderBotComment({ previous: first, checks: changed, strength: nextStrength });
+    for (const body of [first, again]) {
+      expect(body.length).toBeLessThanOrEqual(githubLimit);
+      expect(lockIds(readLock(body))).toEqual(lockIds(originalLock));
     }
   });
 });
