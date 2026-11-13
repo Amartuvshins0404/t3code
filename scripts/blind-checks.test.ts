@@ -758,6 +758,11 @@ describe("blind checks proof: new tests are found from the test runner's results
         ).length;
         return failed >= atHead.length - wasOld;
       });
+      const shows = head.some(
+        ({ name }) =>
+          head.filter((test) => test.name === name && test.without === "failed").length >
+          old.filter((test) => test.name === name && test.status === "failed").length,
+      );
       const verdict = verdictOf(
         [titled],
         [
@@ -779,10 +784,123 @@ describe("blind checks proof: new tests are found from the test runner's results
           ),
         ],
       );
-      expect(verdict.ok).toBe(holds);
+      expect(verdict.ok).toBe(holds && shows);
     },
     { arbitrary: { seed: 42 } },
   );
+});
+
+const nothingFailed = "Nothing in it failed without the code.";
+const problemsIn = (verdict: ReturnType<typeof judge>, file: string) =>
+  verdict.rows.filter((row) => row.file === file).flatMap((row) => row.problems);
+const slugsA = "title > slugs a";
+const addedSlug: PlannedFile = { file: slugTest, baseFile: null };
+const gitOld: PlannedFile = { file: upstreamTest, baseFile: upstreamTest };
+
+describe("blind checks proof: every checked file shows a test that fails without the code", () => {
+  it("floor: a file of old tests that all pass without the code is not proven, and one changed to need the code is", () => {
+    const oldRun = titleRun([[slugsA, "passed"]]);
+    const run = (slugs: string) => titleRun([[slugsA, slugs]]);
+    const hollow = verdictOf([titled], [oldRun], [run("passed")], [run("passed")]);
+    expect(hollow.ok).toBe(false);
+    expect(problemsIn(hollow, titleTest)).toContain(nothingFailed);
+    const changed = verdictOf([titled], [oldRun], [run("failed")], [run("passed")]);
+    expect(changed.ok).toBe(true);
+    expect(problemsIn(changed, titleTest)).not.toContain(nothingFailed);
+  });
+
+  it("floor: a name that fails without the code only as often as in the old run does not count", () => {
+    const oldRun = titleRun([[slugsA, "failed"]]);
+    const verdict = verdictOf(
+      [titled],
+      [oldRun],
+      [titleRun([[slugsA, "failed"]])],
+      [titleRun([[slugsA, "passed"]])],
+    );
+    expect(verdict.ok).toBe(false);
+    expect(problemsIn(verdict, titleTest)).toContain(nothingFailed);
+    const twice = verdictOf(
+      [titled],
+      [oldRun],
+      [
+        titleRun([
+          [slugsA, "failed"],
+          [slugsA, "failed"],
+        ]),
+      ],
+      [
+        titleRun([
+          [slugsA, "passed"],
+          [slugsA, "passed"],
+        ]),
+      ],
+    );
+    expect(twice.ok).toBe(true);
+  });
+
+  it("floor: of two files only the hollow one has the problem, and a file that cannot load without the code is untouched", () => {
+    const gitRun = loaded(upstreamTest, [["git > reads refs", "passed"]]);
+    const verdict = verdictOf(
+      [titled, gitOld],
+      [titleOldRun, gitRun],
+      [titleRun([[slugsA, "failed"]]), gitRun],
+      [titleRun([[slugsA, "passed"]]), gitRun],
+    );
+    expect(verdict.ok).toBe(false);
+    expect(problemsIn(verdict, titleTest)).not.toContain(nothingFailed);
+    expect(problemsIn(verdict, upstreamTest)).toContain(nothingFailed);
+    const unloaded = verdictOf(
+      [addedSlug],
+      [],
+      [notLoaded(slugTest)],
+      [loaded(slugTest, [["slugs > keeps letters", "passed"]])],
+    );
+    expect(unloaded.ok).toBe(true);
+    expect(problemsIn(unloaded, slugTest)).not.toContain(nothingFailed);
+  });
+});
+
+describe("blind checks proof: a file must run, load and pass with the code", () => {
+  it("pinned: a file with no run without the code is not proven, even when it passes with the code", () => {
+    const verdict = verdictOf(
+      [addedSlug],
+      [],
+      [],
+      [loaded(slugTest, [["slugs > keeps letters", "passed"]])],
+    );
+    expect(verdict.ok).toBe(false);
+  });
+
+  it("pinned: a file that loads without the code but cannot load with it is not proven", () => {
+    const verdict = verdictOf(
+      [addedSlug],
+      [],
+      [loaded(slugTest, [["slugs > keeps letters", "failed"]])],
+      [notLoaded(slugTest)],
+    );
+    expect(verdict.ok).toBe(false);
+  });
+
+  it("pinned: a test skipped with the code did not pass, so the file is not proven and the problem names it", () => {
+    const verdict = verdictOf(
+      [addedSlug],
+      [],
+      [
+        loaded(slugTest, [
+          ["slugs > keeps letters", "failed"],
+          ["slugs > drops spaces", "failed"],
+        ]),
+      ],
+      [
+        loaded(slugTest, [
+          ["slugs > keeps letters", "passed"],
+          ["slugs > drops spaces", "skipped"],
+        ]),
+      ],
+    );
+    expect(verdict.ok).toBe(false);
+    expect(problemsOf(verdict)).toContain("slugs > drops spaces");
+  });
 });
 
 describe("blind checks proof: the commands the job runs", () => {
@@ -796,6 +914,46 @@ describe("blind checks proof: the commands the job runs", () => {
     NodeChildProcess.execFileSync("node", [script, ...args], { encoding: "utf8", env: jobEnv });
   const linesOf = (file: string) =>
     NodeFS.readFileSync(file, "utf8").split("\n").filter(Boolean).sort();
+  const writerIn = (out: string) => (name: string, value: unknown) =>
+    NodeFS.writeFileSync(NodePath.join(out, name), `${JSON.stringify(value, null, 2)}\n`);
+  const reportIn =
+    (dir: string) =>
+    (files: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]>) => {
+      const testResults = files.map(([file, tests]) => {
+        const assertionResults = tests.map(([name, status]) => ({
+          ...resultOf(name, status),
+          fullName: name.split(" > ").join(" "),
+          duration: 1,
+          failureMessages: status === "failed" ? ["AssertionError: expected 1 to be 2"] : [],
+          meta: {},
+          tags: [],
+          benchmarks: [],
+        }));
+        return {
+          assertionResults,
+          startTime: 0,
+          endTime: 1,
+          status: assertionResults.some((test) => test.status === "failed") ? "failed" : "passed",
+          message: "",
+          name: NodePath.join(dir, file),
+        };
+      });
+      const all = testResults.flatMap((result) => result.assertionResults);
+      return {
+        numTotalTestSuites: testResults.length,
+        numPassedTestSuites: testResults.filter((result) => result.status === "passed").length,
+        numFailedTestSuites: testResults.filter((result) => result.status === "failed").length,
+        numPendingTestSuites: 0,
+        numTotalTests: all.length,
+        numPassedTests: all.filter((test) => test.status === "passed").length,
+        numFailedTests: all.filter((test) => test.status === "failed").length,
+        numPendingTests: 0,
+        numTodoTests: 0,
+        startTime: 0,
+        success: all.every((test) => test.status === "passed"),
+        testResults,
+      };
+    };
 
   it("by results, the plan command writes base-files.txt with each planned file's path on the base", () => {
     const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "blind-checks-"));
@@ -845,46 +1003,8 @@ describe("blind checks proof: the commands the job runs", () => {
     const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "blind-checks-"));
     const out = NodePath.join(dir, "out");
     NodeFS.mkdirSync(out);
-    const write = (name: string, value: unknown) =>
-      NodeFS.writeFileSync(NodePath.join(out, name), `${JSON.stringify(value, null, 2)}\n`);
-    const report = (
-      files: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]>,
-    ) => {
-      const testResults = files.map(([file, tests]) => {
-        const assertionResults = tests.map(([name, status]) => ({
-          ...resultOf(name, status),
-          fullName: name.split(" > ").join(" "),
-          duration: 1,
-          failureMessages: status === "failed" ? ["AssertionError: expected 1 to be 2"] : [],
-          meta: {},
-          tags: [],
-          benchmarks: [],
-        }));
-        return {
-          assertionResults,
-          startTime: 0,
-          endTime: 1,
-          status: assertionResults.some((test) => test.status === "failed") ? "failed" : "passed",
-          message: "",
-          name: NodePath.join(dir, file),
-        };
-      });
-      const all = testResults.flatMap((result) => result.assertionResults);
-      return {
-        numTotalTestSuites: testResults.length,
-        numPassedTestSuites: testResults.filter((result) => result.status === "passed").length,
-        numFailedTestSuites: testResults.filter((result) => result.status === "failed").length,
-        numPendingTestSuites: 0,
-        numTotalTests: all.length,
-        numPassedTests: all.filter((test) => test.status === "passed").length,
-        numFailedTests: all.filter((test) => test.status === "failed").length,
-        numPendingTests: 0,
-        numTodoTests: 0,
-        startTime: 0,
-        success: all.every((test) => test.status === "passed"),
-        testResults,
-      };
-    };
+    const write = writerIn(out);
+    const report = reportIn(dir);
     const judged = () => node(["judge", "--dir", out, "--cwd", dir]);
     const titleFile = "src/title.test.js";
     const slugFile = "src/slug.test.js";
@@ -930,6 +1050,47 @@ describe("blind checks proof: the commands the job runs", () => {
       write("before.json", without("failed"));
       NodeFS.rmSync(NodePath.join(out, "baseline.json"));
       expect(judged().startsWith("### Blind checks: not proven")).toBe(true);
+    } finally {
+      NodeFS.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("pinned: the judge command exits 1 only when BLIND_CHECKS_MODE is required and the proof does not hold", () => {
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "blind-checks-"));
+    const out = NodePath.join(dir, "out");
+    NodeFS.mkdirSync(out);
+    const write = writerIn(out);
+    const report = reportIn(dir);
+    const slugFile = "src/slug.test.js";
+    const judgedIn = (mode: string, without: string) => {
+      write("before.json", report([[slugFile, [["slugs > lowercases", without]]]]));
+      const result = NodeChildProcess.spawnSync(
+        "node",
+        [script, "judge", "--dir", out, "--cwd", dir],
+        { encoding: "utf8", env: { ...jobEnv, BLIND_CHECKS_MODE: mode } },
+      );
+      const verdict = ["### Blind checks: proven", "### Blind checks: not proven"].find((line) =>
+        result.stdout.startsWith(line),
+      );
+      return { exit: result.status, verdict: verdict ?? result.stdout.slice(0, 200) };
+    };
+    try {
+      write("plan.json", {
+        run: true,
+        base,
+        files: [{ file: slugFile, baseFile: null }],
+        support: [],
+      });
+      write("after.json", report([[slugFile, [["slugs > lowercases", "passed"]]]]));
+      expect([
+        judgedIn("required", "passed"),
+        judgedIn("required", "failed"),
+        judgedIn("report", "passed"),
+      ]).toEqual([
+        { exit: 1, verdict: "### Blind checks: not proven" },
+        { exit: 0, verdict: "### Blind checks: proven" },
+        { exit: 0, verdict: "### Blind checks: not proven" },
+      ]);
     } finally {
       NodeFS.rmSync(dir, { recursive: true, force: true });
     }
