@@ -2,8 +2,7 @@ import type { ChangedFile } from "./merge-lane.cjs";
 
 export interface PlannedFile {
   readonly file: string;
-  readonly added: boolean;
-  readonly tests: ReadonlyArray<string>;
+  readonly baseFile: string | null;
 }
 
 export type Plan =
@@ -18,7 +17,11 @@ export type Plan =
 export interface TestResult {
   readonly name: string;
   readonly message?: string;
-  readonly assertionResults: ReadonlyArray<{ readonly title: string; readonly status: string }>;
+  readonly assertionResults: ReadonlyArray<{
+    readonly title: string;
+    readonly status: string;
+    readonly ancestorTitles?: ReadonlyArray<string>;
+  }>;
 }
 
 export interface ProofRow {
@@ -35,6 +38,7 @@ export function planProof(input: {
     readonly files: ReadonlyArray<ChangedFile>;
   }>;
   readonly base: string;
+  readonly onBase: (file: string) => boolean;
 }): Plan;
 
 export function pullRequestCommits(
@@ -44,9 +48,10 @@ export function pullRequestCommits(
 ): Array<{ sha: string; message: string; files: Array<ChangedFile> }>;
 
 export function judge(
-  planned: { readonly commit: string; readonly files: ReadonlyArray<PlannedFile> },
-  before: ReadonlyMap<string, TestResult>,
-  after: ReadonlyMap<string, TestResult>,
+  planned: { readonly files: ReadonlyArray<PlannedFile> },
+  runs: {
+    readonly baseline: ReadonlyMap<string, TestResult>;
+    readonly before: ReadonlyMap<string, TestResult>;
+    readonly after: ReadonlyMap<string, TestResult>;
+  },
 ): { readonly ok: boolean; readonly rows: ReadonlyArray<ProofRow> };
-
-export function namePattern(name: string): RegExp;
