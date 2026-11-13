@@ -1308,8 +1308,11 @@ describe("blind checks proof: the commands the job runs", () => {
         "src/title.test.js": 'it("keeps the title", () => {});\n',
         "src/old.test.js": `${oldTests}it("keeps digits", () => {});\n`,
         "src/kept.test.js": keptTests,
+        "x.test.js": 'it("keeps the root", () => {});\n',
+        "src/mode.test.js": 'it("keeps the mode", () => {});\n',
       });
       run(["checkout", "-q", "-b", "fix/slugs"]);
+      NodeFS.chmodSync(NodePath.join(repo, "src/mode.test.js"), 0o755);
       commitFiles(
         "test: checks for slugs\n\nBlind-checks: written from the request",
         {
@@ -1318,12 +1321,16 @@ describe("blind checks proof: the commands the job runs", () => {
           "src/slug.test.js": 'it("lowercases", () => {});\n',
           "src/renamed.test.js": `${oldTests}it("keeps digits", () => {});\nit("keeps dashes", () => {});\n`,
           "src/kept.test.js": `${keptTests}it("keeps accents", () => {});\n`,
+          ":x.test.js": 'it("hides behind a pathspec", () => {});\n',
+          "src/gone.test.js": 'it("is gone with the code", () => {});\n',
         },
         ["src/old.test.js"],
       );
-      commitFiles("feat: slugs lowercase", {
-        "src/slug.js": "export const slug = (text) => text.toLowerCase();\n",
-      });
+      commitFiles(
+        "feat: slugs lowercase",
+        { "src/slug.js": "export const slug = (text) => text.toLowerCase();\n" },
+        ["src/gone.test.js"],
+      );
       const head = commitFiles(
         "test: drop the accent check\n\nBlind-checks: revised after an objection",
         { "src/kept.test.js": keptTests },
@@ -1331,11 +1338,15 @@ describe("blind checks proof: the commands the job runs", () => {
       const left = run(["merge-base", "amaraa-mode", "fix/slugs"]);
       node(["plan", "--base", left, "--head", head, "--dir", out, "--cwd", repo]);
       expect(linesOf(NodePath.join(out, "files.txt"))).toEqual([
+        ":x.test.js",
+        "src/gone.test.js",
+        "src/mode.test.js",
         "src/renamed.test.js",
         "src/slug.test.js",
         "src/title.test.js",
       ]);
       expect(linesOf(NodePath.join(out, "base-files.txt"))).toEqual([
+        "src/mode.test.js",
         "src/old.test.js",
         "src/title.test.js",
       ]);
