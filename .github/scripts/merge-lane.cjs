@@ -248,7 +248,7 @@ const TEST_NAME =
 const NAMELESS_TEST = "a test whose name is not on its first line";
 const LOCK_MARKER = "<!-- merge-lane-lock";
 const STRENGTH_MARKER = "<!-- test-strength -->";
-const GITHUB_COMMENT_LIMIT = 65_536;
+const GITHUB_COMMENT_BYTES = 65_536;
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_MEASUREMENT_BYTES = 4 * 1024 * 1024;
 const STRENGTH_LABEL_LOOK = {
@@ -499,7 +499,10 @@ function judgeChecks({ lane, body, commits, firstFiles, prFiles, lock }) {
   if (!hasRequest(body)) reasons.push(reason("request-missing"));
   const current = marker ? lockOf(first, marker, firstFiles) : null;
   const rewritten = Boolean(lock && lock.fingerprint !== current?.fingerprint);
-  const saved = lock?.shortened && !rewritten ? current : (lock ?? current);
+  const saved =
+    lock?.shortened && current && !rewritten
+      ? { ...current, commit: lock.commit }
+      : (lock ?? current);
   if (rewritten) reasons.push(reason("checks-rewritten"));
 
   if (marker?.kind === "none") {
@@ -629,7 +632,8 @@ function renderChanges(changes) {
 
 function readLock(body) {
   const start = body.indexOf(LOCK_MARKER);
-  if (start === -1) return null;
+  const strength = body.indexOf(STRENGTH_MARKER);
+  if (start === -1 || (strength !== -1 && strength < start)) return null;
   const json = body.slice(start + LOCK_MARKER.length);
   try {
     return JSON.parse(json.slice(0, json.indexOf("-->")));
@@ -655,7 +659,7 @@ function renderLockComment(lock, checks) {
     ...tests.map((entry) => `- ${codeSpan(entry.file)}: ${entry.tests.length} tests`),
     "",
     checks.state === null
-      ? "The lane is green, so this run did not judge the checks."
+      ? "The changed files need no locked checks, so this run did not judge them."
       : broken.length > 0
         ? ["Broken since the lock:", ...broken.map((entry) => `- **${entry.why}**`)].join("\n")
         : "The checks are as they were locked.",
@@ -676,8 +680,13 @@ function renderBotComment({ previous, checks, strength }) {
       ...(strength === null ? [] : [`${STRENGTH_MARKER}\n${strength}`]),
     ].join("\n\n");
   const full = render(lock);
-  if (full.length <= GITHUB_COMMENT_LIMIT) return full;
-  return render(lock && { ...lock, files: [], shortened: true }).slice(0, GITHUB_COMMENT_LIMIT);
+  if (Buffer.byteLength(full) <= GITHUB_COMMENT_BYTES) return full;
+  let short = render(lock && { ...lock, files: [], shortened: true });
+  for (let over = Buffer.byteLength(short) - GITHUB_COMMENT_BYTES; over > 0;) {
+    short = short.slice(0, short.length - over);
+    over = Buffer.byteLength(short) - GITHUB_COMMENT_BYTES;
+  }
+  return short;
 }
 
 function isBotComment(comment) {
