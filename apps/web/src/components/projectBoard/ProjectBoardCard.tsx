@@ -17,7 +17,7 @@ export function ProjectBoardCardView({
 }: {
   readonly card: ProjectBoardCard;
   readonly timestamp: string | null;
-  readonly place?: string;
+  readonly place?: string | undefined;
 }) {
   const { thread, pullRequest } = card;
   const linked = pullRequest === null ? null : linkedPullRequestSnapshotStatus(pullRequest);

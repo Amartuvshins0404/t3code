@@ -20,7 +20,7 @@ export const PROJECT_BOARD_COLUMNS: ReadonlyArray<ProjectBoardColumnId> = [
 
 export const PROJECT_BOARD_DONE_LIMIT = 30;
 
-const NEEDS_YOU_LIST_LIMIT = 5;
+export const NEEDS_YOU_LIST_LIMIT = 5;
 
 export type ProjectBoardReason =
   | ThreadAttentionReason

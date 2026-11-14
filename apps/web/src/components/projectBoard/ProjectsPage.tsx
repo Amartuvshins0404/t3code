@@ -1,7 +1,13 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { countProjectBoard, PROJECT_BOARD_COLUMNS } from "@t3tools/client-runtime/state/projects";
+import {
+  buildNeedsYouList,
+  countProjectBoard,
+  NEEDS_YOU_LIST_LIMIT,
+  PROJECT_BOARD_COLUMNS,
+} from "@t3tools/client-runtime/state/projects";
 import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { isElectron } from "~/env";
 import { workspaceAreaProps } from "~/lib/workspaceFocus";
@@ -12,12 +18,19 @@ import {
 } from "~/state/entities";
 import { useEnvironments } from "~/state/environments";
 import { sortScopedProjectsForSidebar } from "../Sidebar.logic";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { SidebarInset } from "../ui/sidebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { PROJECT_BOARD_COLUMN_TITLES, projectBoardKey } from "./projectBoardPresentation";
+import { ProjectBoardCardView } from "./ProjectBoardCard";
+import {
+  PROJECT_BOARD_COLUMN_TITLES,
+  PROJECT_BOARD_EMPTY_COLUMN_TEXT,
+  projectBoardKey,
+} from "./projectBoardPresentation";
 
 export function ProjectsPage() {
   const projects = useProjects();
@@ -43,6 +56,15 @@ export function ProjectsPage() {
     const key = projectBoardKey(project);
     return { project, key, counts: countProjectBoard(threadsByProject.get(key) ?? []) };
   });
+  const projectPlaces = new Map(
+    tiles.map(({ project, key }) => [
+      key,
+      showEnvironment
+        ? `${project.title} · ${environmentLabels.get(project.environmentId) ?? project.environmentId}`
+        : project.title,
+    ]),
+  );
+  const tileThreads = tiles.flatMap(({ key }) => threadsByProject.get(key) ?? []);
 
   return (
     <SidebarInset
@@ -70,6 +92,7 @@ export function ProjectsPage() {
           ) : null
         ) : (
           <WorkspacePageContainer width="expanded">
+            <NeedsYouSection threads={tileThreads} projectPlaces={projectPlaces} />
             <ul className="grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
               {tiles.map(({ project, key, counts }) => (
                 <li key={key} className="min-w-0">
@@ -116,5 +139,61 @@ export function ProjectsPage() {
         )}
       </div>
     </SidebarInset>
+  );
+}
+
+function NeedsYouSection({
+  threads,
+  projectPlaces,
+}: {
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly projectPlaces: ReadonlyMap<string, string>;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const list = buildNeedsYouList(threads, showAll ? { limit: Number.POSITIVE_INFINITY } : {});
+  const hidden = list.total - list.items.length;
+  return (
+    <section aria-labelledby="projects-needs-you-title" className="flex flex-col gap-2">
+      <header className="flex items-center gap-2">
+        <h2 id="projects-needs-you-title" className="text-sm font-medium text-foreground">
+          {PROJECT_BOARD_COLUMN_TITLES["needs-you"]}
+        </h2>
+        <Badge variant="secondary">{list.total}</Badge>
+      </header>
+      {list.total === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {PROJECT_BOARD_EMPTY_COLUMN_TEXT["needs-you"]}
+        </p>
+      ) : (
+        <ol className="flex list-none flex-col gap-2 p-0">
+          {list.items.map((item) => (
+            <ProjectBoardCardView
+              key={`${item.thread.environmentId}:${item.thread.id}`}
+              card={item}
+              timestamp={item.waitingSince}
+              place={projectPlaces.get(
+                projectBoardKey({
+                  environmentId: item.thread.environmentId,
+                  id: item.thread.projectId,
+                }),
+              )}
+            />
+          ))}
+        </ol>
+      )}
+      {hidden > 0 ? (
+        <div className="flex">
+          <Button variant="ghost" size="sm" onClick={() => setShowAll(true)}>
+            Show all ({hidden} more)
+          </Button>
+        </div>
+      ) : showAll && list.total > NEEDS_YOU_LIST_LIMIT ? (
+        <div className="flex">
+          <Button variant="ghost" size="sm" onClick={() => setShowAll(false)}>
+            Show fewer
+          </Button>
+        </div>
+      ) : null}
+    </section>
   );
 }
