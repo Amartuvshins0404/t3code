@@ -63,7 +63,7 @@ export function TeammateComposer({
   }
 
   const trimmed = text.trim();
-  const send = async () => {
+  const send = async (dispatchMode: "auto" | "queue" = "auto") => {
     if (trimmed === "" || sending) return;
     setSending(true);
     const result = await startTurn({
@@ -73,7 +73,7 @@ export function TeammateComposer({
         message: { messageId: newMessageId(), role: "user", text: trimmed, attachments: [] },
         runtimeMode,
         interactionMode,
-        dispatchMode: running ? "queue" : "start",
+        dispatchMode,
       },
     });
     setSending(false);
@@ -114,7 +114,7 @@ export function TeammateComposer({
     >
       <Textarea
         aria-label="Message"
-        placeholder={running ? "Queue a message for after this turn" : "Send a message"}
+        placeholder={running ? "Steer the agent while it works" : "Send a message"}
         value={text}
         disabled={sending}
         onChange={(event) => updateText(event.target.value)}
@@ -136,8 +136,19 @@ export function TeammateComposer({
             {stopping ? "Stopping…" : "Stop"}
           </Button>
         ) : null}
+        {running ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={trimmed === "" || sending}
+            onClick={() => void send("queue")}
+          >
+            Queue
+          </Button>
+        ) : null}
         <Button type="submit" size="sm" disabled={trimmed === "" || sending}>
-          {sending ? "Sending…" : running ? "Queue" : "Send"}
+          {sending ? "Sending…" : running ? "Steer" : "Send"}
         </Button>
       </div>
     </form>

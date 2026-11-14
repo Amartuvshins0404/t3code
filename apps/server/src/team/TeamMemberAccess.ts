@@ -162,7 +162,10 @@ export function decideTeamMemberCommand(input: {
       ...(command.reason === undefined ? {} : { reason: command.reason }),
     });
   }
-  if (!STEER_DISPATCH_MODES.has(command.dispatchMode.type)) {
+  if (
+    !STEER_DISPATCH_MODES.has(command.dispatchMode.type) ||
+    command.deliveryIntent === "restart"
+  ) {
     return Result.fail(
       refusal(
         "Teammates can send now, queue after the running turn, or steer it.",
@@ -179,6 +182,7 @@ export function decideTeamMemberCommand(input: {
     attachments: [],
     context: { version: 1, records: [], member: teamPerson(member) },
     dispatchMode: command.dispatchMode,
+    ...(command.deliveryIntent === undefined ? {} : { deliveryIntent: command.deliveryIntent }),
     createdBy: "user",
     creationSource: "web",
   });

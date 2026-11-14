@@ -34,8 +34,8 @@ In the team workspace, each shared machine lists the threads shared with that te
 project. A teammate sees the thread as it streams: messages, the agent's replies and its work.
 
 - With **View**, there is no message box. They see "View only" and the name of the owner to ask.
-- With **Steer**, they can send text messages. A message sent while the agent works waits for the
-  current turn. They can also stop the agent.
+- With **Steer**, they can send text messages. While the agent works, **Steer** sends the message
+  into the current turn and **Queue** holds it for after the turn. They can also stop the agent.
 
 Teammates cannot rename, delete, archive or settle the thread, change its model or mode, attach
 files, answer the agent's questions, open terminals or files, or start threads on your machine.

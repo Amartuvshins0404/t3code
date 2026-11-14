@@ -86,14 +86,29 @@ describe("decideTeamMemberCommand", () => {
     );
   });
 
-  it("refuses a restart, which would throw away the owner's running turn", () => {
-    const restart: Extract<OrchestrationV2Command, { type: "message.dispatch" }> = {
-      ...message,
-      dispatchMode: { type: "restart_active", targetRunId: RunId.make("run-1") },
-    };
+  it.each(["auto", "steer"] as const)(
+    "keeps a teammate's %s delivery so the message can reach the running turn",
+    (deliveryIntent) => {
+      const decision = decideTeamMemberCommand({
+        command: { ...message, deliveryIntent },
+        teamShare: share("org-a", "steer"),
+        member,
+      });
+      expect(Result.getOrThrow(decision)).toMatchObject({ deliveryIntent });
+    },
+  );
+
+  it.each<Partial<Extract<OrchestrationV2Command, { type: "message.dispatch" }>>>([
+    { dispatchMode: { type: "restart_active", targetRunId: RunId.make("run-1") } },
+    { deliveryIntent: "restart" },
+  ])("refuses a restart, which would throw away the owner's running turn", (restart) => {
     expect(
       Result.isFailure(
-        decideTeamMemberCommand({ command: restart, teamShare: share("org-a", "steer"), member }),
+        decideTeamMemberCommand({
+          command: { ...message, ...restart },
+          teamShare: share("org-a", "steer"),
+          member,
+        }),
       ),
     ).toBe(true);
   });
