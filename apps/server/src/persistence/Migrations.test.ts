@@ -7,7 +7,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { migrationManifest, runMigrations } from "./Migrations.ts";
+import { hasPendingMigrations, migrationManifest, runMigrations } from "./Migrations.ts";
 
 const v2Migrations = migrationManifest.filter(([id]) => id >= 55);
 const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
@@ -18,6 +18,16 @@ const history = Effect.gen(function* () {
     SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id
   `;
   return rows.map((row) => [row.migration_id, row.name] as const);
+});
+
+const teamMemberColumnTables = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{ readonly name: string }>`
+    SELECT m.name FROM sqlite_master m, pragma_table_info(m.name) c
+    WHERE m.type = 'table' AND c.name = 'member_json'
+    ORDER BY m.name
+  `;
+  return rows.map((row) => row.name);
 });
 
 const v2TableCount = Effect.gen(function* () {
@@ -162,6 +172,61 @@ describe("runMigrations", () => {
         migrationManifest.filter(([id]) => id >= 70),
       );
       assert.deepStrictEqual(yield* history, migrationManifest);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("adds the team member columns without a migration id and only once", () =>
+    Effect.gen(function* () {
+      yield* runMigrations({ toMigrationInclusive: 19 });
+      assert.deepStrictEqual(yield* teamMemberColumnTables, []);
+
+      yield* runMigrations();
+      assert.deepStrictEqual(yield* teamMemberColumnTables, [
+        "auth_pairing_links",
+        "auth_sessions",
+      ]);
+      assert.isFalse(yield* hasPendingMigrations());
+      assert.deepStrictEqual(yield* history, migrationManifest);
+
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* teamMemberColumnTables, [
+        "auth_pairing_links",
+        "auth_sessions",
+      ]);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("adds the team member columns to a database already at the latest migration", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* sql`ALTER TABLE auth_pairing_links DROP COLUMN member_json`;
+      yield* sql`ALTER TABLE auth_sessions DROP COLUMN member_json`;
+      assert.isTrue(yield* hasPendingMigrations());
+
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* teamMemberColumnTables, [
+        "auth_pairing_links",
+        "auth_sessions",
+      ]);
+      assert.isFalse(yield* hasPendingMigrations());
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("still starts on a database that recorded the old team member migration", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (${newerMigrationId}, 'AuthTeamMember')
+      `;
+
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* teamMemberColumnTables, [
+        "auth_pairing_links",
+        "auth_sessions",
+      ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
