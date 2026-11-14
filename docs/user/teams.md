@@ -40,6 +40,10 @@ project. A teammate sees the thread as it streams: messages, the agent's replies
 Teammates cannot rename, delete, archive or settle the thread, change its model or mode, attach
 files, answer the agent's questions, open terminals or files, or start threads on your machine.
 
+A message from a teammate with **Steer** starts a turn in the thread's current permission mode. In a
+full-access thread, that turn can run commands and change files on your machine without asking.
+Give **Steer** on a full-access thread only to people you would let use your machine.
+
 Each message shows who sent it. Avatars in the thread header and the sidebar show who has the thread
 open, and a line above the message box shows who is typing.
 
@@ -49,6 +53,19 @@ open, and a line above the message box shows who is typing.
   palette. Teammates see that the thread is no longer shared.
 - A whole machine: turn it off in **Settings → Team → Shared machines**. Teammates lose every thread
   on it.
+
+## When access ends
+
+Stopping a share, removing a member, changing a member's role or deleting the team ends access at
+once on every machine of yours that this device can reach. A teammate who is removed or changes
+role reconnects with their new access, or not at all.
+
+Any other machine, for example one that is asleep, offline or owned by another teammate, does not
+hear about the change. Teammates already connected to it keep access for up to 10 minutes, until their session
+needs renewing and T3 Connect refuses it.
+
+If one person is in two teams that share the same machine, they see only the threads of the team
+that shared the machine first.
 
 Anything the agent read or printed can show to the team, such as a value from a file. Share only
 threads you are comfortable showing.
