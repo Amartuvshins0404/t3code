@@ -115,6 +115,53 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("SessionStore.lay
       }).pipe(Effect.scoped, Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
   );
 
+  it.effect("closes every socket of a removed team and leaves the owner and other teams", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const teammate = (userId: string, organizationId: string) => ({
+        ...relaySessionInput,
+        subject: "team-member",
+        proofKeyThumbprint: `proof-${userId}`,
+        member: {
+          userId,
+          name: userId,
+          organizationId,
+          organizationSlug: organizationId,
+          role: "member" as const,
+        },
+      });
+      const owner = yield* sessions.issue({ subject: "owner" });
+      const removed = yield* sessions.issue(teammate("ana", "org-a"));
+      const kept = yield* sessions.issue(teammate("ben", "org-b"));
+      const watch = (sessionId: typeof owner.sessionId, proofKeyThumbprint?: string) =>
+        Effect.gen(function* () {
+          const done = yield* Deferred.make<void>();
+          yield* sessions
+            .awaitInvalidation(sessionId, proofKeyThumbprint)
+            .pipe(
+              Effect.andThen(Deferred.succeed(done, undefined)),
+              Effect.forkScoped({ startImmediately: true }),
+            );
+          return done;
+        });
+      const ownerClosed = yield* watch(owner.sessionId);
+      const removedClosed = yield* watch(removed.sessionId, "proof-ana");
+      const keptClosed = yield* watch(kept.sessionId, "proof-ben");
+
+      expect(yield* sessions.revokeForOrganization("org-a")).toBe(1);
+
+      yield* Deferred.await(removedClosed);
+      expect(yield* Deferred.isDone(ownerClosed)).toBe(false);
+      expect(yield* Deferred.isDone(keptClosed)).toBe(false);
+      expect(
+        yield* sessions.verify(removed.token).pipe(
+          Effect.as("valid"),
+          Effect.orElseSucceed(() => "refused"),
+        ),
+      ).toBe("refused");
+    }).pipe(Effect.scoped, Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
+  );
+
   it.effect("expires a connected session at its credential deadline", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;

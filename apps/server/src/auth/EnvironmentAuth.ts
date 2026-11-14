@@ -539,6 +539,7 @@ export class EnvironmentAuth extends Context.Service<
     ) => Effect.Effect<number, ServerAuthInternalError>;
     readonly authenticateHttpRequest: (
       request: HttpServerRequest.HttpServerRequest,
+      options?: { readonly allowTeamMember?: boolean },
     ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
     readonly authenticateWebSocketUpgrade: (
       request: HttpServerRequest.HttpServerRequest,
@@ -1264,13 +1265,34 @@ export const make = Effect.gen(function* () {
         Effect.withSpan("EnvironmentAuth.issueWebSocketTicket"),
       );
 
+  const refuseTeamMember = (allowed: boolean) => (session: AuthenticatedSession) =>
+    session.member === undefined || allowed
+      ? Effect.succeed(session)
+      : Effect.fail(
+          new ServerAuthInvalidCredentialError({
+            diagnostic: "Teammate sessions cannot use this route.",
+          }),
+        );
+
   const authenticateHttpRequest: EnvironmentAuth["Service"]["authenticateHttpRequest"] = (
     request,
+    options,
   ) =>
-    authenticateRequest(request).pipe(Effect.withSpan("EnvironmentAuth.authenticateHttpRequest"));
+    authenticateRequest(request).pipe(
+      Effect.flatMap(refuseTeamMember(options?.allowTeamMember === true)),
+      Effect.withSpan("EnvironmentAuth.authenticateHttpRequest"),
+    );
 
-  const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] =
-    Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(function* (request, use) {
+  const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] = (
+    request,
+    use,
+  ) =>
+    authenticateWebSocketSession(request, use).pipe(
+      Effect.flatMap(refuseTeamMember(use === "rpc")),
+    );
+
+  const authenticateWebSocketSession = Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(
+    function* (request: HttpServerRequest.HttpServerRequest, use: AuthWebSocketTicketUse) {
       const url = requestUrl(request);
       if (Option.isSome(url)) {
         const query = yield* decodeWebSocketUpgradeQuery(
@@ -1322,7 +1344,8 @@ export const make = Effect.gen(function* () {
       }
 
       return yield* authenticateRequest(request);
-    });
+    },
+  );
 
   const authenticateMcpClient: EnvironmentAuth["Service"]["authenticateMcpClient"] = (request) => {
     const token = parseBearerToken(request);

@@ -35,6 +35,8 @@ import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 
+import { authorizeTeamMemberRpc, type TeamMemberAuthorization } from "../team/TeamMemberAccess.ts";
+
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
 export const RPC_REQUIRED_SCOPES = {
@@ -297,14 +299,27 @@ const requiredScopesForRpcCall = (
 export const layer = (
   scopes: ReadonlyArray<AuthEnvironmentScope>,
   onAuthorized?: (method: string, payload: unknown) => Effect.Effect<void>,
+  teamMember?: TeamMemberAuthorization,
 ) =>
   Layer.succeed(RpcScopeAuthorization)((effect, { rpc, payload }) => {
     const requiredScopes = requiredScopesForRpcCall(rpc._tag, payload);
     const requiredScope = requiredScopes.find((scope) => !scopes.includes(scope));
     if (requiredScope !== undefined) return Effect.fail(rpcAuthorizationError(requiredScope));
-    return onAuthorized === undefined
-      ? effect
-      : Effect.tap(effect, () => onAuthorized(rpc._tag, payload));
+    const authorized =
+      onAuthorized === undefined
+        ? effect
+        : Effect.tap(effect, () => onAuthorized(rpc._tag, payload));
+    return teamMember === undefined
+      ? authorized
+      : Effect.andThen(
+          authorizeTeamMemberRpc({
+            authorization: teamMember,
+            method: rpc._tag,
+            payload,
+            requiredScope: requiredScopeForRpcMethod(rpc._tag),
+          }),
+          authorized,
+        );
   });
 
 /** Retrying can install or restart tools even though ordinary listing is readable. */

@@ -1,7 +1,9 @@
 import {
   AuthOrchestrationReadScope,
+  EnvironmentAuthenticatedPrincipal,
   EnvironmentHttpApi,
   type OrchestrationProjectShell,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
@@ -31,6 +33,7 @@ import {
 } from "./threadHistoryPaging.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
+import { sharedWithTeam, teamShellSnapshot } from "../team/TeamMemberAccess.ts";
 import { loadSubscriberShellSnapshot } from "./ShellStream.ts";
 import { boundedSnapshotResponseFields } from "./ThreadStream.ts";
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
@@ -160,16 +163,32 @@ export const layer = HttpApiBuilder.group(
       },
     );
 
+    const requireTeamThread = Effect.fn("http.orchestration.requireTeamThread")(function* (
+      threadId: ThreadId,
+    ) {
+      const { member } = yield* EnvironmentAuthenticatedPrincipal;
+      if (member === undefined) return;
+      const thread = yield* threadManagement
+        .getThreadShell(threadId)
+        .pipe(Effect.orElseSucceed(() => null));
+      if (!sharedWithTeam(thread?.teamShare, member.organizationId)) {
+        return yield* failEnvironmentNotFound("thread_not_found");
+      }
+    });
+
     return handlers
       .handle(
         "shellSnapshot",
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
-          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          const { member } = yield* requireEnvironmentScope(AuthOrchestrationReadScope);
           return yield* loadShellSnapshot({
             omitIdleSubagents: args.query.omitIdleSubagents === "1",
-            omitOlderSettled: args.query.omitOlderSettled === "1",
+            omitOlderSettled: member === undefined && args.query.omitOlderSettled === "1",
           }).pipe(
+            Effect.map((snapshot) =>
+              member === undefined ? snapshot : teamShellSnapshot(member.organizationId, snapshot),
+            ),
             traceLocalHandlerWork,
             Effect.catch((cause) =>
               failEnvironmentInternal("orchestration_snapshot_failed", cause),
@@ -182,6 +201,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.threadSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          yield* requireTeamThread(args.params.threadId);
           const snapshot = yield* loadThreadSnapshot(
             args.params.threadId,
             "orchestration_thread_snapshot_failed",
@@ -222,6 +242,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.threadBoundedSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          yield* requireTeamThread(args.params.threadId);
           const snapshot = yield* loadThreadSnapshotWindow(
             args.params.threadId,
             undefined,
@@ -248,6 +269,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.threadHistoryPage")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          yield* requireTeamThread(args.params.threadId);
           const decoded = Result.try(() => decodeThreadHistoryCursor(args.query.cursor));
           if (Result.isFailure(decoded)) {
             const cause = decoded.failure;

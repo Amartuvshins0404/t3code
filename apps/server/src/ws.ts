@@ -17,6 +17,7 @@ import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import { rpcInitialItems } from "./rpcInitialItems.ts";
 import { subscribeChatGptHandoff } from "./provider/CodexChatGptHandoff.ts";
@@ -122,6 +123,17 @@ import * as DocumentText from "./provider/DocumentText.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
+import * as TeamPresence from "./team/TeamPresence.ts";
+import * as TeamSharing from "./team/TeamSharing.ts";
+import {
+  decideTeamMemberCommand,
+  makeTeamShellFilter,
+  sharedWithTeam,
+  teamPerson,
+  visiblePresenceEntries,
+  withoutClientMember,
+  withoutClientMemberAttribution,
+} from "./team/TeamMemberAccess.ts";
 import {
   bufferShellLiveStream,
   coalesceShellApplicationEvents,
@@ -1458,6 +1470,90 @@ export const layerWsRpc = (
       const terminalViewerPrefix = yield* random.uuidV4();
       const terminalViewerId = (metadata: { readonly client: { readonly id: number } }) =>
         `${terminalViewerPrefix}:${metadata.client.id}`;
+      const teamSharing = yield* TeamSharing.TeamSharing;
+      const teamPresence = yield* TeamPresence.TeamPresence;
+      const teamMember = currentSession.member;
+      const presenceClientId = yield* random.uuidV4();
+      yield* teamPresence.join({
+        clientId: presenceClientId,
+        ...(teamMember === undefined
+          ? {}
+          : { person: teamPerson(teamMember), organizationId: teamMember.organizationId }),
+      });
+      yield* Effect.addFinalizer(() => teamPresence.leave(presenceClientId));
+      const threadTeamShare = (threadId: ThreadId) =>
+        threadManagement.getThreadShell(threadId).pipe(
+          Effect.map((thread) => thread?.teamShare),
+          Effect.orElseSucceed(() => undefined),
+        );
+      const resolveClientCommand = (clientCommand: OrchestrationV2Command) => {
+        const command = withoutClientMemberAttribution(clientCommand);
+        if (teamMember === undefined) return Effect.succeed(command);
+        return (
+          command.type === "message.dispatch" || command.type === "run.interrupt"
+            ? threadTeamShare(command.threadId)
+            : Effect.undefined
+        ).pipe(
+          Effect.flatMap((teamShare) => {
+            const decision = decideTeamMemberCommand({ command, teamShare, member: teamMember });
+            return Result.isSuccess(decision)
+              ? Effect.succeed(decision.success)
+              : Effect.fail(
+                  new OrchestrationV2DispatchCommandError({
+                    commandId: command.commandId,
+                    commandType: command.type,
+                    message: decision.failure.message,
+                    detail: decision.failure.message,
+                  }),
+                );
+          }),
+        );
+      };
+      const untilUnsharedFromTeam = <A, E, R>(
+        threadId: ThreadId,
+        stream: Stream.Stream<A, E, R>,
+      ) =>
+        teamMember === undefined
+          ? stream
+          : stream.pipe(
+              Stream.interruptWhen(
+                orchestrationEngine.streamDomainEvents.pipe(
+                  Stream.filter(
+                    (event) =>
+                      (event.type === "thread.team-share-updated" ||
+                        event.type === "thread.deleted") &&
+                      event.payload.id === threadId &&
+                      (event.type === "thread.deleted" ||
+                        !sharedWithTeam(event.payload.teamShare, teamMember.organizationId)),
+                  ),
+                  Stream.runHead,
+                  Effect.ignore,
+                ),
+              ),
+            );
+      const visiblePresence = (records: ReadonlyArray<TeamPresence.TeamPresenceRecord>) => {
+        if (teamMember === undefined) return Effect.succeed(records.map(({ entry }) => entry));
+        const threadIds = [
+          ...new Set(
+            records.flatMap(({ entry }) => (entry.threadId === undefined ? [] : [entry.threadId])),
+          ),
+        ];
+        return Effect.forEach(threadIds, (threadId) =>
+          threadTeamShare(threadId).pipe(
+            Effect.map((teamShare) =>
+              sharedWithTeam(teamShare, teamMember.organizationId) ? [threadId] : [],
+            ),
+          ),
+        ).pipe(
+          Effect.map((shared) =>
+            visiblePresenceEntries({
+              entries: records,
+              organizationId: teamMember.organizationId,
+              sharedThreadIds: new Set(shared.flat()),
+            }),
+          ),
+        );
+      };
       const serverCommandId = (tag: string) =>
         random.uuidV4().pipe(
           Effect.orDie,
@@ -1916,54 +2012,58 @@ export const layerWsRpc = (
       });
 
       const handlers = ServerWsRpcGroup.of({
-        [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
-          Effect.annotateCurrentSpan({
-            "orchestration_v2.command_id": command.commandId,
-            "orchestration_v2.command_type": command.type,
-            "orchestration_v2.thread_id":
-              command.type === "thread.fork" || command.type === "thread.merge_back"
-                ? command.targetThreadId
-                : command.type === "delegated_task.request" ||
-                    command.type === "delegated_task.wake-policy" ||
-                    command.type === "delegated_task.completion-delivery.acknowledge" ||
-                    command.type === "delegated_task.completion-delivery.dispose" ||
-                    command.type === "thread.created.record"
-                  ? command.parentThreadId
-                  : command.threadId,
-            ...(command.type === "thread.fork" || command.type === "thread.merge_back"
-              ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
-              : {}),
-          }).pipe(
-            Effect.andThen(
-              startup
-                .enqueueCommand(
-                  (command.type === "prepared-run.retry"
-                    ? threadLaunch.retryPreparation(command)
-                    : ThreadMessageIntake.dispatchCommand(
-                        ThreadManagementService.withCreationProvenance(command, {
-                          createdBy: "user",
-                          creationSource:
-                            "creationSource" in command ? command.creationSource : "web",
-                        }),
-                      )
-                  ).pipe(Effect.provide(intakeContext)),
-                )
-                .pipe(
-                  Effect.tap((result) =>
-                    result.replayed ? Effect.void : recordClientCommandAnalytics(command),
-                  ),
-                  Effect.map((result) => ({ sequence: result.sequence })),
-                  Effect.mapError((cause) => {
-                    const detail = userFacingDispatchErrorMessage(cause);
-                    return new OrchestrationV2DispatchCommandError({
-                      commandId: command.commandId,
-                      commandType: command.type,
-                      message: detail ?? "Failed to dispatch orchestration V2 command",
-                      ...(detail === undefined ? {} : { detail }),
-                      cause,
-                    });
-                  }),
+        [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (clientCommand) =>
+          resolveClientCommand(clientCommand).pipe(
+            Effect.flatMap((command) =>
+              Effect.annotateCurrentSpan({
+                "orchestration_v2.command_id": command.commandId,
+                "orchestration_v2.command_type": command.type,
+                "orchestration_v2.thread_id":
+                  command.type === "thread.fork" || command.type === "thread.merge_back"
+                    ? command.targetThreadId
+                    : command.type === "delegated_task.request" ||
+                        command.type === "delegated_task.wake-policy" ||
+                        command.type === "delegated_task.completion-delivery.acknowledge" ||
+                        command.type === "delegated_task.completion-delivery.dispose" ||
+                        command.type === "thread.created.record"
+                      ? command.parentThreadId
+                      : command.threadId,
+                ...(command.type === "thread.fork" || command.type === "thread.merge_back"
+                  ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
+                  : {}),
+              }).pipe(
+                Effect.andThen(
+                  startup
+                    .enqueueCommand(
+                      (command.type === "prepared-run.retry"
+                        ? threadLaunch.retryPreparation(command)
+                        : ThreadMessageIntake.dispatchCommand(
+                            ThreadManagementService.withCreationProvenance(command, {
+                              createdBy: "user",
+                              creationSource:
+                                "creationSource" in command ? command.creationSource : "web",
+                            }),
+                          )
+                      ).pipe(Effect.provide(intakeContext)),
+                    )
+                    .pipe(
+                      Effect.tap((result) =>
+                        result.replayed ? Effect.void : recordClientCommandAnalytics(command),
+                      ),
+                      Effect.map((result) => ({ sequence: result.sequence })),
+                      Effect.mapError((cause) => {
+                        const detail = userFacingDispatchErrorMessage(cause);
+                        return new OrchestrationV2DispatchCommandError({
+                          commandId: command.commandId,
+                          commandType: command.type,
+                          message: detail ?? "Failed to dispatch orchestration V2 command",
+                          ...(detail === undefined ? {} : { detail }),
+                          cause,
+                        });
+                      }),
+                    ),
                 ),
+              ),
             ),
           ),
         [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: (input) => threadManagement.stopWorkflow(input),
@@ -2144,7 +2244,9 @@ export const layerWsRpc = (
                                   attachments: input.initialMessage.attachments,
                                   ...(input.initialMessage.context === undefined
                                     ? {}
-                                    : { context: input.initialMessage.context }),
+                                    : {
+                                        context: withoutClientMember(input.initialMessage.context),
+                                      }),
                                 },
                               }),
                           createdBy: "user",
@@ -2231,19 +2333,56 @@ export const layerWsRpc = (
                 ),
             ),
           ),
-        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) =>
-          Stream.unwrap(subscribeOrchestrationV2Shell(input)),
+        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) => {
+          if (teamMember === undefined) return Stream.unwrap(subscribeOrchestrationV2Shell(input));
+          const filter = makeTeamShellFilter(teamMember.organizationId);
+          return Stream.unwrap(
+            subscribeOrchestrationV2Shell({
+              ...(input.requestCompletionMarker === undefined
+                ? {}
+                : { requestCompletionMarker: input.requestCompletionMarker }),
+              ...(input.omitIdleSubagents === undefined
+                ? {}
+                : { omitIdleSubagents: input.omitIdleSubagents }),
+            }),
+          ).pipe(Stream.flatMap((item) => Stream.fromIterable(filter(item))));
+        },
         [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: (input) =>
-          Stream.unwrap(
-            Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
-              Effect.andThen(subscribeOrchestrationV2Thread(input)),
+          untilUnsharedFromTeam(
+            input.threadId,
+            Stream.unwrap(
+              Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+                Effect.andThen(subscribeOrchestrationV2Thread(input)),
+              ),
             ),
           ),
         [ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]: (input) =>
-          Stream.unwrap(
-            Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
-              Effect.as(commandOutputHub.subscribe(input)),
+          untilUnsharedFromTeam(
+            input.threadId,
+            Stream.unwrap(
+              Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+                Effect.as(commandOutputHub.subscribe(input)),
+              ),
             ),
+          ),
+        [WS_METHODS.teamListSharedOrganizations]: (_input) => teamSharing.listSharedOrganizations,
+        [WS_METHODS.teamAddSharedOrganization]: (input) =>
+          teamSharing.addSharedOrganization(input.organizationId),
+        [WS_METHODS.teamRemoveSharedOrganization]: (input) =>
+          teamSharing.removeSharedOrganization(input.organizationId),
+        [WS_METHODS.teamSetThreadShare]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(teamSharing.setThreadShare(input)),
+          ),
+        [WS_METHODS.teamClearThreadShare]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(teamSharing.clearThreadShare(input)),
+          ),
+        [WS_METHODS.teamReportPresence]: (input) => teamPresence.report(presenceClientId, input),
+        [WS_METHODS.teamSubscribePresence]: (_input) =>
+          teamPresence.changes.pipe(
+            Stream.mapEffect(visiblePresence),
+            Stream.map((entries) => ({ entries })),
           ),
         [ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion]: (input) =>
           providerSessionManager.subscribePromptSuggestion(input.threadId),
@@ -3480,6 +3619,7 @@ export const layer = Layer.unwrap(
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
         const sessions = yield* SessionStore.SessionStore;
         const analytics = yield* AnalyticsService.AnalyticsService;
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
         const session = yield* serverAuth.authenticateWebSocketUpgrade(request, "rpc").pipe(
           Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
             failEnvironmentAuthInvalid(
@@ -3500,21 +3640,34 @@ export const layer = Layer.unwrap(
             Effect.provideService(RpcServer.Protocol, withOutputWindow(protocol)),
             Effect.provide(
               Layer.merge(
-                RpcAuthorization.layer(session.scopes, (method, payload) => {
-                  // Anonymous product signal: the feature and its enum variant,
-                  // credited to the connecting client's surface only.
-                  const usage = featureUsage(method, payload);
-                  return usage === undefined
-                    ? Effect.void
-                    : analytics
-                        .record("feature.used", {
-                          ...usage,
-                          ...(clientAnalyticsProps.surface === undefined
-                            ? {}
-                            : { surface: clientAnalyticsProps.surface }),
-                        })
-                        .pipe(Effect.ignore);
-                }),
+                RpcAuthorization.layer(
+                  session.scopes,
+                  (method, payload) => {
+                    // Anonymous product signal: the feature and its enum variant,
+                    // credited to the connecting client's surface only.
+                    const usage = featureUsage(method, payload);
+                    return usage === undefined
+                      ? Effect.void
+                      : analytics
+                          .record("feature.used", {
+                            ...usage,
+                            ...(clientAnalyticsProps.surface === undefined
+                              ? {}
+                              : { surface: clientAnalyticsProps.surface }),
+                          })
+                          .pipe(Effect.ignore);
+                  },
+                  session.member === undefined
+                    ? undefined
+                    : {
+                        organizationId: session.member.organizationId,
+                        threadShare: (threadId) =>
+                          orchestrator.getThreadShell(threadId).pipe(
+                            Effect.map((thread) => thread?.teamShare),
+                            Effect.orElseSucceed(() => undefined),
+                          ),
+                      },
+                ),
                 rpcInstrumentationLayer,
               ),
             ),
