@@ -3,7 +3,10 @@ import {
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
-import { countProjectBoard } from "@t3tools/client-runtime/state/projects";
+import {
+  countProjectBoard,
+  dropArchivedProjectThreads,
+} from "@t3tools/client-runtime/state/projects";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import type { AnyRouter } from "@tanstack/react-router";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
@@ -22,6 +25,7 @@ import {
 import { getClientSettings, subscribeClientSettings } from "../hooks/useSettings";
 import { isWindowsPlatform } from "../lib/utils";
 import { environmentSummaries } from "../state/presentation";
+import { environmentProjects } from "../state/projects";
 import { environmentShell } from "../state/shell";
 import { environmentThreadShells } from "../state/threads";
 import {
@@ -394,14 +398,28 @@ export function startThreadNotifications(
     clearPending();
     const stops: Array<() => void> = [];
     if (hasDesktopNotifications(nextMode)) {
-      const unsubscribeBadge = registry.subscribe(
+      const drawBadge = () =>
+        showBadge(
+          countProjectBoard(
+            dropArchivedProjectThreads(
+              registry.get(environmentProjects.projectsAtom),
+              registry.get(environmentThreadShells.quietThreadShellsAtom),
+            ),
+          )["needs-you"],
+        );
+      const unsubscribeBadgeThreads = registry.subscribe(
         environmentThreadShells.quietThreadShellsAtom,
-        (threads) => showBadge(countProjectBoard(threads)["needs-you"]),
+        drawBadge,
         { immediate: true },
+      );
+      const unsubscribeBadgeProjects = registry.subscribe(
+        environmentProjects.projectsAtom,
+        drawBadge,
       );
       window.addEventListener("focus", clearPending);
       stops.push(() => {
-        unsubscribeBadge();
+        unsubscribeBadgeThreads();
+        unsubscribeBadgeProjects();
         window.removeEventListener("focus", clearPending);
         clearPending();
       });
