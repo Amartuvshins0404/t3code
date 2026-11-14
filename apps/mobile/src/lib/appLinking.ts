@@ -1,4 +1,5 @@
 import type { NavigationState, PartialState } from "@react-navigation/native";
+import { isCloudAuthAppLink } from "@t3tools/shared/remote";
 
 /**
  * The Expo dev client launches the app via
@@ -12,7 +13,8 @@ export function shouldHandleAppLink(url: string, cloudConfigured: boolean): bool
   return (
     !route.includes("expo-development-client") &&
     !route.includes("://expo-sharing") &&
-    !/^t3code(-dev|-preview)?:\/*$/.test(url) &&
+    !/^[a-z][\w+.-]*:\/*$/i.test(url) &&
+    !isCloudAuthAppLink(url) &&
     (cloudConfigured || !CLOUD_ONLY_LINK_PATH.test(route))
   );
 }

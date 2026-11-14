@@ -1,6 +1,5 @@
-import type { CloudAuth } from "@t3tools/client-runtime/cloud-auth";
+import { type CloudAuthSource, cloudAuthSource } from "@t3tools/client-runtime/cloud-auth";
 import {
-  type CloudAccountSource,
   createCloudAccountService,
   ManagedRelay,
   setManagedRelaySession,
@@ -30,31 +29,6 @@ export function activateManagedRelayAuthentication(
     accountId,
     readIdentityToken,
   });
-}
-
-interface CloudAuthSource extends CloudAccountSource {
-  readonly auth: CloudAuth;
-}
-
-function cloudAuthSource(auth: CloudAuth): CloudAuthSource {
-  return {
-    auth,
-    addListener: (listener) => {
-      const emit = () => {
-        const state = auth.getState();
-        listener({
-          user:
-            state.status === "loading"
-              ? undefined
-              : state.status === "signedIn"
-                ? state.user
-                : null,
-        });
-      };
-      emit();
-      return auth.subscribe(emit);
-    },
-  };
 }
 
 const managedRelayAccountService = createCloudAccountService<CloudAuthSource>({

@@ -1,4 +1,4 @@
-import type { getClerkInstance } from "@clerk/expo";
+import type { CloudAuthSource } from "@t3tools/client-runtime/cloud-auth";
 import {
   createCloudAccountService,
   ManagedRelay,
@@ -25,9 +25,6 @@ import {
 } from "../agent-awareness/remoteRegistration";
 import { removeCloudEnvironments } from "./cloud-drafts";
 import { clearConnectOnboardingRequest, requestConnectOnboarding } from "./connectOnboarding";
-import { resolveRelayClerkTokenOptions } from "./publicConfig";
-
-type ClerkInstance = ReturnType<typeof getClerkInstance>;
 
 export function deactivateCloudRelayAccount(): void {
   setAgentAwarenessRelayTokenProvider(null);
@@ -45,13 +42,8 @@ export function activateCloudRelayAccount(
   });
 }
 
-function clerkTokenReader(clerk: ClerkInstance): () => Promise<string | null> {
-  return async () =>
-    clerk.session ? await clerk.session.getToken(resolveRelayClerkTokenOptions()) : null;
-}
-
 const cleanUpCloudAccount = async (
-  clerk: ClerkInstance,
+  source: CloudAuthSource,
   accountId: string | null,
   wasActive: boolean,
 ) => {
@@ -70,7 +62,9 @@ const cleanUpCloudAccount = async (
       ? [
           settleAsyncResult(() =>
             runtime.runPromiseExit(
-              unregisterAgentAwarenessDeviceForCurrentUser(clerkTokenReader(clerk)),
+              unregisterAgentAwarenessDeviceForCurrentUser(() =>
+                source.auth.getRelayIdentityToken(),
+              ),
             ),
           ),
         ]
@@ -81,7 +75,7 @@ const cleanUpCloudAccount = async (
   }
 };
 
-export const cloudAccountService = createCloudAccountService<ClerkInstance>({
+export const cloudAccountService = createCloudAccountService<CloudAuthSource>({
   deactivate: deactivateCloudRelayAccount,
   // Detaching is not a sign-out: the user is usually still signed in, so keep
   // lock-screen activities and the persisted registration for the next attach.
@@ -101,7 +95,7 @@ export const cloudAccountService = createCloudAccountService<ClerkInstance>({
     await restoreCloudComposerDrafts(accountId);
   },
   activate: ({ source, accountId, isAccountTransition }) => {
-    activateCloudRelayAccount(accountId, clerkTokenReader(source));
+    activateCloudRelayAccount(accountId, () => source.auth.getRelayIdentityToken());
     // Issued after cleanup so the sheet never lists the previous account's environments.
     if (isAccountTransition) requestConnectOnboarding(accountId);
   },

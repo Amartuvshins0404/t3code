@@ -350,12 +350,12 @@ const SETTINGS_SCREENS = {
   SettingsAuth: createNativeStackScreen({
     screen: SettingsAuthRouteScreen,
     linking: "settings/auth",
-    options: { headerShown: false, presentation: "modal" },
+    options: modalRoute({ header: "solid", title: "T3 Account" }),
   }),
   SettingsWaitlist: createNativeStackScreen({
     screen: SettingsAuthRouteScreen,
     linking: "settings/waitlist",
-    options: { headerShown: false, presentation: "modal" },
+    options: modalRoute({ header: "solid", title: "T3 Account" }),
   }),
 };
 
