@@ -3,6 +3,7 @@ import type { AnyRouter } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
+import { teammateConnectionAtom } from "../cloud/teamWorkspace";
 import { getLocalStorageItem, setLocalStorageItem } from "../hooks/useLocalStorage";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSummaries } from "../state/presentation";
@@ -17,6 +18,7 @@ interface LegacyPermissionEnvironment {
 /** Environments whose settled session still carries pre-scope permissions. */
 const legacyPermissionEnvironmentsAtom = Atom.make((get) =>
   get(environmentSummaries.identitiesAtom).filter(({ environmentId }) => {
+    if (get(teammateConnectionAtom(environmentId))) return false;
     const session = get(environmentSession.sessionStateAtom(environmentId));
     return (
       session._tag === "Success" && !session.waiting && sessionHasLegacyPermissions(session.value)
