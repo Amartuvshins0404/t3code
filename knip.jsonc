@@ -16,6 +16,8 @@
       ],
       "vite": { "entry": [".github/**/*.test.cjs"] },
       "vitest": { "entry": [".github/**/*.test.cjs"] },
+      // agent-trust's test strength resolves Stryker from this repo at run time.
+      "ignoreDependencies": ["@stryker-mutator/core", "@stryker-mutator/vitest-runner"],
     },
     "scripts": {
       // Knip loads its preprocessor through a CLI option; native verification and
