@@ -553,7 +553,10 @@ it.effect("leaves archived, deleted and delegated child threads to someone else"
     yield* assertServerAnswered(open, requests.open, keepGoing("open"));
     yield* assertServerAnswered(fork, requests.fork, keepGoing("fork"));
     yield* assertLeftAlone(archived, requests.archived);
-    assert.isUndefined(yield* answerOf(deleted, requests.deleted));
+    const afterDelete = yield* answerOf(deleted, requests.deleted);
+    assert.equal(afterDelete?.status, "cancelled");
+    assert.deepEqual(afterDelete?.sent, []);
+    assert.deepEqual(afterDelete?.notices, []);
     yield* assertLeftAlone(child, requests.child);
   }).pipe(Effect.provide(layerTest)),
 );
@@ -564,11 +567,22 @@ it.effect(
     Effect.gen(function* () {
       yield* TestClock.setTime(startMs);
       const eventSink = yield* EventSink.EventSinkV2;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
       const linkPullRequest = Effect.fn("test.linkPullRequest")(function* (
         threadId: ThreadId,
         number: number,
         state: "open" | "closed",
       ) {
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request.link",
+          commandId: CommandId.make(`link-pr:${number}`),
+          threadId,
+          host: "github.com",
+          repository: "owner/repo",
+          number,
+          url: `https://github.com/owner/repo/pull/${number}`,
+          source: "manual",
+        });
         yield* eventSink.write({
           commandId: CommandId.make(`seed-pr:${number}`),
           events: [
