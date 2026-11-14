@@ -31,6 +31,7 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+  activeWorkspace?: string;
 }
 
 export interface UiProjectState {
@@ -52,10 +53,15 @@ export interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 
+export interface UiWorkspaceState {
+  activeWorkspace: string;
+}
+
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiWorkspaceState {}
 
 const initialState: UiState = {
+  activeWorkspace: "personal",
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKeys: [],
@@ -157,6 +163,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
+    activeWorkspace: sanitizeOptionalKey(parsed.activeWorkspace) ?? initialState.activeWorkspace,
   };
 }
 
@@ -236,6 +243,7 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
+        activeWorkspace: state.activeWorkspace,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -435,6 +443,7 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
+  setActiveWorkspace: (workspace: string) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -456,6 +465,12 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setSidebarProjectScopeKeys: (projectKeys) =>
     set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
+  setActiveWorkspace: (workspace) =>
+    set((state) =>
+      workspace.length === 0 || state.activeWorkspace === workspace
+        ? state
+        : { ...state, activeWorkspace: workspace },
+    ),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>

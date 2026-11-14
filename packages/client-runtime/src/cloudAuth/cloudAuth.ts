@@ -5,6 +5,8 @@ import * as Base64Url from "effect/encoding/Base64Url";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { type CloudTeams, createCloudTeams } from "./cloudTeams.ts";
+
 export const DEFAULT_CLOUD_AUTH_URL = "https://auth.amartuvshin.com";
 export const DEFAULT_CLOUD_RELAY_URL = "https://relay.amartuvshin.com";
 const CLOUD_AUTH_DEVICE_CLIENT_ID = "t3-cli";
@@ -100,6 +102,13 @@ export interface CloudAuth {
   readonly signOut: () => Promise<void>;
   readonly listOrganizations: () => Promise<ReadonlyArray<CloudOrganization>>;
   readonly getRelayIdentityToken: () => Promise<string | null>;
+  readonly teams: CloudTeams;
+}
+
+function readServiceErrorMessage(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) return null;
+  const message = (error as { readonly message?: unknown }).message;
+  return typeof message === "string" && message.trim().length > 0 ? message.trim() : null;
 }
 
 export function normalizeCloudAuthUrl(value: string | null | undefined): string | null {
@@ -356,6 +365,41 @@ export function createCloudAuth(input: {
     return pendingIdentity;
   };
 
+  const teams = createCloudTeams({
+    request: async (path, init) => {
+      await loaded;
+      const current = session;
+      if (!current) {
+        throw new CloudAuthError({ reason: "denied", detail: "Sign in to use teams." });
+      }
+      const result = await client
+        .$fetch<unknown>(path, {
+          method: init.method,
+          ...(init.query ? { query: init.query } : {}),
+          ...(init.body ? { body: init.body } : {}),
+          ...bearer(current.token),
+        })
+        .catch(unreachable);
+      if (result.error) {
+        if (result.error.status === 401 && session?.token === current.token) await adopt(null);
+        throw new CloudAuthError({
+          reason: result.error.status === 401 || result.error.status === 403 ? "denied" : "failed",
+          detail: readServiceErrorMessage(result.error) ?? "The sign-in service refused that.",
+          cause: result.error,
+        });
+      }
+      return result.data;
+    },
+    organizations: async (fresh) => {
+      if (fresh) identity = null;
+      await getRelayIdentityToken();
+      return identity?.orgs ?? [];
+    },
+    membershipChanged: () => {
+      identity = null;
+    },
+  });
+
   return {
     authUrl,
     getState: () => state,
@@ -399,5 +443,6 @@ export function createCloudAuth(input: {
       return identity?.orgs ?? [];
     },
     getRelayIdentityToken,
+    teams,
   };
 }
