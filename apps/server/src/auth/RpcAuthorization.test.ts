@@ -1,4 +1,5 @@
 import {
+  AuthAccessWriteScope,
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
@@ -144,6 +145,7 @@ describe("RPC scope middleware", () => {
 describe("teammate allowlist", () => {
   const tested = [
     WS_METHODS.subscribeVcsBranch,
+    WS_METHODS.teamRevokeMemberAccess,
     WS_METHODS.teamReportPresence,
     ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput,
   ] as const;
@@ -173,6 +175,9 @@ describe("teammate allowlist", () => {
           group.toLayerHandler(WS_METHODS.subscribeVcsBranch, () =>
             Stream.fromEffect(Effect.sync(() => (handled.push("branch"), { refName: "main" }))),
           ),
+          group.toLayerHandler(WS_METHODS.teamRevokeMemberAccess, (input) =>
+            Effect.sync(() => void handled.push(`revoke:${input.userId}`)),
+          ),
           group.toLayerHandler(WS_METHODS.teamReportPresence, (input) =>
             Effect.sync(() => void handled.push(`presence:${input.threadId ?? "machine"}`)),
           ),
@@ -182,7 +187,7 @@ describe("teammate allowlist", () => {
             ).pipe(Stream.drain),
           ),
           RpcAuthorization.layer(
-            [AuthOrchestrationReadScope, AuthOrchestrationOperateScope],
+            [AuthOrchestrationReadScope, AuthOrchestrationOperateScope, AuthAccessWriteScope],
             undefined,
             teamMember
               ? {
@@ -205,6 +210,12 @@ describe("teammate allowlist", () => {
         yield* Stream.runDrain(client[WS_METHODS.subscribeVcsBranch]({ cwd: "/repo" })).pipe(
           Effect.flip,
         ),
+      ).toMatchObject({ requiredPermission: "team-member-allowlist" });
+      expect(
+        yield* client[WS_METHODS.teamRevokeMemberAccess]({
+          organizationId: "org-a",
+          userId: "someone-else",
+        }).pipe(Effect.flip),
       ).toMatchObject({ requiredPermission: "team-member-allowlist" });
       for (const threadId of [privateThread, otherTeamThread]) {
         expect(
