@@ -15,6 +15,7 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { TeamMemberIdentity } from "./team.ts";
 
 export const RelayAgentAwarenessPlatform = Schema.Literals(["ios", "android"]);
 export type RelayAgentAwarenessPlatform = typeof RelayAgentAwarenessPlatform.Type;
@@ -861,6 +862,7 @@ export const RelayCloudMintCredentialProofPayload = Schema.Struct({
   deviceId: Schema.optional(TrimmedNonEmptyString),
   nonce: TrimmedNonEmptyString,
   scope: Schema.Array(Schema.Literal("environment:connect")),
+  member: Schema.optional(TeamMemberIdentity),
 });
 export type RelayCloudMintCredentialProofPayload = typeof RelayCloudMintCredentialProofPayload.Type;
 
