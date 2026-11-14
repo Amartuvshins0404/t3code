@@ -617,27 +617,40 @@ it.effect(
       const amber = yield* liveThread("amber");
       const closedRed = yield* liveThread("closed-red");
       const unreadable = yield* liveThread("unreadable");
+      const rejected = yield* liveThread("rejected");
       yield* linkPullRequest(red.threadId, 1, "open");
       yield* linkPullRequest(amber.threadId, 2, "open");
       yield* linkPullRequest(closedRed.threadId, 3, "closed");
       yield* linkPullRequest(unreadable.threadId, 4, "open");
+      yield* linkPullRequest(rejected.threadId, 5, "open");
       const requests = {
         red: yield* seedRequest({ thread: red, name: "red" }),
         amber: yield* seedRequest({ thread: amber, name: "amber" }),
         closedRed: yield* seedRequest({ thread: closedRed, name: "closed-red" }),
         unreadable: yield* seedRequest({ thread: unreadable, name: "unreadable" }),
+        rejected: yield* seedRequest({ thread: rejected, name: "rejected" }),
       };
+      yield* eventSink.commitRejectedCommand({
+        commandId: CommandId.make(`question-auto-answer:${requests.rejected}`),
+        threadId: rejected.threadId,
+        commandType: "runtime-request.respond",
+        rejectedAt: at(0),
+        error: "The answer could not be decided.",
+      });
       const hosted = new Map<number, { state: "open" | "closed"; labels: Array<string> }>([
         [1, { state: "open", labels: ["lane:red"] }],
         [2, { state: "open", labels: ["lane:amber"] }],
         [3, { state: "closed", labels: ["lane:red"] }],
         [4, { state: "open", labels: ["lane:amber"] }],
+        [5, { state: "open", labels: ["lane:amber"] }],
       ]);
       let labelsReadable = false;
+      let rejectedLabelReads = 0;
       const sweep = yield* startWorker({
         pullRequests: {
           detail: (ref) => {
             const pullRequest = hosted.get(ref.number);
+            if (ref.number === 5) rejectedLabelReads += 1;
             if (pullRequest === undefined || (ref.number === 4 && !labelsReadable)) {
               return Effect.fail(
                 new PullRequestOperationError({
@@ -655,7 +668,10 @@ it.effect(
               url: `https://github.com/owner/repo/pull/${ref.number}`,
               state: pullRequest.state,
               isDraft: false,
-              labels: pullRequest.labels.map((name) => ({ name, color: null })),
+              labels: (ref.allowStale === false ? pullRequest.labels : []).map((name) => ({
+                name,
+                color: null,
+              })),
             } as never);
           },
         },
@@ -671,6 +687,10 @@ it.effect(
       yield* sweepAt(sweep, 11 * MINUTE_MS);
       yield* assertServerAnswered(unreadable, requests.unreadable, keepGoing("unreadable"));
       yield* assertLeftAlone(red, requests.red);
+
+      for (const minute of [12, 13, 14, 15]) yield* sweepAt(sweep, minute * MINUTE_MS);
+      assert.equal(rejectedLabelReads, 3);
+      yield* assertLeftAlone(rejected, requests.rejected);
     }).pipe(Effect.provide(layerTest)),
 );
 
