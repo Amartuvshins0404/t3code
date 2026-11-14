@@ -202,8 +202,8 @@ const make = Effect.gen(function* () {
       const commandId = yield* plantCommandId(action, projectId, commit, attempt);
       const threadId = ThreadId.make(commandId);
       const shell = yield* threads.getThreadShell(threadId);
-      if (shell === null) return { _tag: "free", commandId } as const;
-      if (shell.deletedAt === null) return { _tag: "open", threadId } as const;
+      if (shell !== null && shell.deletedAt === null) return { _tag: "open", threadId } as const;
+      if (!(yield* threads.hasReceipt(commandId))) return { _tag: "free", commandId } as const;
     }
     return { _tag: "exhausted" } as const;
   });
