@@ -35,6 +35,7 @@ import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementSer
 import * as ServerConfig from "../../../config.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as Project from "../../../project/ProjectService.ts";
+import * as ProjectPlant from "../../../project/ProjectPlant.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
@@ -60,6 +61,7 @@ const clientLaunchHarness = (input: {
   readonly hostedAppUrl?: string;
   /** The orchestrator refuses the new thread's mode, as under a managed ceiling. */
   readonly refusedByCeiling?: true;
+  readonly linked?: true;
 }) => {
   const projectId = ProjectId.make("project:client-target");
   const modelSelection = {
@@ -97,6 +99,7 @@ const clientLaunchHarness = (input: {
         label: "Claude Code",
         access: input.runtimeModeCeiling,
         hostedAppUrl: input.hostedAppUrl,
+        linked: input.linked,
       },
       issuedAt: 0,
       capabilities: new Set(["orchestration" as const]),
@@ -178,7 +181,8 @@ const clientLaunchHarness = (input: {
     ),
     Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
-  return { projectId, modelSelection, projectDefaults, dependencies: layerDependencies };
+  const dependencies = ProjectPlant.layer.pipe(Layer.provideMerge(layerDependencies));
+  return { projectId, modelSelection, projectDefaults, dependencies };
 };
 
 it.effect(
@@ -671,6 +675,29 @@ it.effect("a launch into an unknown project says the project was not found", () 
         code: "invalid_request",
         message: "The project was not found.",
       });
+    }
+    expect(launched).toHaveLength(0);
+  }),
+);
+
+it.effect("a linked caller cannot plant a project here", () =>
+  Effect.gen(function* () {
+    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+    const { projectId, dependencies } = clientLaunchHarness({
+      runtimeModeCeiling: "auto",
+      launched,
+      linked: true,
+    });
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+      ),
+    );
+    for (const action of ["plant", "unplant"] as const) {
+      const result = yield* toolkit
+        .handle("t3_project_plant", { projectId, action })
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+      expect(result.at(-1)?.result).toMatchObject({ code: "capability_denied" });
     }
     expect(launched).toHaveLength(0);
   }),
