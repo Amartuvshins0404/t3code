@@ -23,7 +23,10 @@ export function plantButtonState(input: {
   switch (status._tag) {
     case "planted":
     case "not_planted":
-      if (status.openThread !== null && input.openThreadKnown)
+      if (
+        status.openThread !== null &&
+        (input.openThreadKnown || status.openThread.archived === true)
+      )
         return { kind: "open", threadId: status.openThread.threadId };
       return { kind: status._tag === "planted" ? "unplant" : "plant" };
     case "blocked":
