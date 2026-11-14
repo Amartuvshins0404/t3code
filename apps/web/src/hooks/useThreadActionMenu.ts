@@ -1,7 +1,10 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
-import { readCanShareWithTeam, readThreadTeamShare } from "../components/teams/TeamShareControls";
+import {
+  readCanShareWithTeam,
+  readThreadTeamShare,
+} from "../components/teams/teamShareAvailability";
 import { openTeamShareThreadDialog } from "../components/teams/teamUiStore";
 import {
   type AtomCommandResult,

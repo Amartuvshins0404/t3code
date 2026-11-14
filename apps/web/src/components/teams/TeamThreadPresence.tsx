@@ -8,7 +8,7 @@ import { useIsTeammateEnvironment, useTeamMachine } from "~/cloud/teamWorkspace"
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { serverEnvironment } from "~/state/server";
-import { useThreadTeamShare } from "./TeamShareControls";
+import { useThreadTeamShare } from "./teamShareAvailability";
 import { PresenceAvatars, typingLine, usePresencePeople, useSelfUserId } from "./teamPresence";
 
 const useTeammateTypingStore = create<{ readonly threadKey: string | null }>(() => ({

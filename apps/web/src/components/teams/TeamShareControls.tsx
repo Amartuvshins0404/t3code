@@ -1,30 +1,19 @@
-import { useAtomValue } from "@effect/atom-react";
 import type { CloudTeamSummary } from "@t3tools/client-runtime/cloud-auth";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentId,
-  ScopedThreadRef,
-  TeamThreadAccess,
-  ThreadTeamShare,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef, TeamThreadAccess } from "@t3tools/contracts";
 import type { RelayClientEnvironmentRecord } from "@t3tools/contracts/relay";
 import { useNavigate } from "@tanstack/react-router";
-import { Atom } from "effect/reactivity";
 import { UsersIcon } from "lucide-react";
 import { useState } from "react";
 
-import { readCloudTeamsState, useActiveWorkspace, useCloudTeamsState } from "~/cloud/cloudTeams";
+import { useActiveWorkspace, useCloudTeamsState } from "~/cloud/cloudTeams";
 import {
   useManagedRelayEnvironments,
   useManagedRelayTeamEnvironments,
 } from "~/cloud/managedRelayState";
-import { teammateConnectionAtom } from "~/cloud/teamWorkspace";
-import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { environmentThreadShells } from "~/state/threads";
 import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
 import {
@@ -48,6 +37,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { toastManager } from "../ui/toast";
 import { machineShareFailureMessage, shareMachineWithTeam } from "./machineSharing";
 import { TeamMark, teamAccessMessage } from "./teamPresentation";
+import { useCanShareWithTeam, useThreadTeamShare } from "./teamShareAvailability";
 import {
   closeTeamDialog,
   openCreateTeamDialog,
@@ -65,58 +55,6 @@ const ACCESS_OPTIONS: ReadonlyArray<{ readonly value: TeamThreadAccess; readonly
     { value: "view", detail: "Teammates read along as the agent works." },
     { value: "steer", detail: "Teammates can also send messages and stop the agent." },
   ];
-
-const canShareWithTeamAtom = Atom.family((environmentId: EnvironmentId) =>
-  Atom.make(
-    (get) =>
-      get(serverEnvironment.setThreadTeamShare.permissionAtom(environmentId)) &&
-      !get(teammateConnectionAtom(environmentId)),
-  ).pipe(Atom.withLabel(`team-share:available:${environmentId}`)),
-);
-
-const CANNOT_SHARE_ATOM = Atom.make(false).pipe(Atom.withLabel("team-share:unavailable"));
-
-export function useCanShareWithTeam(environmentId: EnvironmentId | null): boolean {
-  const signedIn = useCloudTeamsState().status !== "signedOut";
-  const allowed = useAtomValue(
-    environmentId === null ? CANNOT_SHARE_ATOM : canShareWithTeamAtom(environmentId),
-  );
-  return signedIn && allowed;
-}
-
-export function readCanShareWithTeam(environmentId: EnvironmentId): boolean {
-  return (
-    readCloudTeamsState().status !== "signedOut" &&
-    appAtomRegistry.get(canShareWithTeamAtom(environmentId))
-  );
-}
-
-const NO_SHELL_ATOM = Atom.make<EnvironmentThreadShell | null>(null).pipe(
-  Atom.withLabel("team-share:no-thread"),
-);
-
-function shareKey(share: ThreadTeamShare | null | undefined): string {
-  return share ? `${share.organizationId}\n${share.access}` : "";
-}
-
-export function useThreadTeamShare(
-  threadRef: ScopedThreadRef | null,
-): { readonly organizationId: string; readonly access: TeamThreadAccess } | null {
-  const key = useAtomValue(
-    threadRef === null ? NO_SHELL_ATOM : environmentThreadShells.quietThreadShellAtom(threadRef),
-    (shell) => shareKey(shell?.source.teamShare),
-  );
-  if (key === "") return null;
-  const [organizationId = "", access = "view"] = key.split("\n");
-  return { organizationId, access: access === "steer" ? "steer" : "view" };
-}
-
-export function readThreadTeamShare(threadRef: ScopedThreadRef): ThreadTeamShare | null {
-  return (
-    appAtomRegistry.get(environmentThreadShells.quietThreadShellAtom(threadRef))?.source
-      .teamShare ?? null
-  );
-}
 
 export function TeamShareIndicator({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const share = useThreadTeamShare(threadRef);

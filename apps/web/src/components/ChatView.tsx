@@ -265,7 +265,7 @@ import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { TeammateComposer } from "./teams/TeammateComposer";
 import { TeamPresenceReporter, ThreadTypingLine } from "./teams/TeamThreadPresence";
-import { useThreadTeamShare } from "./teams/TeamShareControls";
+import { useThreadTeamShare } from "./teams/teamShareAvailability";
 import { useIsTeammateEnvironment } from "../cloud/teamWorkspace";
 import { TeamWorkspace } from "@t3tools/client-runtime/relay";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";

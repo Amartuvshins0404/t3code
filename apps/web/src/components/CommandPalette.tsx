@@ -261,7 +261,7 @@ import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
-import { useCanShareWithTeam, useThreadTeamShare } from "./teams/TeamShareControls";
+import { useCanShareWithTeam, useThreadTeamShare } from "./teams/teamShareAvailability";
 import { teamAccessMessage } from "./teams/teamPresentation";
 import { useIsTeammateEnvironment } from "../cloud/teamWorkspace";
 import { openTeamShareMachineDialog, openTeamShareThreadDialog } from "./teams/teamUiStore";

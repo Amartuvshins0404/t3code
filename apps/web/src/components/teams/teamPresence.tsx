@@ -12,7 +12,7 @@ import { useCloudAuth } from "~/cloud/cloudAuth";
 import { useIsTeammateEnvironment, useTeamMachine } from "~/cloud/teamWorkspace";
 import { serverEnvironment } from "~/state/server";
 import { Avatar, AvatarStack, type AvatarStackPerson } from "../ui/avatar";
-import { useThreadTeamShare } from "./TeamShareControls";
+import { useThreadTeamShare } from "./teamShareAvailability";
 
 const EMPTY_PRESENCE_ATOM = Atom.make(AsyncResult.initial<TeamPresenceSnapshot>()).pipe(
   Atom.withLabel("team-presence:empty"),

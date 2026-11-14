@@ -158,7 +158,7 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
-import { readCanShareWithTeam, readThreadTeamShare } from "./teams/TeamShareControls";
+import { readCanShareWithTeam, readThreadTeamShare } from "./teams/teamShareAvailability";
 import { openTeamShareThreadDialog } from "./teams/teamUiStore";
 import {
   buildThreadRouteParams,

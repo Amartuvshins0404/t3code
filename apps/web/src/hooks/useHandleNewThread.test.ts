@@ -233,6 +233,7 @@ vi.mock("../state/entities", () => {
     useThread: () => null,
   };
 });
+vi.mock("../cloud/teamWorkspace", () => ({ usePersonalProjects: () => [] }));
 vi.mock("../state/projects", () => ({ defaultProjectFallbackReadyAtom: () => true }));
 vi.mock("../state/olderSettledShelf", () => ({ readUnloadedThreadCount: () => 0 }));
 vi.mock("../state/presentation", () => ({
