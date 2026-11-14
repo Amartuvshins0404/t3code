@@ -1,4 +1,4 @@
-import type { ThreadPullRequestLink } from "@t3tools/contracts";
+import { isListedThreadLineage, type ThreadPullRequestLink } from "@t3tools/contracts";
 
 import { resolveThreadCurrentPullRequestLink } from "../threadPullRequests.ts";
 import type { EnvironmentThreadShell } from "./models.ts";
@@ -48,7 +48,9 @@ interface Placement {
 }
 
 function isOnBoard(thread: EnvironmentThreadShell): boolean {
-  return thread.archivedAt == null && thread.deletedAt == null;
+  return (
+    thread.archivedAt == null && thread.deletedAt == null && isListedThreadLineage(thread.lineage)
+  );
 }
 
 function placeThread(thread: EnvironmentThreadShell): Placement {
@@ -73,9 +75,12 @@ function sortCards(
 ): ProjectBoardCard[] {
   const oldestFirst = column === "needs-you";
   const keyed = cards.map((card) => {
-    const activeMs = toSortableTimestamp(card.activeAt ?? undefined) ?? 0;
+    const activeMs = toSortableTimestamp(card.activeAt ?? undefined);
     const waitingMs = toSortableTimestamp(card.thread.pendingUserInputAt ?? undefined) ?? activeMs;
-    return { card, ms: oldestFirst ? waitingMs : activeMs };
+    return {
+      card,
+      ms: oldestFirst ? (waitingMs ?? Number.MAX_SAFE_INTEGER) : (activeMs ?? 0),
+    };
   });
   keyed.sort(
     (left, right) =>

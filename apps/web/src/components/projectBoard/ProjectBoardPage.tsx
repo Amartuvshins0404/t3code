@@ -23,7 +23,7 @@ import {
   useAllEnvironmentProjectSnapshotsReady,
   useProject,
   useProjects,
-  useVisibleThreadShells,
+  useQuietThreadShells,
 } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
@@ -160,7 +160,7 @@ function UnknownProject({ projectKey }: { readonly projectKey: string }) {
 }
 
 function ProjectBoard({ project }: { readonly project: EnvironmentProject }) {
-  const threads = useVisibleThreadShells();
+  const threads = useQuietThreadShells();
   const [doneLimit, setDoneLimit] = useState(PROJECT_BOARD_DONE_LIMIT);
   const projectThreads = threads.filter(
     (thread) => thread.environmentId === project.environmentId && thread.projectId === project.id,

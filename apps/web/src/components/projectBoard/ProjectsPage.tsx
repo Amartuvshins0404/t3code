@@ -8,7 +8,7 @@ import { workspaceAreaProps } from "~/lib/workspaceFocus";
 import {
   useAllEnvironmentProjectSnapshotsReady,
   useProjects,
-  useVisibleThreadShells,
+  useQuietThreadShells,
 } from "~/state/entities";
 import { useEnvironments } from "~/state/environments";
 import { sortScopedProjectsForSidebar } from "../Sidebar.logic";
@@ -21,7 +21,7 @@ import { PROJECT_BOARD_COLUMN_TITLES, projectBoardKey } from "./projectBoardPres
 
 export function ProjectsPage() {
   const projects = useProjects();
-  const threads = useVisibleThreadShells();
+  const threads = useQuietThreadShells();
   const bootstrapped = useAllEnvironmentProjectSnapshotsReady();
   const { environments } = useEnvironments();
   const environmentLabels = new Map(
