@@ -8,7 +8,6 @@ import {
 import {
   buildProjectBoard,
   PROJECT_BOARD_DONE_LIMIT,
-  type ProjectBoardCard,
   type ProjectBoardColumn,
 } from "@t3tools/client-runtime/state/projects";
 import { Link } from "@tanstack/react-router";
@@ -26,13 +25,6 @@ import {
   useQuietThreadShells,
 } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
-import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
-import { RelativeTime } from "../RelativeTime";
-import {
-  ChangeRequestStatusIcon,
-  linkedPullRequestSnapshotStatus,
-  prStatusIndicator,
-} from "../ThreadStatusIndicators";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
@@ -43,10 +35,10 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { ProjectBoardCardView } from "./ProjectBoardCard";
 import {
   PROJECT_BOARD_COLUMN_TITLES,
   PROJECT_BOARD_EMPTY_COLUMN_TEXT,
-  projectBoardReasonLabel,
 } from "./projectBoardPresentation";
 
 export function ProjectBoardPage({ projectKey }: { readonly projectKey: string }) {
@@ -226,6 +218,7 @@ function ProjectBoardColumnView({
               <ProjectBoardCardView
                 key={`${card.thread.environmentId}:${card.thread.id}`}
                 card={card}
+                timestamp={card.activeAt}
               />
             ))}
           </ol>
@@ -239,54 +232,5 @@ function ProjectBoardColumnView({
         ) : null}
       </div>
     </section>
-  );
-}
-
-function ProjectBoardCardView({ card }: { readonly card: ProjectBoardCard }) {
-  const { thread, pullRequest } = card;
-  const linked = pullRequest === null ? null : linkedPullRequestSnapshotStatus(pullRequest);
-  const status = prStatusIndicator(linked?.pr ?? null, linked?.sourceControlProvider);
-  return (
-    <li>
-      <Link
-        to="/$environmentId/$threadId"
-        params={{ environmentId: thread.environmentId, threadId: thread.id }}
-        className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-3 hover:bg-accent/50 focus-visible:outline-2 focus-visible:outline-ring"
-      >
-        <span className="line-clamp-2 text-sm font-medium text-foreground">{thread.title}</span>
-        <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="truncate">{projectBoardReasonLabel(card)}</span>
-          {card.activeAt === null ? null : (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="shrink-0">
-                <RelativeTime timestamp={card.activeAt} />
-              </span>
-            </>
-          )}
-        </span>
-        {pullRequest === null ? null : (
-          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <span
-              className={`inline-flex shrink-0 ${status?.colorClass ?? "text-muted-foreground"}`}
-            >
-              {linked === null ? (
-                <PullRequestGlyph.pullRequest aria-hidden className="size-3" />
-              ) : (
-                <ChangeRequestStatusIcon
-                  state={linked.pr.state}
-                  isDraft={linked.pr.isDraft}
-                  className="size-3"
-                />
-              )}
-            </span>
-            <span className="shrink-0 tabular-nums">#{pullRequest.number}</span>
-            {pullRequest.snapshot === null ? null : (
-              <span className="truncate">{pullRequest.snapshot.title}</span>
-            )}
-          </span>
-        )}
-      </Link>
-    </li>
   );
 }
