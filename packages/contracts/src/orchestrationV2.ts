@@ -44,6 +44,7 @@ import {
 import { AuthMcpClientAccess } from "./auth.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import { ThreadGuestShare } from "./guestShare.ts";
+import { TeamThreadAccess, ThreadTeamShare } from "./team.ts";
 import { StoredThreadTags, ThreadTag } from "./threadTags.ts";
 import {
   OrchestrationSearchThreadsInput,
@@ -489,6 +490,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
+  teamShare: Schema.optional(Schema.NullOr(ThreadTeamShare)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1942,6 +1944,7 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.model-selection-updated",
       "thread.provider-switched",
       "thread.guest-share-updated",
+      "thread.team-share-updated",
     ]),
     payload: OrchestrationV2AppThread,
   }),
@@ -2160,6 +2163,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummary),
   /** Guest messages waiting for the owner to send or dismiss. Absent from older servers. */
   pendingGuestMessageCount: Schema.optional(NonNegativeInt),
+  teamShare: Schema.optional(Schema.NullOr(ThreadTeamShare)),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummary),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtc),
   /** Excludes wakes and agent messages that advance latestUserMessageAt through the user role. */
@@ -2839,6 +2843,7 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.model-selection-updated",
       "thread.provider-switched",
       "thread.guest-share-updated",
+      "thread.team-share-updated",
     ]),
     payload: OrchestrationV2AppThreadJson,
   }),
@@ -3464,6 +3469,18 @@ const OrchestrationV2InternalCommand = Schema.Union([
     guestMessageId: GuestMessageId,
     text: Schema.String,
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.team-share.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    organizationId: TrimmedNonEmptyString,
+    access: TeamThreadAccess,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.team-share.clear"),
+    commandId: CommandId,
+    threadId: ThreadId,
   }),
   /** Moves a thread to a project rooted at the folder it already works in, so its cwd never changes. */
   Schema.Struct({

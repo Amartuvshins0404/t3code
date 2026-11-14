@@ -87,6 +87,8 @@ function relayProtectedError(error: RelayProtectedError): ConnectionAttemptError
       });
     case "RelayEnvironmentLinkProofInvalidError":
     case "RelayEnvironmentLinkLimitExceededError":
+    case "RelayTeamAccessDeniedError":
+    case "RelayTeamsUnavailableError":
       return new ConnectionBlockedError({ reason: "permission", detail, traceId, hop: "relay" });
     case "RelayEnvironmentEndpointTimedOutError":
       return new ConnectionTransientError({

@@ -66,6 +66,7 @@ import {
   EnvironmentSpeechTranscriptionResult,
 } from "./speech.ts";
 import { SecretReference } from "./secretReference.ts";
+import type { TeamMemberIdentity } from "./team.ts";
 import {
   OrchestrationV2ShellSnapshot,
   OrchestrationV2ThreadBoundedSnapshot,
@@ -401,6 +402,7 @@ export interface EnvironmentSessionPrincipalShape {
   readonly scopes: ReadonlySet<AuthEnvironmentScope>;
   readonly proofKeyThumbprint?: string;
   readonly expiresAt?: DateTime.DateTime;
+  readonly member?: TeamMemberIdentity;
 }
 
 export class EnvironmentAuthenticatedPrincipal extends Context.Service<

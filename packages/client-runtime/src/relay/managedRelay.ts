@@ -14,6 +14,8 @@ import {
   type RelayEnvironmentLinkRequest,
   type RelayEnvironmentLinkResponse,
   type RelayEnvironmentStatusResponse,
+  type RelayEnvironmentTeamShareRecord,
+  type RelayTeamEnvironmentRecord,
   RelayExchangeDpopAccessTokenEndpoint,
   RelayGetEnvironmentStatusEndpoint,
   RelayJwtSubjectTokenType,
@@ -100,6 +102,10 @@ export const ManagedRelayRequestAction = Schema.Literals([
   "read linked T3 Chat account",
   "start T3 Chat linking",
   "unlink T3 Chat account",
+  "list team environments",
+  "list environment team shares",
+  "share environment with team",
+  "unshare environment with team",
 ]);
 export type ManagedRelayRequestAction = typeof ManagedRelayRequestAction.Type;
 
@@ -119,6 +125,10 @@ export const ManagedRelayRequestActivity = Schema.Literals([
   "Relay T3 Chat link lookup",
   "Relay T3 Chat link request",
   "Relay T3 Chat unlinking",
+  "Relay team environment listing",
+  "Relay environment team share listing",
+  "Relay environment team sharing",
+  "Relay environment team unsharing",
 ]);
 export type ManagedRelayRequestActivity = typeof ManagedRelayRequestActivity.Type;
 
@@ -265,6 +275,24 @@ export class ManagedRelayClient extends Context.Service<
     readonly listEnvironments: (input: {
       readonly identityToken: string;
     }) => Effect.Effect<ReadonlyArray<RelayClientEnvironmentRecord>, ManagedRelayClientError>;
+    readonly listTeamEnvironments: (input: {
+      readonly identityToken: string;
+      readonly organizationId: string;
+    }) => Effect.Effect<ReadonlyArray<RelayTeamEnvironmentRecord>, ManagedRelayClientError>;
+    readonly listEnvironmentTeamShares: (input: {
+      readonly identityToken: string;
+      readonly environmentId: RelayClientEnvironmentRecord["environmentId"];
+    }) => Effect.Effect<ReadonlyArray<RelayEnvironmentTeamShareRecord>, ManagedRelayClientError>;
+    readonly shareEnvironmentWithTeam: (input: {
+      readonly identityToken: string;
+      readonly environmentId: RelayClientEnvironmentRecord["environmentId"];
+      readonly organizationId: string;
+    }) => Effect.Effect<RelayEnvironmentTeamShareRecord, ManagedRelayClientError>;
+    readonly unshareEnvironmentWithTeam: (input: {
+      readonly identityToken: string;
+      readonly environmentId: RelayClientEnvironmentRecord["environmentId"];
+      readonly organizationId: string;
+    }) => Effect.Effect<RelayOkResponse, ManagedRelayClientError>;
     readonly listDevices: (input: {
       readonly identityToken: string;
     }) => Effect.Effect<ReadonlyArray<RelayClientDeviceRecord>, ManagedRelayClientError>;
@@ -426,6 +454,12 @@ function disabledManagedRelayClient(relayUrl: string): ManagedRelayClient["Servi
   return ManagedRelayClient.of({
     relayUrl,
     listEnvironments: unavailable("clientRuntime.managedRelay.listEnvironments"),
+    listTeamEnvironments: unavailable("clientRuntime.managedRelay.listTeamEnvironments"),
+    listEnvironmentTeamShares: unavailable("clientRuntime.managedRelay.listEnvironmentTeamShares"),
+    shareEnvironmentWithTeam: unavailable("clientRuntime.managedRelay.shareEnvironmentWithTeam"),
+    unshareEnvironmentWithTeam: unavailable(
+      "clientRuntime.managedRelay.unshareEnvironmentWithTeam",
+    ),
     listDevices: unavailable("clientRuntime.managedRelay.listDevices"),
     createEnvironmentLinkChallenge: unavailable(
       "clientRuntime.managedRelay.createEnvironmentLinkChallenge",
@@ -735,6 +769,69 @@ export const make = Effect.fn("ManagedRelayClient.make")(function* (
           );
       },
       Effect.withSpan("clientRuntime.managedRelay.listEnvironments"),
+      withRelayClientTracing,
+    ),
+    listTeamEnvironments: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.client
+          .listTeamEnvironments({
+            headers: bearerHeaders(input.identityToken),
+            params: { organizationId: input.organizationId },
+          })
+          .pipe(
+            Effect.map((response) => response.environments),
+            Effect.mapError(relayRequestError("list team environments")),
+            timeoutRelayRequest("Relay team environment listing"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.listTeamEnvironments"),
+      withRelayClientTracing,
+    ),
+    listEnvironmentTeamShares: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.client
+          .listEnvironmentTeamShares({
+            headers: bearerHeaders(input.identityToken),
+            params: { environmentId: input.environmentId },
+          })
+          .pipe(
+            Effect.map((response) => response.shares),
+            Effect.mapError(relayRequestError("list environment team shares")),
+            timeoutRelayRequest("Relay environment team share listing"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.listEnvironmentTeamShares"),
+      withRelayClientTracing,
+    ),
+    shareEnvironmentWithTeam: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.client
+          .shareEnvironmentWithTeam({
+            headers: bearerHeaders(input.identityToken),
+            params: { environmentId: input.environmentId },
+            payload: { organizationId: input.organizationId },
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("share environment with team")),
+            timeoutRelayRequest("Relay environment team sharing"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.shareEnvironmentWithTeam"),
+      withRelayClientTracing,
+    ),
+    unshareEnvironmentWithTeam: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.client
+          .unshareEnvironmentWithTeam({
+            headers: bearerHeaders(input.identityToken),
+            params: { environmentId: input.environmentId, organizationId: input.organizationId },
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("unshare environment with team")),
+            timeoutRelayRequest("Relay environment team unsharing"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.unshareEnvironmentWithTeam"),
       withRelayClientTracing,
     ),
     listDevices: Effect.fnUntraced(

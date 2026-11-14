@@ -8,6 +8,7 @@ import {
   type OrchestrationV2IdleCompaction,
   type OrchestrationV2UserMessageInputIntent,
   ScheduledTaskId,
+  type TeamPerson,
 } from "@t3tools/contracts";
 import {
   isAttachmentOnlyBootstrapPrompt,
@@ -65,13 +66,19 @@ export function resolveUserMessagePresentation(message: {
   readonly createdBy?: OrchestrationV2Actor;
   readonly creationSource?: OrchestrationV2CreationSource;
   readonly scheduledTaskId?: ScheduledTaskId | undefined;
-  readonly context?: { readonly guest?: GuestMessageAttribution | undefined } | undefined;
+  readonly context?:
+    | {
+        readonly guest?: GuestMessageAttribution | undefined;
+        readonly member?: TeamPerson | undefined;
+      }
+    | undefined;
 }): {
   readonly text: string;
   readonly attribution: "automation" | "agent" | "t3code" | "guest" | null;
   readonly scheduledTaskId: ScheduledTaskId | undefined;
   /** Set when `attribution` is "guest". */
   readonly guestName?: string;
+  readonly member?: TeamPerson;
 } {
   if (message.role !== "user") {
     return { text: message.text, attribution: null, scheduledTaskId: undefined };
@@ -104,7 +111,9 @@ export function resolveUserMessagePresentation(message: {
       scheduledTaskId: legacyTaskId === undefined ? undefined : ScheduledTaskId.make(legacyTaskId),
     };
   }
+  const member = message.context?.member;
   return {
+    ...(member === undefined ? {} : { member }),
     // The agent needs words to start a turn; people sent only the attachments.
     text: isAttachmentOnlyBootstrapPrompt(message.text) ? "" : message.text,
     attribution:
@@ -130,10 +139,13 @@ export function resolveUserMessageGrouping(
     value?.role === "user" && resolveUserMessagePresentation(value).attribution === null;
   const isSteer = (value: GroupableUserMessage | undefined) =>
     value?.inputIntent === "steer" || value?.inputIntent === "promoted_queued_to_steer";
-  const groupedWithPrevious = isOwnMessage(message) && isOwnMessage(previous);
+  const sameSender = (other: GroupableUserMessage | undefined) =>
+    message?.context?.member?.userId === other?.context?.member?.userId;
+  const groupedWithPrevious =
+    isOwnMessage(message) && isOwnMessage(previous) && sameSender(previous);
   return {
     groupedWithPrevious,
-    groupedWithNext: isOwnMessage(message) && isOwnMessage(next),
+    groupedWithNext: isOwnMessage(message) && isOwnMessage(next) && sameSender(next),
     continuesSteer: groupedWithPrevious && isSteer(message) && isSteer(previous),
   };
 }

@@ -892,6 +892,7 @@ export function applyToProjection(
     // Reordering and PR refreshes preserve the orchestrator's activity timestamp.
     case "thread.active-reordered":
     case "thread.tags-updated":
+    case "thread.team-share-updated":
     case "thread.pull-request-synced":
       return {
         ...base,
@@ -1702,6 +1703,7 @@ export function threadShellFromProjection(
     ),
     pendingRuntimeRequest,
     pendingGuestMessageCount: pendingGuestMessageCount(projection.thread.guestShare),
+    ...(projection.thread.teamShare ? { teamShare: projection.thread.teamShare } : {}),
     // Thread detail owns message bodies. Keeping them out of shell rows makes
     // initial hydration and streaming updates independent of transcript size.
     latestVisibleMessage: null,
@@ -1999,6 +2001,7 @@ function shellFromState(input: {
     usageLimitResetAt: input.state.usageLimitResetAt,
     pendingRuntimeRequest: input.state.pendingRuntimeRequest,
     pendingGuestMessageCount: pendingGuestMessageCount(input.state.thread.guestShare),
+    ...(input.state.thread.teamShare ? { teamShare: input.state.thread.teamShare } : {}),
     latestVisibleMessage: null,
     latestUserMessageAt: input.state.latestUserMessageAt,
     latestUserAuthoredMessageAt: input.state.latestUserAuthoredMessageAt,
@@ -2152,7 +2155,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             case "thread.interaction-mode-updated":
             case "thread.model-selection-updated":
             case "thread.provider-switched":
-            case "thread.guest-share-updated": {
+            case "thread.guest-share-updated":
+            case "thread.team-share-updated": {
               const payloadJson = yield* encodeThreadPayload(event.payload);
               const payload = parseEncodedPayload(payloadJson);
               yield* sql`
@@ -2970,7 +2974,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             event.type !== "thread.interaction-mode-updated" &&
             event.type !== "thread.model-selection-updated" &&
             event.type !== "thread.provider-switched" &&
-            event.type !== "thread.guest-share-updated"
+            event.type !== "thread.guest-share-updated" &&
+            event.type !== "thread.team-share-updated"
           ) {
             const updatedAt = yield* encodeThreadUpdatedAt(event.occurredAt);
             yield* sql`
@@ -7075,6 +7080,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   activityRunStartedAt: null,
                   pendingRuntimeRequest: null,
                   pendingGuestMessageCount: pendingGuestMessageCount(thread.guestShare),
+                  ...(thread.teamShare ? { teamShare: thread.teamShare } : {}),
                   pendingBackgroundTasks: derivePendingBackgroundWork({
                     latestRun:
                       latestRunId === null || status === "idle"

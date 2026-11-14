@@ -40,6 +40,7 @@ import * as DpopProofs from "./auth/DpopProofs.ts";
 import * as RelayTokens from "./auth/RelayTokens.ts";
 import * as EnvironmentCredentials from "./environments/EnvironmentCredentials.ts";
 import * as EnvironmentLinks from "./environments/EnvironmentLinks.ts";
+import * as EnvironmentTeamShares from "./environments/EnvironmentTeamShares.ts";
 import * as ManagedEndpointAllocations from "./environments/ManagedEndpointAllocations.ts";
 import * as LiveActivities from "./agentActivity/LiveActivities.ts";
 import * as RelayDb from "./db.ts";
@@ -69,6 +70,7 @@ import * as EnvironmentPublishSignatures from "./environments/EnvironmentPublish
 import * as ManagedEndpointReaper from "./environments/ManagedEndpointReaper.ts";
 import * as ManagedTunnelLimits from "./environments/ManagedTunnelLimits.ts";
 import * as Identity from "./auth/identity.ts";
+import * as TeamMembership from "./auth/TeamMembership.ts";
 import * as MobileRegistrations from "./agentActivity/MobileRegistrations.ts";
 import * as HookForwarder from "./hooks/HookForwarder.ts";
 import * as HeldHooks from "./hooks/HeldHooks.ts";
@@ -321,6 +323,8 @@ export const layer = Api.make(
         Layer.mergeAll(
           CloudflareApiPause.layer,
           EnvironmentLinks.layer,
+          EnvironmentTeamShares.layer,
+          TeamMembership.layerUnavailable,
           ManagedEndpointAllocations.layer,
           ManagedTunnelLimits.layer,
         ),

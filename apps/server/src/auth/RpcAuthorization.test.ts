@@ -1,4 +1,5 @@
 import {
+  AuthAccessWriteScope,
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
@@ -8,7 +9,9 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   SecretProviderId,
+  ORCHESTRATION_V2_WS_METHODS,
   ThreadId,
+  TurnItemId,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthSourceControlWriteScope,
@@ -135,6 +138,127 @@ describe("RPC scope middleware", () => {
         requiredPermission: missing,
       });
       expect(handled).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+});
+
+describe("teammate allowlist", () => {
+  const tested = [
+    WS_METHODS.subscribeVcsBranch,
+    WS_METHODS.teamRevokeMemberAccess,
+    WS_METHODS.teamReportPresence,
+    ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput,
+  ] as const;
+  const group = WsRpcGroup.omit(
+    ...[...WsRpcGroup.requests.keys()].filter(
+      (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof tested)[number]> =>
+        !(tested as ReadonlyArray<string>).includes(tag),
+    ),
+  );
+  const sharedThread = ThreadId.make("thread-shared");
+  const otherTeamThread = ThreadId.make("thread-other-team");
+  const privateThread = ThreadId.make("thread-private");
+  const shares = new Map([
+    [
+      sharedThread,
+      { organizationId: "org-a", access: "view" as const, sharedAt: "2026-11-14T00:00:00.000Z" },
+    ],
+    [
+      otherTeamThread,
+      { organizationId: "org-b", access: "steer" as const, sharedAt: "2026-11-14T00:00:00.000Z" },
+    ],
+  ]);
+  const makeClient = (teamMember: boolean, handled: Array<string>) =>
+    RpcTest.makeClient(group).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          group.toLayerHandler(WS_METHODS.subscribeVcsBranch, () =>
+            Stream.fromEffect(Effect.sync(() => (handled.push("branch"), { refName: "main" }))),
+          ),
+          group.toLayerHandler(WS_METHODS.teamRevokeMemberAccess, (input) =>
+            Effect.sync(() => void handled.push(`revoke:${input.userId}`)),
+          ),
+          group.toLayerHandler(WS_METHODS.teamReportPresence, (input) =>
+            Effect.sync(() => void handled.push(`presence:${input.threadId ?? "machine"}`)),
+          ),
+          group.toLayerHandler(ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput, (input) =>
+            Stream.fromEffect(
+              Effect.sync(() => void handled.push(`output:${input.threadId}`)),
+            ).pipe(Stream.drain),
+          ),
+          RpcAuthorization.layer(
+            [AuthOrchestrationReadScope, AuthOrchestrationOperateScope, AuthAccessWriteScope],
+            undefined,
+            teamMember
+              ? {
+                  organizationId: "org-a",
+                  threadShare: (threadId) => Effect.succeed(shares.get(threadId)),
+                }
+              : undefined,
+          ),
+        ),
+      ),
+    );
+
+  it.effect("refuses a teammate anything outside the allowlist and any unshared thread", () =>
+    Effect.gen(function* () {
+      const handled: Array<string> = [];
+      const client = yield* makeClient(true, handled);
+      const itemId = TurnItemId.make("item-1");
+
+      expect(
+        yield* Stream.runDrain(client[WS_METHODS.subscribeVcsBranch]({ cwd: "/repo" })).pipe(
+          Effect.flip,
+        ),
+      ).toMatchObject({ requiredPermission: "team-member-allowlist" });
+      expect(
+        yield* client[WS_METHODS.teamRevokeMemberAccess]({
+          organizationId: "org-a",
+          userId: "someone-else",
+        }).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: "team-member-allowlist" });
+      for (const threadId of [privateThread, otherTeamThread]) {
+        expect(
+          yield* Stream.runDrain(
+            client[ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]({ threadId, itemId }),
+          ).pipe(Effect.flip),
+        ).toMatchObject({ requiredPermission: "team-thread-share" });
+        expect(
+          yield* client[WS_METHODS.teamReportPresence]({ threadId, typing: true }).pipe(
+            Effect.flip,
+          ),
+        ).toMatchObject({ requiredPermission: "team-thread-share" });
+      }
+      expect(handled).toEqual([]);
+
+      yield* Stream.runDrain(
+        client[ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]({
+          threadId: sharedThread,
+          itemId,
+        }),
+      );
+      yield* client[WS_METHODS.teamReportPresence]({ threadId: sharedThread, typing: false });
+      yield* client[WS_METHODS.teamReportPresence]({ typing: false });
+      expect(handled).toEqual([
+        `output:${sharedThread}`,
+        `presence:${sharedThread}`,
+        "presence:machine",
+      ]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("leaves sessions without a member exactly as before", () =>
+    Effect.gen(function* () {
+      const handled: Array<string> = [];
+      const client = yield* makeClient(false, handled);
+      yield* Stream.runDrain(client[WS_METHODS.subscribeVcsBranch]({ cwd: "/repo" }));
+      yield* Stream.runDrain(
+        client[ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]({
+          threadId: privateThread,
+          itemId: TurnItemId.make("item-1"),
+        }),
+      );
+      expect(handled).toEqual(["branch", `output:${privateThread}`]);
     }).pipe(Effect.scoped),
   );
 });

@@ -1,5 +1,6 @@
 import {
   AuthStandardClientScopes,
+  AuthTeamMemberScopes,
   EnvironmentAuthenticatedPrincipal,
   type EnvironmentCloudLinkStateResult,
   type EnvironmentCloudPreferencesRequest,
@@ -71,6 +72,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as AgentAwarenessRelay from "../relay/AgentAwarenessRelay.ts";
 import { makeRelayEnvironmentClient } from "../relay/relayEnvironmentClient.ts";
 import { loopbackUrlHostForAddress } from "../startupAccess.ts";
+import { readSharedOrganizationIds } from "../team/sharedOrganizations.ts";
 import {
   type CliDesiredLinkMode,
   readCliDesiredCloudLink,
@@ -1567,10 +1569,19 @@ const make = Effect.gen(function* () {
         issuer: normalizeRelayIssuer(relayIssuer),
         audience: `t3-env:${environmentId}`,
       }).pipe(Effect.provideService(Signature.Signature, signature), Effect.option);
+      const proposedMember = Option.isSome(proofOption) ? proofOption.value.member : undefined;
+      const teamMember =
+        Option.isSome(proofOption) &&
+        proofOption.value.sub !== linkedCloudUserId &&
+        proposedMember !== undefined &&
+        proposedMember.userId === proofOption.value.sub &&
+        (yield* readSharedOrganizationIds(secrets)).includes(proposedMember.organizationId)
+          ? proposedMember
+          : undefined;
       if (
         Option.isNone(proofOption) ||
         proofOption.value.environmentId !== environmentId ||
-        proofOption.value.sub !== linkedCloudUserId ||
+        (proofOption.value.sub !== linkedCloudUserId && teamMember === undefined) ||
         proofOption.value.cnf.jkt !== proofOption.value.clientProofKeyThumbprint ||
         !hasBoundedCloudProofLifetime({ ...proofOption.value, nowSeconds }) ||
         !hasExactScope({ scopes: proofOption.value.scope, expected: "environment:connect" })
@@ -1590,13 +1601,22 @@ const make = Effect.gen(function* () {
         return yield* new CloudLinkProofReplayedError({ request: "mint" });
       }
 
-      const issued = yield* environmentAuth.createPairingLink({
-        scopes: AuthStandardClientScopes,
-        subject: "cloud-connect",
-        ttl: Duration.minutes(2),
-        label: "T3 Connect connect",
-        proofKeyThumbprint: proof.clientProofKeyThumbprint,
-      });
+      const issued = yield* teamMember === undefined
+        ? environmentAuth.createPairingLink({
+            scopes: AuthStandardClientScopes,
+            subject: "cloud-connect",
+            ttl: Duration.minutes(2),
+            label: "T3 Connect connect",
+            proofKeyThumbprint: proof.clientProofKeyThumbprint,
+          })
+        : environmentAuth.createPairingLink({
+            scopes: AuthTeamMemberScopes,
+            subject: EnvironmentAuth.TEAM_MEMBER_SUBJECT,
+            ttl: Duration.minutes(2),
+            label: `${teamMember.name} (${teamMember.organizationSlug})`,
+            proofKeyThumbprint: proof.clientProofKeyThumbprint,
+            member: teamMember,
+          });
       const responsePayload = {
         iss: `t3-env:${environmentId}`,
         aud: normalizeRelayIssuer(relayIssuer),

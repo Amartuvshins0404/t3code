@@ -172,6 +172,17 @@ import {
   GuestShareCreateInput,
   GuestShareCreateResult,
 } from "./guestShare.ts";
+import {
+  TeamAccessError,
+  TeamMemberAccessRevokeInput,
+  TeamPresenceReportInput,
+  TeamPresenceSnapshot,
+  TeamSharedOrganizationInput,
+  TeamSharedOrganizations,
+  TeamThreadShareClearInput,
+  TeamThreadShareSetInput,
+  ThreadTeamShare,
+} from "./team.ts";
 import { PullRequestReviewGuideResult } from "./pullRequestReviewGuide.ts";
 import {
   PullRequestActionInput,
@@ -579,6 +590,14 @@ export const WS_METHODS = {
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
   guestShareCreate: "guestShare.create",
+  teamListSharedOrganizations: "team.listSharedOrganizations",
+  teamAddSharedOrganization: "team.addSharedOrganization",
+  teamRemoveSharedOrganization: "team.removeSharedOrganization",
+  teamRevokeMemberAccess: "team.revokeMemberAccess",
+  teamSetThreadShare: "team.setThreadShare",
+  teamClearThreadShare: "team.clearThreadShare",
+  teamReportPresence: "team.reportPresence",
+  teamSubscribePresence: "team.subscribePresence",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
 
@@ -2179,6 +2198,52 @@ const WsGuestShareCreateRpc = Rpc.make(WS_METHODS.guestShareCreate, {
   error: Schema.Union([GuestShareCreateError, EnvironmentAuthorizationError]),
 });
 
+const WsTeamListSharedOrganizationsRpc = Rpc.make(WS_METHODS.teamListSharedOrganizations, {
+  payload: Schema.Struct({}),
+  success: TeamSharedOrganizations,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamAddSharedOrganizationRpc = Rpc.make(WS_METHODS.teamAddSharedOrganization, {
+  payload: TeamSharedOrganizationInput,
+  success: TeamSharedOrganizations,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamRemoveSharedOrganizationRpc = Rpc.make(WS_METHODS.teamRemoveSharedOrganization, {
+  payload: TeamSharedOrganizationInput,
+  success: TeamSharedOrganizations,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamRevokeMemberAccessRpc = Rpc.make(WS_METHODS.teamRevokeMemberAccess, {
+  payload: TeamMemberAccessRevokeInput,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamSetThreadShareRpc = Rpc.make(WS_METHODS.teamSetThreadShare, {
+  payload: TeamThreadShareSetInput,
+  success: ThreadTeamShare,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamClearThreadShareRpc = Rpc.make(WS_METHODS.teamClearThreadShare, {
+  payload: TeamThreadShareClearInput,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamReportPresenceRpc = Rpc.make(WS_METHODS.teamReportPresence, {
+  payload: TeamPresenceReportInput,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamSubscribePresenceRpc = Rpc.make(WS_METHODS.teamSubscribePresence, {
+  payload: Schema.Struct({}),
+  success: TeamPresenceSnapshot,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
 const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   payload: SecretRequestAnswerInput,
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
@@ -2223,6 +2288,14 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
 
 export const WsRpcGroup = RpcGroup.make(
   WsGuestShareCreateRpc,
+  WsTeamListSharedOrganizationsRpc,
+  WsTeamAddSharedOrganizationRpc,
+  WsTeamRemoveSharedOrganizationRpc,
+  WsTeamRevokeMemberAccessRpc,
+  WsTeamSetThreadShareRpc,
+  WsTeamClearThreadShareRpc,
+  WsTeamReportPresenceRpc,
+  WsTeamSubscribePresenceRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

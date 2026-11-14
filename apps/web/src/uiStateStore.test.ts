@@ -24,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
+    activeWorkspace: "personal",
     ...overrides,
   };
 }
@@ -127,6 +128,7 @@ describe("parsePersistedState", () => {
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
       pullRequestMergeMethod: "merge",
+      activeWorkspace: "personal",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -240,6 +242,7 @@ describe("uiStateStore persistence", () => {
         },
       },
       pullRequestMergeMethod: "merge",
+      activeWorkspace: "personal",
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,

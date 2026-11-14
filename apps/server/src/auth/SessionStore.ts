@@ -8,6 +8,7 @@ import {
   AuthWebSocketTicketUse,
   RuntimeMode,
   type ServerAuthSessionMethod,
+  type TeamMemberIdentity,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -60,6 +61,7 @@ export interface VerifiedSession {
   readonly runtimeModeCeiling?: RuntimeMode;
   /** An MCP client that is another T3 Code environment's peer link. */
   readonly peerLink?: true;
+  readonly member?: TeamMemberIdentity;
 }
 
 export interface VerifiedWebSocketTicket extends VerifiedSession {
@@ -350,6 +352,18 @@ export class OtherSessionsRevocationError extends Schema.TaggedError<OtherSessio
   }
 }
 
+export class OrganizationSessionsRevocationError extends Schema.TaggedError<OrganizationSessionsRevocationError>()(
+  "OrganizationSessionsRevocationError",
+  {
+    organizationId: Schema.String,
+    ...sessionCredentialInternalErrorContext,
+  },
+) {
+  override get message(): string {
+    return "Failed to revoke the team's sessions.";
+  }
+}
+
 export const SessionCredentialInternalError = Schema.Union([
   SessionClaimsEncodingError,
   SessionCredentialIssueError,
@@ -359,6 +373,7 @@ export const SessionCredentialInternalError = Schema.Union([
   ActiveSessionsListError,
   SessionRevocationError,
   OtherSessionsRevocationError,
+  OrganizationSessionsRevocationError,
 ]);
 export type SessionCredentialInternalError = typeof SessionCredentialInternalError.Type;
 
@@ -382,6 +397,7 @@ export class SessionStore extends Context.Service<
       readonly proofKeyThumbprint?: string;
       readonly runtimeModeCeiling?: RuntimeMode;
       readonly peerLink?: boolean;
+      readonly member?: TeamMemberIdentity;
       readonly replaceActiveForSubjectAndMethod?: boolean;
       readonly replaceSessionId?: AuthSessionId;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
@@ -418,6 +434,10 @@ export class SessionStore extends Context.Service<
     ) => Effect.Effect<boolean, SessionCredentialInternalError>;
     readonly revokeAllExcept: (
       sessionId: AuthSessionId,
+    ) => Effect.Effect<number, SessionCredentialInternalError>;
+    readonly revokeForOrganization: (
+      organizationId: string,
+      userId?: string,
     ) => Effect.Effect<number, SessionCredentialInternalError>;
     readonly markConnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
     readonly markDisconnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
@@ -529,6 +549,7 @@ const make = Effect.gen(function* () {
           os: null,
           browser: null,
         },
+        member: null,
         issuedAt: yield* DateTime.now,
         expiresAt: REUSABLE_DEV_SESSION_EXPIRES_AT,
       })
@@ -695,6 +716,7 @@ const make = Effect.gen(function* () {
           os: client.os ?? null,
           browser: client.browser ?? null,
         },
+        member: input?.member ?? null,
         issuedAt,
         expiresAt,
       } satisfies AuthSessions.CreateAuthSessionInput;
@@ -844,6 +866,7 @@ const make = Effect.gen(function* () {
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
         ...(claims.rtc ? { runtimeModeCeiling: claims.rtc } : {}),
         ...(claims.plk === 1 ? { peerLink: true as const } : {}),
+        ...(row.value.member ? { member: row.value.member } : {}),
       } satisfies VerifiedSession;
     },
   );
@@ -955,6 +978,7 @@ const make = Effect.gen(function* () {
       scopes: row.value.scopes,
       ...(claims.aud ? { audience: claims.aud } : {}),
       ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
+      ...(row.value.member ? { member: row.value.member } : {}),
     } satisfies VerifiedWebSocketTicket;
   });
 
@@ -1039,6 +1063,34 @@ const make = Effect.gen(function* () {
     return revokedSessionIds.length;
   });
 
+  const revokeForOrganization: SessionStore["Service"]["revokeForOrganization"] = Effect.fn(
+    "SessionStore.revokeForOrganization",
+  )(function* (organizationId, userId) {
+    const revokedAt = yield* DateTime.now;
+    const revokedSessionIds = yield* authSessions
+      .revokeForOrganization({
+        organizationId,
+        ...(userId === undefined ? {} : { userId }),
+        revokedAt,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrganizationSessionsRevocationError({ organizationId, cause }),
+        ),
+      );
+    if (revokedSessionIds.length > 0) {
+      yield* Ref.update(connectedSessionsRef, (current) => {
+        const next = new Map(current);
+        for (const revokedSessionId of revokedSessionIds) {
+          next.delete(revokedSessionId);
+        }
+        return next;
+      });
+      yield* Effect.forEach(revokedSessionIds, emitRemoved, { discard: true });
+    }
+    return revokedSessionIds.length;
+  });
+
   const awaitInvalidation = Effect.fn(function* (
     sessionId: AuthSessionId,
     proofKeyThumbprint?: string,
@@ -1087,6 +1139,8 @@ const make = Effect.gen(function* () {
           if (
             Option.isNone(successor) ||
             successor.value.subject !== original.value.subject ||
+            successor.value.member?.userId !== original.value.member?.userId ||
+            successor.value.member?.organizationId !== original.value.member?.organizationId ||
             !original.value.scopes.every((scope) => successor.value.scopes.includes(scope))
           ) {
             return;
@@ -1112,6 +1166,7 @@ const make = Effect.gen(function* () {
     },
     revoke,
     revokeAllExcept,
+    revokeForOrganization,
     markConnected,
     markDisconnected,
   });

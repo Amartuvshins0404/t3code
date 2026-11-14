@@ -18,6 +18,8 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
+import { TeamShareDialogHost } from "../components/teams/TeamShareControls";
+import { TeamWorkspaceConnections } from "../cloud/teamWorkspace";
 import { UseInAnotherAppDialogHost } from "../components/mcp/UseInAnotherAppDialog";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
@@ -193,6 +195,8 @@ function RootRouteBranch() {
       <ConfirmDialogHost />
       <CustomSnoozeDialogHost />
       <GuestShareDialogHost />
+      <TeamShareDialogHost />
+      <TeamWorkspaceConnections />
       <ProjectCloneToastCoordinator />
       <AddProjectToMachineDialogHost />
       <UseInAnotherAppDialogHost />

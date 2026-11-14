@@ -39,7 +39,9 @@ import type {
 import {
   ConnectionBlockedError,
   ConnectionTransientError as ConnectionTransientErrorClass,
+  isTeammateConnectionTarget,
 } from "../connection/model.ts";
+import { teammateProtocolClient, teammateServerConfig } from "./teammateConfig.ts";
 import {
   applyServerConfigProjection,
   type ServerConfigProjection,
@@ -67,6 +69,7 @@ export interface RpcSessionOptions {
   readonly usageLimitSources?: boolean;
   readonly usageLimitsCommand?: boolean;
   readonly providerCatalogsOnDemand?: boolean;
+  readonly clientVersion?: string;
 }
 
 export class RpcSessionFactory extends Context.Service<
@@ -282,6 +285,27 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       Effect.forkScoped,
     );
     const protocolClient = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
+    if (isTeammateConnectionTarget(connection.target)) {
+      const config = teammateServerConfig({
+        environmentId: connection.environmentId,
+        label: connection.label,
+        serverVersion: options.clientVersion ?? "0.0.0",
+      });
+      const snapshot: ServerConfigStreamEvent = { version: 1, type: "snapshot", config };
+      return {
+        client: teammateProtocolClient(protocolClient),
+        initialConfig: Effect.succeed(config),
+        subscribeServerConfig: () => Stream.concat(Stream.make(snapshot), Stream.never),
+        ready: Deferred.await(connected).pipe(Effect.raceFirst(Deferred.await(disconnected))),
+        probe: protocolClient[WS_METHODS.serverProbe]({}).pipe(
+          Effect.mapError(mapRpcError),
+          Effect.asVoid,
+          Effect.withSpan("clientRuntime.connection.rpcSession.probe"),
+        ),
+        inboundFrames: Effect.sync(() => inboundFrames),
+        closed: Deferred.await(disconnected),
+      } satisfies RpcSession;
+    }
     const initialConfigDeferred = yield* Deferred.make<ServerConfig>();
     const serverConfigExit = yield* Deferred.make<void, ServerConfigSubscriptionError>();
     const configSubscriptionClosed = yield* Deferred.make<never, ConnectionAttemptError>();

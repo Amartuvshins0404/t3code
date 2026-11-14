@@ -1,13 +1,19 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { AuthStandardClientScopes, AuthTeamMemberScopes, EnvironmentId } from "@t3tools/contracts";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync.
+import * as NodeCrypto from "node:crypto";
+import { RELAY_MINT_REQUEST_TYP, signRelayJwt } from "@t3tools/shared/relayJwt";
 import { assert, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { HttpClient, HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as PlatformNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import * as EnvironmentKeys from "./environmentKeys.ts";
@@ -22,6 +28,8 @@ import * as ConnectReachability from "./ConnectReachability.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
 import {
   CLOUD_LINKED_USER_ID,
+  CLOUD_MINT_PUBLIC_KEY,
+  RELAY_ISSUER_SECRET,
   HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET,
   PUBLISH_AGENT_ACTIVITY_SECRET,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
@@ -114,7 +122,7 @@ const withService = <A, E>(
         HttpClient.make(() => Effect.die("unused")),
       ),
       NodeServices.layer,
-      NodeCrypto.layer,
+      PlatformNodeCrypto.layer,
     );
     return yield* Effect.gen(function* () {
       const link = yield* CloudLink.CloudLink;
@@ -297,7 +305,7 @@ it.effect("unlinks on startup and refuses to link when the policy turns Connect 
         HttpClient.make(() => Effect.die("unused")),
       ),
       NodeServices.layer,
-      NodeCrypto.layer,
+      PlatformNodeCrypto.layer,
     );
     yield* Effect.gen(function* () {
       const link = yield* CloudLink.CloudLink;
@@ -317,5 +325,147 @@ it.effect("unlinks on startup and refuses to link when the policy turns Connect 
         ),
       ),
     );
+  }),
+);
+
+const mintKeys = NodeCrypto.generateKeyPairSync("ed25519", {
+  privateKeyEncoding: { format: "pem", type: "pkcs8" },
+  publicKeyEncoding: { format: "pem", type: "spki" },
+});
+const mintEnvironmentId = EnvironmentId.make("environment-1");
+const relayIssuer = "https://relay.test";
+const teamMember = {
+  userId: "teammate-1",
+  name: "Ada",
+  organizationId: "org-shared",
+  organizationSlug: "analytical",
+  role: "member" as const,
+};
+
+const mintWith = (proof: {
+  readonly sub: string;
+  readonly nonce: string;
+  readonly member?: typeof teamMember;
+}) =>
+  Effect.gen(function* () {
+    const stored = new Map<string, Uint8Array>([
+      [CLOUD_LINKED_USER_ID, encode("owner-1")],
+      [CLOUD_MINT_PUBLIC_KEY, encode(mintKeys.publicKey)],
+      [RELAY_ISSUER_SECRET, encode(relayIssuer)],
+      ["team-shared-organizations", encode(JSON.stringify(["org-shared"]))],
+    ]);
+    const issued: Array<
+      Parameters<EnvironmentAuth.EnvironmentAuth["Service"]["createPairingLink"]>[0]
+    > = [];
+    const now = Math.floor((yield* Clock.currentTimeMillis) / 1_000);
+    const token = yield* signRelayJwt({
+      privateKey: mintKeys.privateKey,
+      typ: RELAY_MINT_REQUEST_TYP,
+      payload: {
+        iss: relayIssuer,
+        aud: `t3-env:${mintEnvironmentId}`,
+        sub: proof.sub,
+        jti: `jti-${proof.nonce}`,
+        iat: now,
+        exp: now + 60,
+        environmentId: mintEnvironmentId,
+        clientProofKeyThumbprint: "thumbprint",
+        cnf: { jkt: "thumbprint" },
+        nonce: proof.nonce,
+        scope: ["environment:connect"],
+        ...(proof.member === undefined ? {} : { member: proof.member }),
+      },
+    }).pipe(Effect.provide(PlatformNodeCrypto.layerSignature));
+    const layerDependencies = Layer.mergeAll(
+      Layer.mock(ServerSecretStore.ServerSecretStore)({
+        get: (name) => Effect.succeed(Option.fromNullishOr(stored.get(name))),
+        create: (name, value) => Effect.sync(() => void stored.set(name, value)),
+      }),
+      Layer.mock(ServerEnvironment.ServerEnvironment)({
+        getEnvironmentId: Effect.succeed(mintEnvironmentId),
+      }),
+      Layer.mock(AgentAwarenessRelay.AgentAwarenessRelay)({}),
+      Layer.mock(ManagedEndpointRuntime.CloudManagedEndpointRuntime)({}),
+      ManagedPolicy.layerTest(),
+      Layer.mock(ConnectReachability.ConnectReachability)({}),
+      Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+        createPairingLink: (input) =>
+          Effect.sync(() => {
+            issued.push(input);
+            return {
+              id: "link-1",
+              credential: "credential-1",
+              scopes: input?.scopes ?? [],
+              subject: input?.subject ?? "one-time-token",
+              createdAt: DateTime.makeUnsafe(0),
+              expiresAt: DateTime.makeUnsafe(120_000),
+            };
+          }),
+      }),
+      Layer.mock(CliTokenManager.CloudCliTokenManager)({}),
+      Layer.mock(HttpServer.HttpServer)({
+        address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 3773),
+      }),
+      Layer.mock(ServerConfig.ServerConfig)({} as ServerConfig.ServerConfig["Service"]),
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.die("unused")),
+      ),
+      NodeServices.layer,
+      PlatformNodeCrypto.layer,
+    );
+    const outcome = yield* Effect.gen(function* () {
+      const link = yield* CloudLink.CloudLink;
+      return yield* link.mintCredential({ proof: token }).pipe(Effect.result);
+    }).pipe(
+      Effect.provide(
+        CloudLink.layer.pipe(
+          Layer.provide(
+            Layer.mock(EnvironmentKeys.EnvironmentSigningKey)({
+              publicKey: "",
+              sign: () => Effect.succeed("response-proof"),
+            }),
+          ),
+          Layer.provide(layerDependencies),
+        ),
+      ),
+    );
+    return { outcome, issued };
+  });
+
+it.effect("still mints the owner's full session through the relay", () =>
+  Effect.gen(function* () {
+    const { outcome, issued } = yield* mintWith({ sub: "owner-1", nonce: "owner" });
+    assert.isTrue(Result.isSuccess(outcome));
+    assert.deepInclude(issued[0], { subject: "cloud-connect", scopes: AuthStandardClientScopes });
+    assert.isUndefined(issued[0]?.member);
+  }),
+);
+
+it.effect("mints a small teammate session only for a team this machine is shared with", () =>
+  Effect.gen(function* () {
+    const shared = yield* mintWith({ sub: "teammate-1", nonce: "shared", member: teamMember });
+    assert.isTrue(Result.isSuccess(shared.outcome));
+    assert.deepInclude(shared.issued[0], {
+      subject: "team-member",
+      scopes: AuthTeamMemberScopes,
+      member: teamMember,
+    });
+
+    const otherTeam = yield* mintWith({
+      sub: "teammate-1",
+      nonce: "other-team",
+      member: { ...teamMember, organizationId: "org-not-shared" },
+    });
+    assert.isTrue(Result.isFailure(otherTeam.outcome));
+    assert.deepEqual(otherTeam.issued, []);
+
+    const someoneElse = yield* mintWith({ sub: "stranger-1", nonce: "spoof", member: teamMember });
+    assert.isTrue(Result.isFailure(someoneElse.outcome));
+    assert.deepEqual(someoneElse.issued, []);
+
+    const noMember = yield* mintWith({ sub: "teammate-1", nonce: "no-member" });
+    assert.isTrue(Result.isFailure(noMember.outcome));
+    assert.deepEqual(noMember.issued, []);
   }),
 );

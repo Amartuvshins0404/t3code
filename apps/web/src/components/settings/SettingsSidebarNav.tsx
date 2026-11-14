@@ -32,6 +32,7 @@ import {
   SmartphoneIcon,
   WrenchIcon,
   XIcon,
+  UsersIcon,
 } from "lucide-react";
 import { resolveEventKeys } from "@t3tools/shared/keybindings";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -101,6 +102,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/worktrees": FolderTreeIcon,
   "/settings/connections": ServerIcon,
   "/settings/access": ShieldCheckIcon,
+  "/settings/team": UsersIcon,
   "/settings/secrets": KeyRoundIcon,
   "/settings/maintenance": WrenchIcon,
   "/settings/labs": FlaskConicalIcon,

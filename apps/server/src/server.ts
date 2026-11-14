@@ -5,6 +5,8 @@ import * as EnvironmentKeys from "./cloud/environmentKeys.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
+import * as TeamPresence from "./team/TeamPresence.ts";
+import * as TeamSharing from "./team/TeamSharing.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
@@ -647,6 +649,8 @@ const layerServerRestart = Layer.effect(
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   AgentAwarenessRelay.layer,
+  TeamSharing.layer,
+  TeamPresence.layer,
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
   layerIdleCompactionWorker,

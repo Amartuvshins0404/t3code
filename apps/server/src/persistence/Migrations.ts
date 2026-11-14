@@ -220,6 +220,29 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
 
 const latestMigrationId = Math.max(...migrationEntries.map(([id]) => id));
 
+const TEAM_MEMBER_COLUMN_TABLES = ["auth_pairing_links", "auth_sessions"] as const;
+
+const tablesMissingTeamMemberColumn = Effect.fn("tablesMissingTeamMemberColumn")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const missing: Array<(typeof TEAM_MEMBER_COLUMN_TABLES)[number]> = [];
+  for (const table of TEAM_MEMBER_COLUMN_TABLES) {
+    const columns = yield* sql<{ readonly name: string }>`
+      SELECT name FROM pragma_table_info(${table})
+    `;
+    if (columns.length > 0 && !columns.some((column) => column.name === "member_json")) {
+      missing.push(table);
+    }
+  }
+  return missing;
+});
+
+const ensureTeamMemberColumns = Effect.fn("ensureTeamMemberColumns")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  for (const table of yield* tablesMissingTeamMemberColumn()) {
+    yield* sql`ALTER TABLE ${sql(table)} ADD COLUMN member_json TEXT`;
+  }
+});
+
 // Mirrors the Migrator, which runs only ids above the highest recorded, plus the V2-preview reconciliation.
 export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -227,6 +250,7 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
     SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
   `;
   if (tables.length === 0) return true;
+  if ((yield* tablesMissingTeamMemberColumn()).length > 0) return true;
   const rows = yield* sql<{ readonly latestId: number | null; readonly previewRows: number }>`
     SELECT
       MAX(migration_id) AS latestId,
@@ -256,6 +280,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     ...previewMigrations,
     ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
   ];
+  yield* ensureTeamMemberColumns();
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")

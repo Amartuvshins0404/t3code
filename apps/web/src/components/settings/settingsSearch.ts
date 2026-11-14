@@ -1,4 +1,5 @@
 import { HOSTED_APP_CHANNEL } from "~/branding";
+import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { isElectron, isSecretsFeatureEnabled } from "~/env";
 import { isMacPlatform, isWindowsPlatform, normalizeSearchText } from "~/lib/utils";
 import { STATIC_KEYBINDING_COMMANDS, type KeybindingCommand } from "@t3tools/contracts";
@@ -36,6 +37,7 @@ export type SettingsPath =
   | "/settings/worktrees"
   | "/settings/connections"
   | "/settings/access"
+  | "/settings/team"
   | "/settings/secrets"
   | "/settings/maintenance"
   | "/settings/labs"
@@ -111,6 +113,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/worktrees": msg("Worktrees"),
   "/settings/connections": msg("Environments"),
   "/settings/access": msg("Sharing & access"),
+  "/settings/team": msg("Team"),
   "/settings/secrets": msg("Secrets"),
   "/settings/maintenance": msg("Maintenance"),
   "/settings/labs": msg("Labs"),
@@ -155,6 +158,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     paths: [
       "/settings/connections",
       "/settings/access",
+      ...(hasCloudPublicConfig() ? (["/settings/team"] as const) : []),
       ...(isSecretsFeatureEnabled ? (["/settings/secrets"] as const) : []),
     ],
   },
@@ -1294,6 +1298,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     cloudOnly: true,
   },
   {
+    id: "team-members",
+    title: "Team members and invites",
+    to: "/settings/team",
+    searchTerms: [
+      "team workspace organization members invite people roles owner admin leave delete create",
+    ],
+    cloudOnly: true,
+  },
+  {
+    id: "team-machines",
+    title: "Share a machine with a team",
+    to: "/settings/team",
+    searchTerms: ["team share machine computer teammates stop sharing multiplayer"],
+    cloudOnly: true,
+  },
+  {
     id: "connections-environment",
     title: "This machine",
     to: "/settings/access",
@@ -1376,6 +1396,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/worktrees": "project-defaults",
   "/settings/connections": "connections",
   "/settings/access": "connections",
+  "/settings/team": null,
   "/settings/secrets": null,
   "/settings/scheduled-tasks": null,
   "/settings/maintenance": null,

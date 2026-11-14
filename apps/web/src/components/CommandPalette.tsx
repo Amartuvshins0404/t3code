@@ -81,6 +81,8 @@ import {
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
+  UsersIcon,
+  UserXIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
 import { dispatchPreviewAction } from "./preview/previewActionBus";
@@ -260,6 +262,10 @@ import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { useCanShareWithTeam, useThreadTeamShare } from "./teams/teamShareAvailability";
+import { teamAccessMessage } from "./teams/teamPresentation";
+import { useIsTeammateEnvironment } from "../cloud/teamWorkspace";
+import { openTeamShareMachineDialog, openTeamShareThreadDialog } from "./teams/teamUiStore";
 import { openUseInAnotherApp } from "./mcp/UseInAnotherAppDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { settingsForThisPlatform, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -279,6 +285,7 @@ import { readPullRequestListPreferences } from "~/components/pullRequest/pullReq
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 import * as Schema from "effect/Schema";
+import { useTeamPaletteItems } from "./teams/teamPaletteItems";
 
 const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
@@ -417,6 +424,7 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const teamPaletteItems = useTeamPaletteItems();
   const { openChildSearch, setOpen } = props;
   // Keyed by palette session: the intent and restored search only seed this
   // mount, and closing must not change what the closing palette shows.
@@ -478,6 +486,9 @@ function OpenCommandPaletteDialog(props: {
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
+  const clearThreadTeamShare = useAtomCommand(serverEnvironment.clearThreadTeamShare, {
+    reportFailure: false,
+  });
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -501,6 +512,12 @@ function OpenCommandPaletteDialog(props: {
   );
   const canShareActiveThreadWithGuest = useAtomValue(
     canShareWithGuestAtom(activeThread?.environmentId ?? ("" as EnvironmentId)),
+  );
+  const activeThreadIsTeammate = useIsTeammateEnvironment(activeThread?.environmentId ?? null);
+  const teamShareEnvironmentId = activeThread?.environmentId ?? primaryEnvironmentId;
+  const canShareWithTeam = useCanShareWithTeam(teamShareEnvironmentId);
+  const activeThreadTeamShare = useThreadTeamShare(
+    activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null,
   );
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
@@ -700,9 +717,12 @@ function OpenCommandPaletteDialog(props: {
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
-  const currentProjectEnvironmentId =
-    activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
-  const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+  const currentProjectEnvironmentId = activeThreadIsTeammate
+    ? null
+    : (activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null);
+  const currentProjectId = activeThreadIsTeammate
+    ? null
+    : (activeThread?.projectId ?? activeDraftThread?.projectId ?? null);
   const scratchTargetEnvironmentId = scratchEnvironmentId(currentProjectEnvironmentId);
   const supportsTriage = (environmentId: EnvironmentId | null) =>
     environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
@@ -1486,6 +1506,61 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (activeThread !== null && canShareWithTeam) {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:share-thread-with-team",
+      searchTerms: ["share", "team", "teammate", "view", "steer", "multiplayer"],
+      title: activeThreadTeamShare ? "Change team sharing…" : "Share thread with team…",
+      icon: <UsersIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openTeamShareThreadDialog(threadRef);
+      },
+    });
+    if (activeThreadTeamShare) {
+      actionItems.push({
+        kind: "action",
+        value: "action:stop-sharing-thread-with-team",
+        searchTerms: ["stop", "unshare", "team", "sharing", "private"],
+        title: "Stop sharing thread",
+        icon: <UserXIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          const result = await clearThreadTeamShare({
+            environmentId: threadRef.environmentId,
+            input: { threadId: threadRef.threadId },
+          });
+          if (result._tag === "Success") {
+            toastManager.add({ type: "success", title: "Stopped sharing the thread" });
+          } else if (!isAtomCommandInterrupted(result)) {
+            toastManager.add({
+              type: "error",
+              title: "Could not stop sharing",
+              description: teamAccessMessage(
+                squashAtomCommandFailure(result),
+                "Try again from the thread header.",
+              ),
+            });
+          }
+        },
+      });
+    }
+  }
+
+  if (teamShareEnvironmentId !== null && canShareWithTeam) {
+    const environmentId = teamShareEnvironmentId;
+    actionItems.push({
+      kind: "action",
+      value: "action:share-machine-with-team",
+      searchTerms: ["share", "machine", "team", "teammate", "environment"],
+      title: "Share this machine with team…",
+      icon: <UsersIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openTeamShareMachineDialog(environmentId);
+      },
+    });
+  }
+
   if (activeThread !== null) {
     const thread = activeThread;
     actionItems.push({
@@ -1681,6 +1756,8 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
+
+  actionItems.push(...teamPaletteItems);
 
   actionItems.push({
     kind: "action",

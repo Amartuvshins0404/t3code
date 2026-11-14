@@ -22,6 +22,7 @@ import {
   DpopFailureReason,
   type DpopFailureReason as DpopFailureReasonType,
   mcpClientScopes,
+  type TeamMemberIdentity,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isLocalLoopbackHost } from "@t3tools/shared/hostClassification";
@@ -54,6 +55,8 @@ import { requestUrl } from "../requestUrl.ts";
 
 const DEFAULT_SESSION_SUBJECT = "cli-issued-session";
 export const INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT = "administrative-bootstrap";
+export const TEAM_MEMBER_SUBJECT = "team-member";
+const TEAM_MEMBER_SESSION_TTL = Duration.minutes(10);
 
 export interface IssuedPairingLink {
   readonly id: string;
@@ -94,6 +97,7 @@ export interface AuthenticatedSession {
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly proofKeyThumbprint?: string;
   readonly expiresAt?: DateTime.DateTime;
+  readonly member?: TeamMemberIdentity;
 }
 
 const serverAuthInternalErrorContext = {
@@ -489,6 +493,7 @@ export class EnvironmentAuth extends Context.Service<
       readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
       readonly subject?: string;
       readonly proofKeyThumbprint?: string;
+      readonly member?: TeamMemberIdentity;
       readonly purpose?: "startup";
       readonly mcpApproval?: AuthMcpClientAccess;
     }) => Effect.Effect<
@@ -534,6 +539,7 @@ export class EnvironmentAuth extends Context.Service<
     ) => Effect.Effect<number, ServerAuthInternalError>;
     readonly authenticateHttpRequest: (
       request: HttpServerRequest.HttpServerRequest,
+      options?: { readonly allowTeamMember?: boolean },
     ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
     readonly authenticateWebSocketUpgrade: (
       request: HttpServerRequest.HttpServerRequest,
@@ -751,6 +757,7 @@ export const make = Effect.gen(function* () {
         scopes: session.scopes,
         ...(session.proofKeyThumbprint ? { proofKeyThumbprint: session.proofKeyThumbprint } : {}),
         ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+        ...(session.member ? { member: session.member } : {}),
       })),
     );
 
@@ -892,6 +899,7 @@ export const make = Effect.gen(function* () {
         method: "browser-session-cookie",
         subject: grant.subject,
         scopes: grant.scopes,
+        ...(grant.member ? { member: grant.member, ttl: TEAM_MEMBER_SESSION_TTL } : {}),
         ...(previousSession?.method === "browser-session-cookie"
           ? { replaceSessionId: previousSession.sessionId }
           : {}),
@@ -914,7 +922,7 @@ export const make = Effect.gen(function* () {
 
   type ResolvedBootstrapGrant = Pick<
     PairingGrantStore.BootstrapGrant,
-    "scopes" | "subject" | "label"
+    "scopes" | "subject" | "label" | "member"
   > & {
     readonly method: PairingGrantStore.BootstrapGrant["method"] | "reusable-dev-token";
   };
@@ -987,6 +995,7 @@ export const make = Effect.gen(function* () {
                       ttl: Duration.hours(1),
                     }
                   : {}),
+                ...(grant.member ? { member: grant.member, ttl: TEAM_MEMBER_SESSION_TTL } : {}),
                 replaceActiveForSubjectAndMethod: grant.method === "desktop-bootstrap",
                 client: {
                   ...requestMetadata,
@@ -1039,6 +1048,7 @@ export const make = Effect.gen(function* () {
         ...(input?.ttl ? { ttl: input.ttl } : {}),
         ...(input?.label ? { label: input.label } : {}),
         ...(input?.proofKeyThumbprint ? { proofKeyThumbprint: input.proofKeyThumbprint } : {}),
+        ...(input?.member ? { member: input.member } : {}),
         ...(input?.purpose ? { purpose: input.purpose } : {}),
         ...(input?.mcpApproval ? { mcpApproval: input.mcpApproval } : {}),
       });
@@ -1255,13 +1265,34 @@ export const make = Effect.gen(function* () {
         Effect.withSpan("EnvironmentAuth.issueWebSocketTicket"),
       );
 
+  const refuseTeamMember = (allowed: boolean) => (session: AuthenticatedSession) =>
+    session.member === undefined || allowed
+      ? Effect.succeed(session)
+      : Effect.fail(
+          new ServerAuthInvalidCredentialError({
+            diagnostic: "Teammate sessions cannot use this route.",
+          }),
+        );
+
   const authenticateHttpRequest: EnvironmentAuth["Service"]["authenticateHttpRequest"] = (
     request,
+    options,
   ) =>
-    authenticateRequest(request).pipe(Effect.withSpan("EnvironmentAuth.authenticateHttpRequest"));
+    authenticateRequest(request).pipe(
+      Effect.flatMap(refuseTeamMember(options?.allowTeamMember === true)),
+      Effect.withSpan("EnvironmentAuth.authenticateHttpRequest"),
+    );
 
-  const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] =
-    Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(function* (request, use) {
+  const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] = (
+    request,
+    use,
+  ) =>
+    authenticateWebSocketSession(request, use).pipe(
+      Effect.flatMap(refuseTeamMember(use === "rpc")),
+    );
+
+  const authenticateWebSocketSession = Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(
+    function* (request: HttpServerRequest.HttpServerRequest, use: AuthWebSocketTicketUse) {
       const url = requestUrl(request);
       if (Option.isSome(url)) {
         const query = yield* decodeWebSocketUpgradeQuery(
@@ -1307,12 +1338,14 @@ export const make = Effect.gen(function* () {
               ? { proofKeyThumbprint: session.proofKeyThumbprint }
               : {}),
             ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+            ...(session.member ? { member: session.member } : {}),
           };
         }
       }
 
       return yield* authenticateRequest(request);
-    });
+    },
+  );
 
   const authenticateMcpClient: EnvironmentAuth["Service"]["authenticateMcpClient"] = (request) => {
     const token = parseBearerToken(request);
@@ -1444,7 +1477,10 @@ const revokePairedClientsThePolicyDisallows = Effect.fn(
   const remoteAllowed = ManagedLimits.allowsRemoteClients(policy);
   const disallowed = new Set<string>();
   if (!remoteAllowed) disallowed.add(LINK_PAIRED_SUBJECTS.link);
-  if (!ManagedLimits.allowsConnect(policy)) disallowed.add(LINK_PAIRED_SUBJECTS.connect);
+  if (!ManagedLimits.allowsConnect(policy)) {
+    disallowed.add(LINK_PAIRED_SUBJECTS.connect);
+    disallowed.add(TEAM_MEMBER_SUBJECT);
+  }
   if (disallowed.size === 0) return;
   const sessions = (yield* stores.sessions.listActive()).filter(
     (session) =>

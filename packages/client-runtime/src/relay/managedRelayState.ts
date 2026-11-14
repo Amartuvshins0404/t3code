@@ -40,7 +40,7 @@ export interface ManagedRelaySnapshotState<A> {
 }
 
 export interface ManagedRelayQueryEvent {
-  readonly operation: "environments" | "devices";
+  readonly operation: "environments" | "devices" | "team-environments";
   readonly stage: "identity-token" | "relay-request";
   readonly phase: "start" | "success" | "failure";
   readonly accountId: string;
@@ -193,6 +193,52 @@ function requireSessionIdentityToken(
   }
   return readSessionIdentityToken(session);
 }
+
+export const shareManagedRelayEnvironmentWithTeam = Effect.fn(
+  "clientRuntime.managedRelaySession.shareEnvironmentWithTeam",
+)(function* (
+  registry: AtomRegistry.AtomRegistry,
+  input: {
+    readonly accountId: string;
+    readonly environmentId: EnvironmentId;
+    readonly organizationId: string;
+  },
+) {
+  const identityToken = yield* requireSessionIdentityToken(
+    registry,
+    input.accountId,
+    "sharing a machine",
+  );
+  const relay = yield* ManagedRelay.ManagedRelayClient;
+  return yield* relay.shareEnvironmentWithTeam({
+    identityToken,
+    environmentId: input.environmentId,
+    organizationId: input.organizationId,
+  });
+});
+
+export const unshareManagedRelayEnvironmentWithTeam = Effect.fn(
+  "clientRuntime.managedRelaySession.unshareEnvironmentWithTeam",
+)(function* (
+  registry: AtomRegistry.AtomRegistry,
+  input: {
+    readonly accountId: string;
+    readonly environmentId: EnvironmentId;
+    readonly organizationId: string;
+  },
+) {
+  const identityToken = yield* requireSessionIdentityToken(
+    registry,
+    input.accountId,
+    "stopping a machine share",
+  );
+  const relay = yield* ManagedRelay.ManagedRelayClient;
+  return yield* relay.unshareEnvironmentWithTeam({
+    identityToken,
+    environmentId: input.environmentId,
+    organizationId: input.organizationId,
+  });
+});
 
 export const deregisterManagedRelayEnvironment = Effect.fn(
   "clientRuntime.managedRelaySession.deregisterEnvironment",
@@ -347,9 +393,42 @@ export function createManagedRelayQueryManager(
       ),
   );
 
+  const teamEnvironmentsAtom = Atom.family((key: string) => {
+    const [accountId = "", organizationId = ""] = key.split("\n");
+    return runtime
+      .atom((get) =>
+        Effect.gen(function* () {
+          const base = { operation: "team-environments" as const, accountId };
+          const identityToken = yield* observe(
+            { ...base, stage: "identity-token" },
+            requireIdentityToken(get, accountId),
+          );
+          const relay = yield* ManagedRelay.ManagedRelayClient;
+          return yield* observe(
+            { ...base, stage: "relay-request" },
+            relay.listTeamEnvironments({ identityToken, organizationId }),
+          );
+        }).pipe(logListingFailure("team environment")),
+      )
+      .pipe(
+        Atom.swr({ staleTime, revalidateOnMount: true }),
+        Atom.setIdleTTL(idleTtl),
+        Atom.withLabel(`managed-relay:team-environments:${key}`),
+      );
+  });
+
   return {
     environmentsAtom,
     devicesAtom,
+    teamEnvironmentsAtom: (accountId: string, organizationId: string) =>
+      teamEnvironmentsAtom(`${accountId}\n${organizationId}`),
+    refreshTeamEnvironments(
+      registry: AtomRegistry.AtomRegistry,
+      accountId: string,
+      organizationId: string,
+    ): void {
+      registry.refresh(teamEnvironmentsAtom(`${accountId}\n${organizationId}`));
+    },
     refreshEnvironments(registry: AtomRegistry.AtomRegistry, accountId: string): void {
       registry.refresh(environmentsAtom(accountId));
     },
