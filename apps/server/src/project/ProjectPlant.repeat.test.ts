@@ -91,9 +91,14 @@ const harness = (input: {
   readonly workspaceRoot: string;
   readonly threadLookupFails?: true;
   readonly refusedByCeiling?: true;
+  readonly otherCallerCommitsAfterFirstRead?: true;
 }) => {
   const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
   const deleted = new Set<ThreadId>();
+  const otherCaller = new Set<string>();
+  const afterRead = (id: string) => {
+    if (input.otherCallerCommitsAfterFirstRead && otherCaller.size === 0) otherCaller.add(id);
+  };
   const dependencies = Layer.mergeAll(
     Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
     ServerSettings.layerTest({
@@ -116,19 +121,29 @@ const harness = (input: {
       getThreadShell: (threadId) => {
         if (input.threadLookupFails)
           return Effect.fail(new OrchestratorProjectionError({ threadId }));
-        const launch = launched.find((candidate) => candidate.threadId === threadId);
-        return Effect.succeed(
-          launch === undefined || deleted.has(threadId)
-            ? null
-            : ({
-                id: threadId,
-                projectId: launch.projectId,
-                deletedAt: null,
-              } as unknown as OrchestrationV2ThreadShell),
-        );
+        return Effect.sync(() => {
+          const exists =
+            launched.some((candidate) => candidate.threadId === threadId) ||
+            otherCaller.has(threadId);
+          const shell =
+            !exists || deleted.has(threadId)
+              ? null
+              : ({
+                  id: threadId,
+                  projectId,
+                  deletedAt: null,
+                } as unknown as OrchestrationV2ThreadShell);
+          afterRead(threadId);
+          return shell;
+        });
       },
       hasReceipt: (commandId) =>
-        Effect.succeed(launched.some((launch) => launch.commandId === commandId)),
+        Effect.sync(() => {
+          const found =
+            launched.some((launch) => launch.commandId === commandId) || otherCaller.has(commandId);
+          afterRead(commandId);
+          return found;
+        }),
     }),
     Layer.mock(ThreadLaunch.ThreadLaunchService)({
       checkWorktreeBase: () => Effect.void,
@@ -146,6 +161,7 @@ const harness = (input: {
   return {
     launched,
     deleted,
+    otherCaller,
     layer: ProjectPlant.layer.pipe(Layer.provide(dependencies), Layer.provide(gitLayer)),
   };
 };
@@ -244,5 +260,25 @@ it.live("a launch refused by the administrator's ceiling names the ceiling", () 
       reason: "launch_failed",
       ceiling: { organization: "Example Corp", maxRuntimeMode: "approval-required" },
     });
+  }).pipe(Effect.scoped, Effect.provide(gitLayer)),
+);
+
+it.live("a Plant whose first read races another caller's commit returns that caller's thread", () =>
+  Effect.gen(function* () {
+    const clone = yield* makeClone();
+    const { launched, otherCaller, layer } = harness({
+      workspaceRoot: clone,
+      otherCallerCommitsAfterFirstRead: true,
+    });
+    const result = yield* ProjectPlant.ProjectPlant.pipe(
+      Effect.flatMap((plant) =>
+        plant.start({ projectId, action: "plant", createdBy: "user", creationSource: "web" }),
+      ),
+      Effect.provide(layer),
+    );
+    const [otherThreadId] = otherCaller;
+    expect(result).toEqual({ threadId: otherThreadId, reused: true });
+    expect(launched).toHaveLength(0);
+    expect(new Set([...otherCaller, ...launched.map((launch) => launch.threadId)]).size).toBe(1);
   }).pipe(Effect.scoped, Effect.provide(gitLayer)),
 );
