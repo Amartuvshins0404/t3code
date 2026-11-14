@@ -346,7 +346,7 @@ function TeamDetail({
             />
           ))}
           {detail && detail.invites.length === 0 ? (
-            <p className="px-3 pb-3 text-xs text-muted-foreground sm:px-4">No pending invites.</p>
+            <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">No pending invites.</p>
           ) : null}
         </SettingsSection>
       ) : null}

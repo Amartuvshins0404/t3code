@@ -108,7 +108,7 @@ export function TeamSharedMachinesSection({ team }: { readonly team: CloudTeamSu
   const teammates = shared.filter((machine) => !machine.isOwner);
   return (
     <SettingsSection id="team-machines" title="Shared machines">
-      <p className="px-3 pt-3 text-xs text-muted-foreground sm:px-4">
+      <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
         Teammates see only the threads you share, one at a time.
       </p>
       {(mine.data ?? []).map((machine) => (
@@ -122,12 +122,12 @@ export function TeamSharedMachinesSection({ team }: { readonly team: CloudTeamSu
         />
       ))}
       {mine.data !== null && mine.data.length === 0 ? (
-        <p className="px-3 pb-3 text-xs text-muted-foreground sm:px-4">
+        <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
           None of your machines use T3 Connect yet. Turn it on in Settings → Connections.
         </p>
       ) : null}
       {teamMachines.error ? (
-        <p className="px-3 pb-3 text-xs text-muted-foreground sm:px-4">{teamMachines.error}</p>
+        <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">{teamMachines.error}</p>
       ) : null}
       {teammates.map((machine) => (
         <TeammateMachineRow key={machine.environmentId} machine={machine} />
