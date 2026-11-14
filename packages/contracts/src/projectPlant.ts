@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { managedRuntimeModeCeilingMessage } from "./managedPolicy.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 
 export const ProjectPlantAction = Schema.Literals(["plant", "unplant"]);
 export type ProjectPlantAction = typeof ProjectPlantAction.Type;
@@ -56,6 +58,9 @@ export class ProjectPlantError extends Schema.TaggedError<ProjectPlantError>()(
     reason: ProjectPlantRefusal,
     file: Schema.optional(Schema.String),
     unavailableReason: Schema.optional(ProjectPlantUnavailableReason),
+    ceiling: Schema.optional(
+      Schema.Struct({ organization: Schema.String, maxRuntimeMode: RuntimeMode }),
+    ),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -74,7 +79,12 @@ export class ProjectPlantError extends Schema.TaggedError<ProjectPlantError>()(
       case "no_default_model":
         return "The project has no default model.";
       case "launch_failed":
-        return "The thread could not be started.";
+        return this.ceiling === undefined
+          ? "The thread could not be started."
+          : managedRuntimeModeCeilingMessage(
+              this.ceiling.organization,
+              this.ceiling.maxRuntimeMode,
+            );
     }
   }
 }
