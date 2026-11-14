@@ -10,7 +10,8 @@ import { AsyncResult, Atom } from "effect/reactivity";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as EnvironmentRegistry from "../connection/registry.ts";
-import type { PreparedConnection } from "../connection/model.ts";
+import { isTeammateConnectionTarget, type PreparedConnection } from "../connection/model.ts";
+import { TEAMMATE_SESSION_STATE } from "../rpc/teammateConfig.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
 import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
@@ -167,6 +168,9 @@ function makeEnvironmentSessionAtoms<R, E>(
         );
         if (prepared === null || Option.isNone(connection)) {
           return Effect.never;
+        }
+        if (isTeammateConnectionTarget(prepared.target)) {
+          return Effect.succeed(TEAMMATE_SESSION_STATE);
         }
         if (connection.value !== backoffConnection) {
           backoffConnection = connection.value;

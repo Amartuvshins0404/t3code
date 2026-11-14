@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { getCloudAuth } from "../../cloud/cloudAuth";
 import { ManagedRelayAuthProvider } from "../../cloud/managedAuth";
+import { TeamWorkspaceConnections } from "../../cloud/teamWorkspace";
 import { CloudSignInDialog } from "./CloudSignInDialog";
 import { T3ConnectAccountDialog } from "./T3ConnectAccountDialog";
 import { TeamDialogsHost } from "../teams/TeamDialogs";
@@ -16,6 +17,7 @@ export default function CloudAuthShell({ children }: { readonly children: ReactN
           <CloudSignInDialog auth={auth} />
           <T3ConnectAccountDialog auth={auth} />
           <TeamDialogsHost />
+          <TeamWorkspaceConnections />
         </>
       ) : null}
     </ManagedRelayAuthProvider>
