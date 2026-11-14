@@ -31,6 +31,7 @@ import * as DesktopIpc from "../DesktopIpc.ts";
 import { installNotificationBadge } from "./notificationBadge.ts";
 
 const badge = { count: 2, image: "data:image/png;base64,aGVsbG8=" };
+const event = { sender: { id: 1 } };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -42,42 +43,19 @@ beforeEach(() => {
   native.listeners.clear();
 });
 
-it.effect("validates IPC and clears on native focus, quit, and disposal", () =>
+const runInstalled = (
+  platform: NodeJS.Platform,
+  body: (handler: DesktopIpc.DesktopIpcHandleListener) => Effect.Effect<void>,
+) =>
   Effect.gen(function* () {
     const handlers = new Map<string, DesktopIpc.DesktopIpcHandleListener>();
     yield* Effect.scoped(
       Effect.gen(function* () {
         yield* installNotificationBadge();
-        const handler = handlers.get("desktop:set-notification-badge")!;
-        const event = { sender: { id: 1 } };
-        for (const invalid of [
-          { ...badge, count: -1 },
-          { ...badge, count: 0.5 },
-          { ...badge, count: Infinity },
-          { ...badge, image: "https://example.com/icon.png" },
-          { ...badge, image: `data:image/png;base64,${"a".repeat(16_384)}` },
-        ]) {
-          yield* Effect.promise(() => expect(handler(event, invalid)).rejects.toBeDefined());
-        }
-        expect(native.setBadgeCount).not.toHaveBeenCalled();
-        yield* Effect.promise(() => Promise.resolve(handler(event, badge)));
-        expect(native.setBadgeCount).toHaveBeenLastCalledWith(2);
-        native.listeners.get("browser-window-focus")!();
-        expect(native.setBadgeCount).toHaveBeenLastCalledWith(0);
-        expect(native.webContents.send).toHaveBeenCalledWith("desktop:set-notification-badge");
-        native.getFocusedWindow.mockReturnValue({});
-        yield* Effect.promise(() => Promise.resolve(handler(event, badge)));
-        expect(native.setBadgeCount).toHaveBeenLastCalledWith(0);
-        expect(native.webContents.send).toHaveBeenCalledTimes(2);
-        yield* Effect.promise(() => Promise.resolve(handler(event, { count: 0, image: null })));
-        expect(native.webContents.send).toHaveBeenCalledTimes(2);
-        native.getFocusedWindow.mockReturnValue(null);
-        yield* Effect.promise(() => Promise.resolve(handler(event, badge)));
-        native.listeners.get("before-quit")!();
-        expect(native.setBadgeCount).toHaveBeenLastCalledWith(0);
+        yield* body(handlers.get("desktop:set-notification-badge")!);
       }),
     ).pipe(
-      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provideService(HostProcess.Platform, platform),
       Effect.provide([
         ElectronApp.layer,
         DesktopIpc.layerTest({
@@ -92,8 +70,65 @@ it.effect("validates IPC and clears on native focus, quit, and disposal", () =>
         }),
       ]),
     );
-    expect(native.setBadgeCount).toHaveBeenLastCalledWith(0);
     expect(native.listeners.size).toBe(0);
     expect(handlers.size).toBe(0);
+  });
+
+const send = (handler: DesktopIpc.DesktopIpcHandleListener, payload: unknown) =>
+  Effect.promise(() => Promise.resolve(handler(event, payload)));
+
+it.effect(
+  "validates IPC, keeps the count while a window is focused, and clears on quit and disposal",
+  () =>
+    Effect.gen(function* () {
+      yield* runInstalled("linux", (handler) =>
+        Effect.gen(function* () {
+          for (const invalid of [
+            { ...badge, count: -1 },
+            { ...badge, count: 0.5 },
+            { ...badge, count: Infinity },
+            { ...badge, image: "https://example.com/icon.png" },
+            { ...badge, image: `data:image/png;base64,${"a".repeat(16_384)}` },
+          ]) {
+            yield* Effect.promise(() => expect(handler(event, invalid)).rejects.toBeDefined());
+          }
+          expect(native.setBadgeCount).not.toHaveBeenCalled();
+          yield* send(handler, badge);
+          expect(native.setBadgeCount).toHaveBeenLastCalledWith(2);
+          native.getFocusedWindow.mockReturnValue({});
+          native.listeners.get("browser-window-focus")?.();
+          expect(native.setBadgeCount).toHaveBeenLastCalledWith(2);
+          yield* send(handler, { ...badge, count: 3 });
+          expect(native.setBadgeCount).toHaveBeenLastCalledWith(3);
+          yield* send(handler, { count: 0, image: null });
+          expect(native.setBadgeCount).toHaveBeenLastCalledWith(0);
+          yield* send(handler, badge);
+          expect(native.setBadgeCount).toHaveBeenLastCalledWith(2);
+          native.listeners.get("before-quit")!();
+          expect(native.setBadgeCount).toHaveBeenLastCalledWith(0);
+          yield* send(handler, badge);
+        }),
+      );
+      expect(native.setBadgeCount).toHaveBeenLastCalledWith(0);
+    }),
+);
+
+it.effect("labels the Windows overlay with how many threads need you, also while focused", () =>
+  Effect.gen(function* () {
+    native.getFocusedWindow.mockReturnValue({});
+    yield* runInstalled("win32", (handler) =>
+      Effect.gen(function* () {
+        yield* send(handler, { ...badge, count: 3 });
+        expect(native.setOverlayIcon).toHaveBeenLastCalledWith(native.image, "3 threads need you");
+        native.listeners.get("browser-window-focus")?.();
+        expect(native.setOverlayIcon).toHaveBeenLastCalledWith(native.image, "3 threads need you");
+        yield* send(handler, { count: 0, image: null });
+        expect(native.setOverlayIcon).toHaveBeenLastCalledWith(null, "");
+        yield* send(handler, { ...badge, count: 1 });
+        native.listeners.get("before-quit")!();
+        expect(native.setOverlayIcon).toHaveBeenLastCalledWith(null, "");
+      }),
+    );
+    expect(native.setBadgeCount).not.toHaveBeenCalled();
   }),
 );

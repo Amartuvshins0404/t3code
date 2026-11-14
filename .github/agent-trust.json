@@ -1,0 +1,164 @@
+{
+  "baseBranch": "amaraa-mode",
+  "node": "26.12.1",
+  "install": "vp install",
+  "test": "bash .github/scripts/blind-checks-test.sh",
+  "runner": "vitest",
+  "allowedSuppressions": [
+    {
+      "line": "/^\\s*\\/\\/ oxlint-disable-next-line t3code\\/no-unreasoned-state-sync -- \\S/"
+    },
+    {
+      "line": "/^\\s*\\/\\/ @effect-diagnostics nodeBuiltinImport:off\\s*$/",
+      "files": ["/\\.(?:test|spec)\\.[cm]?[jt]sx?$/", "/(?:^|\\/)scripts\\//"]
+    }
+  ],
+  "rules": [
+    {
+      "id": "deploy",
+      "lane": "red",
+      "why": "Deploys live infrastructure when merged",
+      "paths": ["/^infra/(auth|relay|deploy)//", "/^\\.github/workflows/deploy-[^/]+\\.ya?ml$/"]
+    },
+    {
+      "id": "lane-rules",
+      "lane": "red",
+      "why": "Changes the lane rules or the merge ledger",
+      "paths": [
+        "/^\\.github/scripts/(merge-(lane|ledger)|blind-checks|test-strength)/",
+        "/^\\.github/workflows/(merge-lane|blind-checks)\\.ya?ml$/",
+        "/^scripts/merge-(lane|ledger)/"
+      ]
+    },
+    {
+      "id": "ci-release",
+      "lane": "red",
+      "why": "Changes CI, releases, signing or publishing",
+      "paths": [
+        "/^\\.github//",
+        "/^packaging//",
+        "/^scripts/(build-|release-|sign-|smoke-|notify-discord-release|resolve-(nightly|previous)-release|update-release-package-versions|merge-update-manifests|generate-release-notes|verify-windows-desktop-artifact|linux-after-pack|prepare-server-compile-cache|apply-web-brand-assets|install\\.(sh|ps1)|npm-launcher/|lib/)/",
+        "/^apps/mobile/(eas\\.json|app\\.config\\.ts|fingerprint\\.config\\.js|plugins/)/",
+        "/(^|/)vercel\\.(ts|json)$/"
+      ]
+    },
+    {
+      "id": "build-config",
+      "lane": "red",
+      "why": "Changes build or workspace configuration",
+      "paths": [
+        "/(^|/)vite\\.config\\.[cm]?[jt]s$/",
+        "/(^|/)tsconfig[^/]*\\.json$/",
+        "/(^|/)(babel|metro|astro|graphql)\\.config\\.[cm]?[jt]s$/",
+        "/^pnpm-workspace\\.yaml$/",
+        "/^\\.pnpmfile\\.cjs$/",
+        "/^(t3|\\.task-cache)\\.json$/",
+        "/^\\.vite-hooks//",
+        "/^\\.(gitattributes|gitignore|vercelignore|env\\.example)$/",
+        "/^\\.(vscode|devcontainer)//",
+        "/(^|/)(build\\.gradle(\\.kts)?|settings\\.gradle(\\.kts)?|[^/]+\\.podspec|Podfile|CMakeLists\\.txt|Package\\.swift)$/"
+      ]
+    },
+    {
+      "id": "gates",
+      "lane": "red",
+      "why": "Changes a lint, type-check, knip or test gate",
+      "paths": [
+        "/^oxlint-plugin-t3code//",
+        "/^knip\\.jsonc$/",
+        "/^scripts/(knip-schemas|check-changed|check-changed-command|test-cached|mobile-native-static-check|e2e\\.config)\\.ts$/",
+        "/(^|/)vitest\\.[^/]*config\\.[cm]?[jt]s$/",
+        "/^\\.coderabbit\\.config\\.ts$/",
+        "/^apps/mobile/(detekt\\.yml|\\.swiftlint\\.yml|\\.editorconfig)$/",
+        "/^apps/web/test//",
+        "/^packages/shared/src/(HostProcess\\.ts$|testing/)/",
+        "/^apps/server/src/testUtils//",
+        "/^evals//"
+      ]
+    },
+    {
+      "id": "migrations",
+      "lane": "red",
+      "why": "Changes the database schema or its migrations",
+      "paths": [
+        "/^apps/server/src/persistence/(Migrations|databaseMigrationHead|initializeV2Database|reconcileV2PreviewMigration)/",
+        "/(^|/)migrations//",
+        "/\\.sql$/"
+      ]
+    },
+    {
+      "id": "contracts",
+      "lane": "red",
+      "why": "Changes the wire contracts every client and the server share",
+      "paths": ["/^packages/contracts//", "/^apps/server/schema//"]
+    },
+    {
+      "id": "auth",
+      "lane": "red",
+      "why": "Changes sign-in, permissions or access control",
+      "paths": [
+        "/^infra/auth//",
+        "/^apps/server/src/(auth|policy)//",
+        "/^apps/web/src/components/(auth|clerk)//",
+        "/^packages/client-runtime/src/(authorization|cloudAuth)//",
+        "/^(apps|packages)/.*/[^/]*(auth(?!or)|clerk|dpop|pairing|passkey|oauth|credential|secretstore|tokenstore|tokenmanager|tokenbroker|signin|sign-in|permission|access(?!ib))[^/]*$/i"
+      ]
+    },
+    {
+      "id": "defaults",
+      "lane": "red",
+      "why": "Changes product defaults or settings",
+      "paths": [
+        "/^apps/server/src/serverSettings\\.ts$/",
+        "/^apps/desktop/src/settings//",
+        "/^packages/client-runtime/src/state/sharedSettings\\.ts$/",
+        "/^packages/provider-[^/]+/src/settings\\.ts$/",
+        "/^apps/web/src/(browser/browserDefaults|lib/t3ProjectFileDefaults|hooks/useSettings)\\.ts$/"
+      ]
+    },
+    {
+      "id": "model-text",
+      "lane": "red",
+      "why": "Changes text that AI models read (agent instructions, MCP tools, prompts)",
+      "paths": [
+        "/(^|/)(AGENTS|CLAUDE)\\.md$/",
+        "/^\\.(agents|claude|cursor|macroscope)//",
+        "/^apps/server/src/provider/(agentContextBudget\\.json|CodexDeveloperInstructions\\.ts)$/",
+        "/^apps/server/src/mcp/(toolkits/.*tools\\.ts|advertisedJsonSchema\\.ts|McpToolExposure\\.ts|delegatedTaskModes\\.ts)$/",
+        "/^apps/server/src/textGeneration//",
+        "/^packages/provider-core/src/server/(orchestrationInstructions|textGenerationPrompts)\\.ts$/",
+        "/^packages/provider-pi/src/server/mcpExtensionSource\\.ts$/",
+        "/^docs/internals/testing\\.md$/"
+      ]
+    },
+    {
+      "id": "dependencies",
+      "lane": "red",
+      "why": "Changes dependencies, package manifests or vendored code",
+      "paths": [
+        "/(^|/)package\\.json$/",
+        "/^pnpm-lock\\.yaml$/",
+        "/^patches//",
+        "/^apps/mobile/deps//",
+        "/^\\.repos//",
+        "/(^|/)Cargo\\.(toml|lock)$/",
+        "/^apps/mobile/Brewfile$/",
+        "/^third-party-licenses/"
+      ]
+    },
+    {
+      "id": "app-code",
+      "lane": "amber",
+      "why": "Ordinary app or package code",
+      "inPackage": true,
+      "paths": ["/^native//", "/^assets//"],
+      "except": ["/\\.mdx?$/"]
+    },
+    {
+      "id": "docs",
+      "lane": "green",
+      "why": "Documentation only",
+      "paths": ["/^docs//", "/\\.mdx?$/", "/^LICENSE$/"]
+    }
+  ]
+}
