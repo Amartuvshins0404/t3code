@@ -64,6 +64,10 @@ function createClient(overrides?: Partial<ManagedRelay.ManagedRelayClient["Servi
     listEnvironments: () => Effect.succeed([environment]),
     listDevices: () => Effect.succeed([device]),
     createEnvironmentLinkChallenge: () => Effect.die("unused"),
+    listTeamEnvironments: () => Effect.die("unused"),
+    listEnvironmentTeamShares: () => Effect.die("unused"),
+    shareEnvironmentWithTeam: () => Effect.die("unused"),
+    unshareEnvironmentWithTeam: () => Effect.die("unused"),
     linkEnvironment: () => Effect.die("unused"),
     unlinkEnvironment: () => Effect.die("unused"),
     getEnvironmentStatus: () =>
