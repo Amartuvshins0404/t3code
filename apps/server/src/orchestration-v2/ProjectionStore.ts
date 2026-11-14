@@ -4454,7 +4454,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               lineage: thread.lineage,
               settledOverride: thread.settledOverride,
               settledAt: thread.settledAt,
-              pullRequests: thread.pullRequests ?? [],
+              pullRequests: threadPullRequestsOf(thread),
             },
             requestId: RuntimeRequestId.make(row.runtime_request_id),
             questions: item.questions,
