@@ -96,7 +96,7 @@ const makeSweep = Effect.gen(function* () {
       (read) =>
         Exit.isSuccess(read) &&
         read.value.state === "open" &&
-        read.value.labels.some((label) => label.name === "lane:red"),
+        read.value.labels.some((label) => label.name.toLowerCase() === "lane:red"),
     );
     if (red) return "held" as const;
     return reads.some(Exit.isFailure) ? ("unreadable" as const) : ("free" as const);

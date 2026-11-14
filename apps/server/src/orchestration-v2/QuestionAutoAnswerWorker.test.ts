@@ -89,6 +89,7 @@ const seedThread = Effect.fn("test.seedThread")(function* (
     readonly parentThreadId: ThreadId | null;
     readonly relationshipToParent: "fork" | "subagent" | null;
   } = { parentThreadId: null, relationshipToParent: null },
+  linkedPullRequestNumber?: number,
 ) {
   const eventSink = yield* EventSink.EventSinkV2;
   const threadId = ThreadId.make(`thread:${name}`);
@@ -114,6 +115,16 @@ const seedThread = Effect.fn("test.seedThread")(function* (
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          ...(linkedPullRequestNumber === undefined
+            ? {}
+            : {
+                linkedPullRequest: {
+                  projectId,
+                  repository: "owner/repo",
+                  number: linkedPullRequestNumber,
+                  url: `https://github.com/owner/repo/pull/${linkedPullRequestNumber}`,
+                },
+              }),
           activeProviderThreadId: null,
           lineage: {
             parentThreadId: lineage.parentThreadId,
@@ -172,8 +183,9 @@ const attachSession = Effect.fn("test.attachSession")(function* (thread: {
 const liveThread = Effect.fn("test.liveThread")(function* (
   name: string,
   lineage?: Parameters<typeof seedThread>[1],
+  linkedPullRequestNumber?: number,
 ) {
-  const thread = yield* seedThread(name, lineage);
+  const thread = yield* seedThread(name, lineage, linkedPullRequestNumber);
   yield* attachSession(thread);
   return thread;
 });
@@ -562,7 +574,7 @@ it.effect("leaves archived, deleted and delegated child threads to someone else"
 );
 
 it.effect(
-  "holds questions behind an open lane:red pull request and retries when labels cannot be read",
+  "holds questions behind an open lane:red pull request, in any case and on old-format links, and retries when labels cannot be read",
   () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(startMs);
@@ -618,17 +630,22 @@ it.effect(
       const closedRed = yield* liveThread("closed-red");
       const unreadable = yield* liveThread("unreadable");
       const rejected = yield* liveThread("rejected");
+      const shouted = yield* liveThread("shouted");
+      const legacyRed = yield* liveThread("legacy-red", undefined, 7);
       yield* linkPullRequest(red.threadId, 1, "open");
       yield* linkPullRequest(amber.threadId, 2, "open");
       yield* linkPullRequest(closedRed.threadId, 3, "closed");
       yield* linkPullRequest(unreadable.threadId, 4, "open");
       yield* linkPullRequest(rejected.threadId, 5, "open");
+      yield* linkPullRequest(shouted.threadId, 6, "open");
       const requests = {
         red: yield* seedRequest({ thread: red, name: "red" }),
         amber: yield* seedRequest({ thread: amber, name: "amber" }),
         closedRed: yield* seedRequest({ thread: closedRed, name: "closed-red" }),
         unreadable: yield* seedRequest({ thread: unreadable, name: "unreadable" }),
         rejected: yield* seedRequest({ thread: rejected, name: "rejected" }),
+        shouted: yield* seedRequest({ thread: shouted, name: "shouted" }),
+        legacyRed: yield* seedRequest({ thread: legacyRed, name: "legacy-red" }),
       };
       yield* eventSink.commitRejectedCommand({
         commandId: CommandId.make(`question-auto-answer:${requests.rejected}`),
@@ -643,6 +660,8 @@ it.effect(
         [3, { state: "closed", labels: ["lane:red"] }],
         [4, { state: "open", labels: ["lane:amber"] }],
         [5, { state: "open", labels: ["lane:amber"] }],
+        [6, { state: "open", labels: ["Lane:Red"] }],
+        [7, { state: "open", labels: ["lane:red"] }],
       ]);
       let labelsReadable = false;
       let rejectedLabelReads = 0;
@@ -682,6 +701,8 @@ it.effect(
       yield* assertServerAnswered(amber, requests.amber, keepGoing("amber"));
       yield* assertServerAnswered(closedRed, requests.closedRed, keepGoing("closed-red"));
       yield* assertLeftAlone(unreadable, requests.unreadable);
+      yield* assertLeftAlone(shouted, requests.shouted);
+      yield* assertLeftAlone(legacyRed, requests.legacyRed);
 
       labelsReadable = true;
       yield* sweepAt(sweep, 11 * MINUTE_MS);
