@@ -6,7 +6,10 @@ import { RuntimeMode } from "./providerPolicy.ts";
 export const ProjectPlantAction = Schema.Literals(["plant", "unplant"]);
 export type ProjectPlantAction = typeof ProjectPlantAction.Type;
 
-export const ProjectPlantThread = Schema.Struct({ threadId: ThreadId });
+export const ProjectPlantThread = Schema.Struct({
+  threadId: ThreadId,
+  archived: Schema.optional(Schema.Literal(true)),
+});
 export type ProjectPlantThread = typeof ProjectPlantThread.Type;
 
 export const ProjectPlantUnavailableReason = Schema.Literals([
