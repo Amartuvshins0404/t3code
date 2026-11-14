@@ -177,10 +177,6 @@ export function useIsTeammateEnvironment(environmentId: EnvironmentId | null): b
   );
 }
 
-export function readIsTeammateEnvironment(environmentId: EnvironmentId): boolean {
-  return appAtomRegistry.get(teammateConnectionAtom(environmentId));
-}
-
 export function usePersonalProjects(): ReadonlyArray<EnvironmentProject> {
   const projects = useProjects();
   const teamOnly = useTeamOnlyEnvironmentIds();
@@ -193,20 +189,6 @@ export function usePersonalQuietThreadShells(): ReadonlyArray<EnvironmentThreadS
   const teamOnly = useTeamOnlyEnvironmentIds();
   if (teamOnly.size === 0) return threads;
   return threads.filter((thread) => !teamOnly.has(thread.environmentId));
-}
-
-export function useWorkspaceScope(): TeamWorkspace.WorkspaceScope {
-  const workspace = useActiveWorkspace();
-  const teamOnlyEnvironmentIds = useTeamOnlyEnvironmentIds();
-  const snapshot = useManagedRelayTeamEnvironments(
-    workspace.kind === "team" ? workspace.team.id : null,
-  );
-  if (workspace.kind === "personal") return { kind: "personal", teamOnlyEnvironmentIds };
-  return {
-    kind: "team",
-    teamId: workspace.team.id,
-    environmentIds: new Set((snapshot.data ?? NO_MACHINES).map((machine) => machine.environmentId)),
-  };
 }
 
 export function refreshTeamMachines(teamId: string) {

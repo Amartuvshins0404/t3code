@@ -55,7 +55,7 @@ import {
   useTeamUiStore,
 } from "./teamUiStore";
 
-export const TEAM_ACCESS_LABELS: Readonly<Record<TeamThreadAccess, string>> = {
+const TEAM_ACCESS_LABELS: Readonly<Record<TeamThreadAccess, string>> = {
   view: "View",
   steer: "Steer",
 };
