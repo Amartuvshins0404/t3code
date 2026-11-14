@@ -203,7 +203,8 @@ const make = Effect.gen(function* () {
       const threadId = ThreadId.make(commandId);
       const used = yield* threads.hasReceipt(commandId);
       const shell = yield* threads.getThreadShell(threadId);
-      if (shell !== null && shell.deletedAt === null) return { _tag: "open", threadId } as const;
+      if (shell !== null && shell.deletedAt === null)
+        return { _tag: "open", threadId, archived: shell.archivedAt != null } as const;
       if (!used) return { _tag: "free", commandId } as const;
     }
     return { _tag: "exhausted" } as const;
@@ -226,7 +227,12 @@ const make = Effect.gen(function* () {
       if (slot === null) return { _tag: "unavailable", reason: "read_failed" } as const;
       return {
         _tag: reading._tag,
-        openThread: slot._tag === "open" ? { threadId: slot.threadId } : null,
+        openThread:
+          slot._tag !== "open"
+            ? null
+            : slot.archived
+              ? { threadId: slot.threadId, archived: true as const }
+              : { threadId: slot.threadId },
       };
     },
   );
