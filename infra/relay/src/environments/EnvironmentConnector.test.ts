@@ -23,8 +23,12 @@ import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
+import type { TeamMemberIdentity } from "@t3tools/contracts";
+
 import * as CloudMintSigner from "../auth/CloudMintSigner.ts";
+import * as TeamMembership from "../auth/TeamMembership.ts";
 import * as EnvironmentLinks from "./EnvironmentLinks.ts";
+import * as EnvironmentTeamShares from "./EnvironmentTeamShares.ts";
 import * as RelayConfiguration from "../Config.ts";
 import * as EnvironmentConnector from "./EnvironmentConnector.ts";
 import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
@@ -162,9 +166,18 @@ function layerConnectorTest(
   options?: {
     readonly links?: EnvironmentLinks.EnvironmentLinks["Service"];
     readonly allocations?: ManagedEndpointAllocations.ManagedEndpointAllocations["Service"];
+    readonly shares?: Partial<EnvironmentTeamShares.EnvironmentTeamShares["Service"]>;
+    readonly membership?: TeamMembership.TeamMembership["Service"];
   },
 ) {
   return EnvironmentConnector.layer.pipe(
+    Layer.provide(Layer.mock(EnvironmentTeamShares.EnvironmentTeamShares, options?.shares ?? {})),
+    Layer.provide(
+      Layer.succeed(
+        TeamMembership.TeamMembership,
+        options?.membership ?? TeamMembership.unavailable,
+      ),
+    ),
     Layer.provide(CloudMintSigner.layer),
     Layer.provide(NodeCryptoLayer.layer),
     Layer.provide(Layer.succeed(EnvironmentLinks.EnvironmentLinks, options?.links ?? makeLinks())),
@@ -636,6 +649,7 @@ describe("EnvironmentConnector", () => {
         deviceId: "device-123",
         scope: ["environment:connect"],
       });
+      expect(seenProofs[0]).not.toHaveProperty("member");
       expect(result).toMatchObject({
         environmentId: "env-connector-test",
         credential: "pairing_credential",
@@ -704,5 +718,175 @@ describe("EnvironmentConnector", () => {
         expect(result.cause.toString()).toContain("EnvironmentMintResponseInvalid");
       }
     }).pipe(Effect.provide(layerConnectorTest(execute)));
+  });
+});
+
+describe("EnvironmentConnector team access", () => {
+  const teammate: TeamMemberIdentity = {
+    userId: "mate",
+    name: "Bo",
+    email: "bo@example.test",
+    organizationId: "org-1",
+    organizationSlug: "team-one",
+    role: "admin",
+  };
+  const owner: TeamMemberIdentity = { ...teammate, userId: "user_123", name: "Ada", role: "owner" };
+
+  const makeTeam = () => {
+    const state = {
+      available: true,
+      members: [owner, teammate],
+      shares: [
+        {
+          environmentId: "env-connector-test" as never,
+          organizationId: "org-1",
+          ownerUserId: "user_123",
+          sharedAt: "2026-11-01T00:00:00.000Z",
+        },
+      ] as Array<EnvironmentTeamShares.EnvironmentTeamShare>,
+      allocationUsers: [] as Array<string>,
+      mintProofs: [] as Array<RelayCloudMintCredentialProofPayload>,
+      healthProofs: [] as Array<RelayCloudEnvironmentHealthProofPayload>,
+    };
+    const ownerLinks = makeLinks();
+    const ownerAllocations = makeAllocations();
+    const layer = layerConnectorTest(
+      (request) =>
+        Effect.sync(() => {
+          if (request.url.endsWith("/health")) {
+            const healthRequest = decodeHealthRequestBody(requestBodyText(request));
+            state.healthProofs.push(decodeRequestProof(healthRequest.proof));
+            return HttpClientResponse.fromWeb(
+              request,
+              Response.json(signHealthResponse(healthRequest), { status: 200 }),
+            );
+          }
+          const mintRequest = decodeMintRequestBody(requestBodyText(request));
+          state.mintProofs.push(decodeRequestProof(mintRequest.proof));
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json(signMintResponse(mintRequest), { status: 200 }),
+          );
+        }),
+      {
+        links: {
+          ...ownerLinks,
+          getForUser: (input) =>
+            input.userId === owner.userId ? ownerLinks.getForUser(input) : Effect.succeed(null),
+        },
+        allocations: {
+          ...ownerAllocations,
+          get: (input) => {
+            state.allocationUsers.push(input.userId);
+            return ownerAllocations.get(input);
+          },
+        },
+        shares: { listForEnvironment: () => Effect.sync(() => state.shares) },
+        membership: {
+          get available() {
+            return state.available;
+          },
+          members: ({ organizationId, userIds }) =>
+            Effect.sync(() =>
+              state.members.filter(
+                (member) =>
+                  member.organizationId === organizationId && userIds.includes(member.userId),
+              ),
+            ),
+        },
+      },
+    );
+    return { state, layer };
+  };
+
+  const connectAs = (userId: string) =>
+    EnvironmentConnector.EnvironmentConnector.pipe(
+      Effect.flatMap((connector) =>
+        connector.connect({
+          userId,
+          environmentId: "env-connector-test",
+          clientProofKeyThumbprint: "teammate-thumbprint",
+        }),
+      ),
+    );
+
+  it.effect("a live member connects as themself through the owner's link", () => {
+    const { state, layer } = makeTeam();
+    return Effect.gen(function* () {
+      const result = yield* connectAs("mate");
+      expect(result).toMatchObject({
+        environmentId: "env-connector-test",
+        credential: "pairing_credential",
+        endpoint: { httpBaseUrl: "https://env.example.test/" },
+      });
+      expect(state.mintProofs).toHaveLength(1);
+      expect(state.mintProofs[0]).toMatchObject({
+        sub: "mate",
+        aud: "t3-env:env-connector-test",
+        cnf: { jkt: "teammate-thumbprint" },
+        member: teammate,
+      });
+      expect(state.allocationUsers).toEqual(["mate", "user_123"]);
+
+      const connector = yield* EnvironmentConnector.EnvironmentConnector;
+      const status = yield* connector.status({
+        userId: "mate",
+        environmentId: "env-connector-test",
+      });
+      expect(status.status).toBe("online");
+      expect(state.healthProofs[0]).toMatchObject({ sub: "user_123" });
+    }).pipe(Effect.provide(layer));
+  });
+
+  const refusals: ReadonlyArray<{
+    readonly name: string;
+    readonly caller: string;
+    readonly change: (state: ReturnType<typeof makeTeam>["state"]) => void;
+  }> = [
+    { name: "an outsider", caller: "outsider", change: () => {} },
+    {
+      name: "a member removed from the team",
+      caller: "mate",
+      change: (state) => {
+        state.members = state.members.filter((member) => member.userId !== "mate");
+      },
+    },
+    {
+      name: "a member after the owner unshares",
+      caller: "mate",
+      change: (state) => {
+        state.shares = [];
+      },
+    },
+    {
+      name: "a member after the owner leaves the team",
+      caller: "mate",
+      change: (state) => {
+        state.members = state.members.filter((member) => member.userId !== "user_123");
+      },
+    },
+    {
+      name: "a member when the auth database is not configured",
+      caller: "mate",
+      change: (state) => {
+        state.available = false;
+      },
+    },
+  ];
+
+  it.effect.each(refusals)("refuses $name before any request reaches the machine", (refusal) => {
+    const { state, layer } = makeTeam();
+    return Effect.gen(function* () {
+      refusal.change(state);
+      const result = yield* Effect.result(connectAs(refusal.caller));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          _tag: "EnvironmentConnectNotAuthorized",
+          reason: "environment_link_not_found",
+        });
+      }
+      expect(state.mintProofs).toEqual([]);
+    }).pipe(Effect.provide(layer));
   });
 });
