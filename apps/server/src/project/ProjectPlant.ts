@@ -316,7 +316,7 @@ const make = Effect.gen(function* () {
               : refuse("launch_failed", { cause }),
           ),
         );
-      return { threadId: launched.threadId, reused: false };
+      return { threadId: launched.threadId, reused: launched.resumed };
     },
   );
 
