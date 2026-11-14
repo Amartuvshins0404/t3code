@@ -1307,6 +1307,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     cloudOnly: true,
   },
   {
+    id: "team-machines",
+    title: "Share a machine with a team",
+    to: "/settings/team",
+    searchTerms: ["team share machine computer teammates stop sharing multiplayer"],
+    cloudOnly: true,
+  },
+  {
     id: "connections-environment",
     title: "This machine",
     to: "/settings/access",
