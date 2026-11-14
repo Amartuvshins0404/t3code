@@ -12,7 +12,7 @@ import {
   useManagedRelayEnvironments,
   useManagedRelayTeamEnvironments,
 } from "~/cloud/managedRelayState";
-import { useEnvironment } from "~/state/environments";
+import { readEnvironment, useEnvironment } from "~/state/environments";
 import { serverEnvironment } from "~/state/server";
 import {
   machineShareFailureMessage,
@@ -81,6 +81,7 @@ async function setMachineShared(input: {
   readonly shared: boolean;
 }): Promise<boolean> {
   const target = { environmentId: input.environmentId, organizationId: input.team.id };
+  const reachable = readEnvironment(input.environmentId)?.connection.phase === "connected";
   const result = input.shared
     ? await shareMachineWithTeam(target)
     : await stopSharingMachineWithTeam(target);
@@ -90,6 +91,12 @@ async function setMachineShared(input: {
       title: input.shared
         ? `${input.label} is shared with ${input.team.name}`
         : `${input.label} is no longer shared`,
+      ...(input.shared || reachable
+        ? {}
+        : {
+            description:
+              "This device cannot reach the machine, so teammates already connected keep access for up to 10 minutes.",
+          }),
     });
     return true;
   }

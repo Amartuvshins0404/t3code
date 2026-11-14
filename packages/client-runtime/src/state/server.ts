@@ -1280,6 +1280,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:team:remove-shared-organization",
       tag: WS_METHODS.teamRemoveSharedOrganization,
     }),
+    revokeTeamMemberAccess: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:revoke-member-access",
+      tag: WS_METHODS.teamRevokeMemberAccess,
+    }),
     setThreadTeamShare: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:team:set-thread-share",
       tag: WS_METHODS.teamSetThreadShare,

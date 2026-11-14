@@ -88,6 +88,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.guestShareCreate]: AuthAccessWriteScope,
   [WS_METHODS.teamAddSharedOrganization]: AuthAccessWriteScope,
   [WS_METHODS.teamRemoveSharedOrganization]: AuthAccessWriteScope,
+  [WS_METHODS.teamRevokeMemberAccess]: AuthAccessWriteScope,
   [WS_METHODS.teamSetThreadShare]: AuthAccessWriteScope,
   [WS_METHODS.teamClearThreadShare]: AuthAccessWriteScope,
   [WS_METHODS.peerLinksLink]: AuthAccessWriteScope,

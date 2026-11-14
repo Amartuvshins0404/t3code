@@ -10,9 +10,9 @@ import {
   shareManagedRelayEnvironmentWithTeamCommand,
   unshareManagedRelayEnvironmentWithTeamCommand,
 } from "~/cloud/managedRelayState";
-import { refreshTeamMachines } from "~/cloud/teamWorkspace";
+import { refreshTeamMachines, teammateConnectionAtom } from "~/cloud/teamWorkspace";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { readEnvironment } from "~/state/environments";
+import { readConnectedEnvironmentIds, readEnvironment } from "~/state/environments";
 import { serverEnvironment } from "~/state/server";
 
 async function runOrThrow<W, A, E>(command: AtomCommand<W, A, E>, value: W): Promise<A> {
@@ -73,6 +73,49 @@ export async function stopSharingMachineWithTeam(input: {
   });
   refreshAfterChange(input.environmentId, input.organizationId);
   return result;
+}
+
+async function tellOwnedMachines(
+  organizationId: string,
+  tell: (environmentId: EnvironmentId) => Promise<unknown>,
+): Promise<ReadonlyArray<string>> {
+  const owned = readConnectedEnvironmentIds().filter(
+    (environmentId) => !appAtomRegistry.get(teammateConnectionAtom(environmentId)),
+  );
+  const results = await Promise.allSettled(owned.map((environmentId) => tell(environmentId)));
+  for (const environmentId of owned) {
+    appAtomRegistry.refresh(
+      serverEnvironment.teamSharedOrganizations({ environmentId, input: {} }),
+    );
+  }
+  refreshTeamMachines(organizationId);
+  return owned.flatMap((environmentId, index) =>
+    results[index]?.status === "rejected"
+      ? [readEnvironment(environmentId)?.label ?? environmentId]
+      : [],
+  );
+}
+
+export function endTeamMemberAccessOnMachines(input: {
+  readonly organizationId: string;
+  readonly userId: string;
+}): Promise<ReadonlyArray<string>> {
+  return tellOwnedMachines(input.organizationId, (environmentId) =>
+    runOrThrow(serverEnvironment.revokeTeamMemberAccess, { environmentId, input }),
+  );
+}
+
+export function withdrawTeamFromMachines(organizationId: string): Promise<ReadonlyArray<string>> {
+  return tellOwnedMachines(organizationId, (environmentId) =>
+    runOrThrow(serverEnvironment.removeTeamSharedOrganization, {
+      environmentId,
+      input: { organizationId },
+    }),
+  );
+}
+
+export function machinesNotToldMessage(labels: ReadonlyArray<string>): string {
+  return `${labels.join(", ")} could not be told. Access there ends within 10 minutes.`;
 }
 
 export function machineShareFailureMessage(

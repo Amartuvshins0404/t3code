@@ -91,6 +91,7 @@ export type RevokeOtherAuthSessionsInput = typeof RevokeOtherAuthSessionsInput.T
 
 export const RevokeOrganizationAuthSessionsInput = Schema.Struct({
   organizationId: Schema.String,
+  userId: Schema.optional(Schema.String),
   revokedAt: Schema.DateTimeUtcFromString,
 });
 export type RevokeOrganizationAuthSessionsInput = typeof RevokeOrganizationAuthSessionsInput.Type;
@@ -369,12 +370,13 @@ export const make = Effect.gen(function* () {
   const revokeOrganizationSessionRows = SqlSchema.findAll({
     Request: RevokeOrganizationAuthSessionsInput,
     Result: Schema.Struct({ sessionId: AuthSessionId }),
-    execute: ({ organizationId, revokedAt }) =>
+    execute: ({ organizationId, userId, revokedAt }) =>
       sql`
         UPDATE auth_sessions
         SET revoked_at = ${revokedAt}
         WHERE member_json IS NOT NULL
           AND json_extract(member_json, '$.organizationId') = ${organizationId}
+          AND (${userId ?? null} IS NULL OR json_extract(member_json, '$.userId') = ${userId ?? null})
           AND revoked_at IS NULL
         RETURNING session_id AS "sessionId"
       `,

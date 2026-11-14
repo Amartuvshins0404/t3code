@@ -50,6 +50,12 @@ export const TeamSharedOrganizationInput = Schema.Struct({
 });
 export type TeamSharedOrganizationInput = typeof TeamSharedOrganizationInput.Type;
 
+export const TeamMemberAccessRevokeInput = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  userId: TrimmedNonEmptyString,
+});
+export type TeamMemberAccessRevokeInput = typeof TeamMemberAccessRevokeInput.Type;
+
 export const TeamThreadShareSetInput = Schema.Struct({
   threadId: ThreadId,
   organizationId: TrimmedNonEmptyString,

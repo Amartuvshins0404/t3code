@@ -107,6 +107,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.teamListSharedOrganizations]: "team",
   [WS_METHODS.teamAddSharedOrganization]: "team",
   [WS_METHODS.teamRemoveSharedOrganization]: "team",
+  [WS_METHODS.teamRevokeMemberAccess]: "team",
   [WS_METHODS.teamSetThreadShare]: "team",
   [WS_METHODS.teamClearThreadShare]: "team",
   [WS_METHODS.teamReportPresence]: "team",

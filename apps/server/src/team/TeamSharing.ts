@@ -1,6 +1,7 @@
 import {
   CommandId,
   TeamAccessError,
+  type TeamMemberAccessRevokeInput,
   type TeamSharedOrganizations,
   type TeamThreadShareClearInput,
   type TeamThreadShareSetInput,
@@ -28,6 +29,9 @@ export class TeamSharing extends Context.Service<
     readonly removeSharedOrganization: (
       organizationId: string,
     ) => Effect.Effect<TeamSharedOrganizations, TeamAccessError>;
+    readonly revokeMemberAccess: (
+      input: TeamMemberAccessRevokeInput,
+    ) => Effect.Effect<void, TeamAccessError>;
     readonly setThreadShare: (
       input: TeamThreadShareSetInput,
     ) => Effect.Effect<ThreadTeamShare, TeamAccessError>;
@@ -102,6 +106,17 @@ const make = Effect.gen(function* () {
     return { organizationIds };
   });
 
+  const revokeMemberAccess = Effect.fn("TeamSharing.revokeMemberAccess")(function* (
+    input: TeamMemberAccessRevokeInput,
+  ) {
+    yield* pairingLinks
+      .revokeForOrganization(input.organizationId, input.userId)
+      .pipe(Effect.mapError(() => internal("Could not end the teammate's pairing links.")));
+    yield* sessions
+      .revokeForOrganization(input.organizationId, input.userId)
+      .pipe(Effect.mapError(() => internal("Could not end the teammate's sessions.")));
+  });
+
   const setThreadShare = Effect.fn("TeamSharing.setThreadShare")(function* (
     input: TeamThreadShareSetInput,
   ) {
@@ -145,6 +160,7 @@ const make = Effect.gen(function* () {
     listSharedOrganizations,
     addSharedOrganization,
     removeSharedOrganization,
+    revokeMemberAccess,
     setThreadShare,
     clearThreadShare,
   });

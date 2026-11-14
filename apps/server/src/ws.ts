@@ -2370,6 +2370,7 @@ export const layerWsRpc = (
           teamSharing.addSharedOrganization(input.organizationId),
         [WS_METHODS.teamRemoveSharedOrganization]: (input) =>
           teamSharing.removeSharedOrganization(input.organizationId),
+        [WS_METHODS.teamRevokeMemberAccess]: (input) => teamSharing.revokeMemberAccess(input),
         [WS_METHODS.teamSetThreadShare]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(teamSharing.setThreadShare(input)),

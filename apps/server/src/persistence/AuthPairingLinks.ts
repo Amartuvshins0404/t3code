@@ -77,6 +77,7 @@ export type RevokeAuthPairingLinkInput = typeof RevokeAuthPairingLinkInput.Type;
 
 export const RevokeOrganizationAuthPairingLinksInput = Schema.Struct({
   organizationId: Schema.String,
+  userId: Schema.optional(Schema.String),
   revokedAt: Schema.DateTimeUtcFromString,
 });
 export type RevokeOrganizationAuthPairingLinksInput =
@@ -282,12 +283,13 @@ export const make = Effect.gen(function* () {
   const revokeOrganizationPairingLinkRows = SqlSchema.findAll({
     Request: RevokeOrganizationAuthPairingLinksInput,
     Result: Schema.Struct({ id: Schema.String }),
-    execute: ({ organizationId, revokedAt }) =>
+    execute: ({ organizationId, userId, revokedAt }) =>
       sql`
         UPDATE auth_pairing_links
         SET revoked_at = ${revokedAt}
         WHERE member_json IS NOT NULL
           AND json_extract(member_json, '$.organizationId') = ${organizationId}
+          AND (${userId ?? null} IS NULL OR json_extract(member_json, '$.userId') = ${userId ?? null})
           AND revoked_at IS NULL
           AND consumed_at IS NULL
         RETURNING id AS "id"

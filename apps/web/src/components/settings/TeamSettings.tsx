@@ -22,6 +22,11 @@ import {
 } from "../../cloud/cloudTeams";
 import { useUiStateStore } from "../../uiStateStore";
 import { TeamMark, TEAM_ROLE_LABELS, teamErrorMessage } from "../teams/teamPresentation";
+import {
+  endTeamMemberAccessOnMachines,
+  machinesNotToldMessage,
+  withdrawTeamFromMachines,
+} from "../teams/machineSharing";
 import { openCreateTeamDialog, openInviteTeamDialog } from "../teams/teamUiStore";
 import {
   AlertDialog,
@@ -191,6 +196,17 @@ function TeamDetail({
     done?.();
   };
 
+  const warnIfNotTold = (pending: Promise<ReadonlyArray<string>>) => {
+    void pending.then((labels) => {
+      if (labels.length === 0) return;
+      toastManager.add({
+        type: "warning",
+        title: "Some machines were not told",
+        description: machinesNotToldMessage(labels),
+      });
+    });
+  };
+
   const teams = getCloudTeams();
   const myRole = team.role;
   const manage = canManageTeam(myRole);
@@ -272,12 +288,21 @@ function TeamDetail({
                         value={member.role}
                         onValueChange={(next: TeamRole | null) => {
                           if (next === null || next === member.role) return;
-                          void run("Could not change the role", () =>
-                            teams.setRole({
-                              teamId: team.id,
-                              memberId: member.memberId,
-                              role: next,
-                            }),
+                          void run(
+                            "Could not change the role",
+                            () =>
+                              teams.setRole({
+                                teamId: team.id,
+                                memberId: member.memberId,
+                                role: next,
+                              }),
+                            () =>
+                              warnIfNotTold(
+                                endTeamMemberAccessOnMachines({
+                                  organizationId: team.id,
+                                  userId: member.userId,
+                                }),
+                              ),
                           );
                         }}
                       >
@@ -407,7 +432,7 @@ function TeamDetail({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirm?.kind === "remove"
-                ? "They lose access at their next connect. You can invite them again later."
+                ? "They lose access on your machines that this device can reach right away, and on the rest within 10 minutes. You can invite them again later."
                 : confirm?.kind === "delete"
                   ? "This cannot be undone. Everyone loses access to the team."
                   : "You need a new invite to come back."}
@@ -424,8 +449,16 @@ function TeamDetail({
                 if (!teams || confirm === null) return;
                 if (confirm.kind === "remove") {
                   const { member } = confirm;
-                  void run("Could not remove the member", () =>
-                    teams.remove({ teamId: team.id, memberId: member.memberId }),
+                  void run(
+                    "Could not remove the member",
+                    () => teams.remove({ teamId: team.id, memberId: member.memberId }),
+                    () =>
+                      warnIfNotTold(
+                        endTeamMemberAccessOnMachines({
+                          organizationId: team.id,
+                          userId: member.userId,
+                        }),
+                      ),
                   );
                 } else if (confirm.kind === "leave") {
                   void run(
@@ -442,6 +475,7 @@ function TeamDetail({
                     () => teams.delete(team.id),
                     () => {
                       leaveWorkspace();
+                      warnIfNotTold(withdrawTeamFromMachines(team.id));
                       toastManager.add({ type: "success", title: `Deleted ${team.name}` });
                     },
                   );

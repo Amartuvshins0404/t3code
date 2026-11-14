@@ -234,6 +234,7 @@ export class PairingGrantStore extends Context.Service<
     readonly revoke: (id: string) => Effect.Effect<boolean, BootstrapCredentialInternalError>;
     readonly revokeForOrganization: (
       organizationId: string,
+      userId?: string,
     ) => Effect.Effect<number, BootstrapCredentialInternalError>;
     readonly consume: (
       credential: string,
@@ -395,10 +396,14 @@ const make = Effect.gen(function* () {
 
   const revokeForOrganization: PairingGrantStore["Service"]["revokeForOrganization"] = Effect.fn(
     "PairingGrantStore.revokeForOrganization",
-  )(function* (organizationId) {
+  )(function* (organizationId, userId) {
     const revokedAt = yield* DateTime.now;
     const revokedIds = yield* pairingLinks
-      .revokeForOrganization({ organizationId, revokedAt })
+      .revokeForOrganization({
+        organizationId,
+        ...(userId === undefined ? {} : { userId }),
+        revokedAt,
+      })
       .pipe(
         Effect.mapError(
           (cause) => new PairingLinkRevokeError({ pairingLinkId: organizationId, cause }),

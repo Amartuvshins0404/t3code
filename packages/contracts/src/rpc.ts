@@ -174,6 +174,7 @@ import {
 } from "./guestShare.ts";
 import {
   TeamAccessError,
+  TeamMemberAccessRevokeInput,
   TeamPresenceReportInput,
   TeamPresenceSnapshot,
   TeamSharedOrganizationInput,
@@ -592,6 +593,7 @@ export const WS_METHODS = {
   teamListSharedOrganizations: "team.listSharedOrganizations",
   teamAddSharedOrganization: "team.addSharedOrganization",
   teamRemoveSharedOrganization: "team.removeSharedOrganization",
+  teamRevokeMemberAccess: "team.revokeMemberAccess",
   teamSetThreadShare: "team.setThreadShare",
   teamClearThreadShare: "team.clearThreadShare",
   teamReportPresence: "team.reportPresence",
@@ -2214,6 +2216,11 @@ const WsTeamRemoveSharedOrganizationRpc = Rpc.make(WS_METHODS.teamRemoveSharedOr
   error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
 });
 
+const WsTeamRevokeMemberAccessRpc = Rpc.make(WS_METHODS.teamRevokeMemberAccess, {
+  payload: TeamMemberAccessRevokeInput,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
 const WsTeamSetThreadShareRpc = Rpc.make(WS_METHODS.teamSetThreadShare, {
   payload: TeamThreadShareSetInput,
   success: ThreadTeamShare,
@@ -2284,6 +2291,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsTeamListSharedOrganizationsRpc,
   WsTeamAddSharedOrganizationRpc,
   WsTeamRemoveSharedOrganizationRpc,
+  WsTeamRevokeMemberAccessRpc,
   WsTeamSetThreadShareRpc,
   WsTeamClearThreadShareRpc,
   WsTeamReportPresenceRpc,

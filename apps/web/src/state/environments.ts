@@ -114,3 +114,7 @@ export function useEnvironmentMachines() {
 export function useConnectedEnvironmentIds() {
   return useAtomValue(environmentSummaries.connectedEnvironmentIdsAtom);
 }
+
+export function readConnectedEnvironmentIds(): ReadonlyArray<EnvironmentId> {
+  return appAtomRegistry.get(environmentSummaries.connectedEnvironmentIdsAtom);
+}

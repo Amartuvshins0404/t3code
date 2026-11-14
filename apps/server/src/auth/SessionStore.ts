@@ -437,6 +437,7 @@ export class SessionStore extends Context.Service<
     ) => Effect.Effect<number, SessionCredentialInternalError>;
     readonly revokeForOrganization: (
       organizationId: string,
+      userId?: string,
     ) => Effect.Effect<number, SessionCredentialInternalError>;
     readonly markConnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
     readonly markDisconnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
@@ -1064,10 +1065,14 @@ const make = Effect.gen(function* () {
 
   const revokeForOrganization: SessionStore["Service"]["revokeForOrganization"] = Effect.fn(
     "SessionStore.revokeForOrganization",
-  )(function* (organizationId) {
+  )(function* (organizationId, userId) {
     const revokedAt = yield* DateTime.now;
     const revokedSessionIds = yield* authSessions
-      .revokeForOrganization({ organizationId, revokedAt })
+      .revokeForOrganization({
+        organizationId,
+        ...(userId === undefined ? {} : { userId }),
+        revokedAt,
+      })
       .pipe(
         Effect.mapError(
           (cause) => new OrganizationSessionsRevocationError({ organizationId, cause }),
