@@ -30,6 +30,29 @@ export function isThreadWorking(thread: WorkingThreadInput): boolean {
   return !(thread.interactionMode === "plan" && thread.hasActionableProposedPlan && runSettled);
 }
 
+type AttentionThreadInput = WorkingThreadInput &
+  Partial<Pick<EnvironmentThreadShell, "pendingGuestMessageCount">>;
+
+export type ThreadAttentionReason =
+  | "approval"
+  | "question"
+  | "subagent-request"
+  | "guest-message"
+  | "plan"
+  | "error"
+  | "failed-run";
+
+export function threadAttentionReason(thread: AttentionThreadInput): ThreadAttentionReason | null {
+  if (thread.hasPendingApprovals) return "approval";
+  if (thread.hasPendingUserInput) return "question";
+  if (thread.pendingSubagentRequest != null) return "subagent-request";
+  if ((thread.pendingGuestMessageCount ?? 0) > 0) return "guest-message";
+  if (thread.interactionMode === "plan" && thread.hasActionableProposedPlan) return "plan";
+  if (thread.runtime?.lastError != null) return "error";
+  if (thread.latestRun?.status === "failed") return "failed-run";
+  return null;
+}
+
 /**
  * A thread its own client is launching reads as preparing until its first run lands.
  * The server commits the thread before its run, so the list would otherwise place it twice.
@@ -218,14 +241,7 @@ export function createInboxReturnTracker() {
                 thread.activeOrderKey,
               ])
             : null;
-        const actionable =
-          thread.hasPendingApprovals ||
-          thread.hasPendingUserInput ||
-          thread.pendingSubagentRequest != null ||
-          (thread.pendingGuestMessageCount ?? 0) > 0 ||
-          (thread.interactionMode === "plan" && thread.hasActionableProposedPlan) ||
-          thread.runtime?.lastError != null ||
-          thread.latestRun?.status === "failed";
+        const actionable = threadAttentionReason(thread) !== null;
         const moved = previous !== undefined && previous.placement !== placement;
         const excluded =
           thread.archivedAt != null ||
