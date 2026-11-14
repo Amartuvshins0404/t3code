@@ -1,17 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import {
-  type EnvironmentId,
-  type ProjectId,
-  type ProjectPlantStatus,
-  type ThreadId,
-  projectPlantUnavailableMessage,
-} from "@t3tools/contracts";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { MessageSquareShareIcon, ShovelIcon, SproutIcon } from "lucide-react";
 import { useState } from "react";
 
-import { useProject } from "../../state/entities";
+import { useProject, useQuietThreadShell } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
@@ -21,37 +15,8 @@ import {
 } from "../chat/threadDetailsPanelStyles";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { plantButtonState, plantOpenThreadId } from "./ProjectPlantButton.logic";
 import { useStartProjectPlant } from "./useStartProjectPlant";
-
-type PlantButtonState =
-  | { readonly kind: "plant" | "unplant" }
-  | { readonly kind: "open"; readonly threadId: ThreadId }
-  | { readonly kind: "disabled"; readonly reason: string };
-
-function plantButtonState(input: {
-  readonly status: ProjectPlantStatus | null;
-  readonly error: string | null;
-  readonly permitted: boolean;
-}): PlantButtonState {
-  if (!input.permitted)
-    return { kind: "disabled", reason: "This connection cannot start agent threads here." };
-  if (input.error !== null) return { kind: "disabled", reason: input.error };
-  const status = input.status;
-  if (status === null) return { kind: "disabled", reason: "Reading the default branch…" };
-  switch (status._tag) {
-    case "planted":
-    case "not_planted":
-      if (status.openThread !== null) return { kind: "open", threadId: status.openThread.threadId };
-      return { kind: status._tag === "planted" ? "unplant" : "plant" };
-    case "blocked":
-      return {
-        kind: "disabled",
-        reason: `${status.file} on the default branch is not agent-trust's, so Plant would stop.`,
-      };
-    case "unavailable":
-      return { kind: "disabled", reason: projectPlantUnavailableMessage(status.reason) };
-  }
-}
 
 const LABELS = {
   plant: { text: "Plant", icon: SproutIcon },
@@ -75,7 +40,16 @@ export function ProjectPlantButton(props: {
   const startPlant = useStartProjectPlant();
   const navigate = useNavigate();
   const [starting, setStarting] = useState(false);
-  const state = plantButtonState({ status: query.data, error: query.error, permitted });
+  const openThreadId = plantOpenThreadId(query.data);
+  const openThread = useQuietThreadShell(
+    openThreadId === null ? null : scopeThreadRef(environmentId, openThreadId),
+  );
+  const state = plantButtonState({
+    status: query.data,
+    error: query.error,
+    permitted,
+    openThreadKnown: openThread !== null,
+  });
   const { text, icon: Icon } = LABELS[state.kind];
   const disabled = state.kind === "disabled" || starting;
 
