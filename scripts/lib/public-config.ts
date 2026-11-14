@@ -8,8 +8,6 @@ const DEFAULT_AUTH_URL = "https://auth.amartuvshin.com";
 const DEFAULT_RELAY_URL = "https://relay.amartuvshin.com";
 
 export interface T3CodePublicConfig {
-  readonly mobileClerkPublishableKey: string | undefined;
-  readonly mobileClerkJwtTemplate: string | undefined;
   readonly authUrl: string;
   readonly relayUrl: string;
   readonly mobileOtlpTracesUrl: string | undefined;
@@ -39,12 +37,6 @@ export function loadRepoEnv({
     ...rootEnv,
     ...localEnv,
     ...baseEnv,
-    ...(config.mobileClerkPublishableKey
-      ? { EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: config.mobileClerkPublishableKey }
-      : {}),
-    ...(config.mobileClerkJwtTemplate
-      ? { EXPO_PUBLIC_CLERK_JWT_TEMPLATE: config.mobileClerkJwtTemplate }
-      : {}),
     T3CODE_AUTH_URL: config.authUrl,
     VITE_T3CODE_AUTH_URL: config.authUrl,
     T3CODE_RELAY_URL: config.relayUrl,
@@ -90,16 +82,6 @@ export function loadRepoEnv({
 
 function resolvePublicConfig(...sources: readonly Environment[]): T3CodePublicConfig {
   return {
-    mobileClerkPublishableKey: firstNonEmpty(
-      sources,
-      "T3CODE_CLERK_PUBLISHABLE_KEY",
-      "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY",
-    ),
-    mobileClerkJwtTemplate: firstNonEmpty(
-      sources,
-      "T3CODE_CLERK_JWT_TEMPLATE",
-      "EXPO_PUBLIC_CLERK_JWT_TEMPLATE",
-    ),
     authUrl: firstNonEmpty(sources, "T3CODE_AUTH_URL", "VITE_T3CODE_AUTH_URL") ?? DEFAULT_AUTH_URL,
     relayUrl:
       firstNonEmpty(sources, "T3CODE_RELAY_URL", "VITE_T3CODE_RELAY_URL") ?? DEFAULT_RELAY_URL,

@@ -196,6 +196,12 @@ export type ProjectionThreadPullRequests = Pick<
   "id" | "projectId" | "lineage" | "settledOverride" | "settledAt" | "pullRequests"
 >;
 
+export type ProjectionDueQuestion = {
+  readonly thread: ProjectionThreadPullRequests;
+  readonly requestId: RuntimeRequestId;
+  readonly questions: Extract<OrchestrationV2TurnItem, { type: "user_input_request" }>["questions"];
+};
+
 export type ProjectionSettlementCandidate = Pick<
   OrchestrationV2ThreadShell,
   | "id"
@@ -564,6 +570,16 @@ export interface ProjectionStoreV2Shape {
   readonly getLimitRecoveryWakeAt: (
     now: DateTime.Utc,
   ) => Effect.Effect<number | null, ProjectionStoreV2Error>;
+  readonly getDueQuestionRequests?: (input: {
+    readonly createdAtOrBefore: DateTime.Utc;
+    readonly limit: number;
+  }) => Effect.Effect<
+    {
+      readonly due: ReadonlyArray<ProjectionDueQuestion>;
+      readonly nextCreatedAt: DateTime.Utc | null;
+    },
+    ProjectionStoreV2Error
+  >;
   readonly getSettlementCandidates: (
     threadId?: ThreadId,
   ) => Effect.Effect<ReadonlyArray<ProjectionSettlementCandidate>, ProjectionStoreV2Error>;
@@ -4383,6 +4399,81 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
     );
 
+    const getDueQuestionRequests = Effect.fn("ProjectionStore.getDueQuestionRequests")(
+      function* (input: { readonly createdAtOrBefore: DateTime.Utc; readonly limit: number }) {
+        const cutoff = DateTime.formatIso(input.createdAtOrBefore);
+        const rows = yield* sql<{
+          readonly thread_payload_json: string;
+          readonly runtime_request_id: string;
+          readonly item_payload_json: string;
+        }>`
+          SELECT t.payload_json AS thread_payload_json, request.runtime_request_id,
+            item.payload_json AS item_payload_json
+          FROM orchestration_v2_projection_runtime_requests request
+          CROSS JOIN orchestration_v2_projection_threads t
+            ON t.thread_id = request.thread_id
+          CROSS JOIN orchestration_v2_projection_turn_items item
+            ON item.thread_id = request.thread_id
+            AND item.node_id = request.node_id
+            AND item.type = 'user_input_request'
+            AND json_extract(item.payload_json, '$.requestId') = request.runtime_request_id
+          WHERE request.status = 'pending'
+            AND request.kind = 'user_input'
+            AND julianday(request.created_at) <= julianday(${cutoff})
+            AND json_extract(request.payload_json, '$.responseCapability.type') = 'live'
+            AND t.deleted_at IS NULL
+            AND json_extract(t.payload_json, '$.archivedAt') IS NULL
+            AND json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
+            AND EXISTS (
+              SELECT 1 FROM orchestration_v2_projection_provider_session_bindings binding
+              WHERE binding.thread_id = request.thread_id
+                AND binding.provider_session_id = json_extract(request.payload_json, '$.responseCapability.providerSessionId')
+            )
+            AND json_array_length(item.payload_json, '$.questions') > 0
+            AND NOT EXISTS (
+              SELECT 1 FROM json_each(item.payload_json, '$.questions') asked
+              WHERE NOT EXISTS (
+                SELECT 1 FROM json_each(asked.value, '$.options') offered
+                WHERE rtrim(json_extract(offered.value, '$.label'), ' ' || char(9) || char(10) || char(13))
+                  LIKE '%(recommended)'
+              )
+            )
+          ORDER BY request.created_at ASC, request.runtime_request_id ASC
+          LIMIT ${input.limit}
+        `;
+        const next = yield* sql<{ readonly created_at: string | null }>`
+          SELECT MIN(created_at) AS created_at
+          FROM orchestration_v2_projection_runtime_requests
+          WHERE status = 'pending' AND kind = 'user_input'
+            AND julianday(created_at) > julianday(${cutoff})
+        `;
+        const due: Array<ProjectionDueQuestion> = [];
+        for (const row of rows) {
+          const thread = yield* decodeThreadPayload(row.thread_payload_json);
+          const item = yield* decodeTurnItemPayload(row.item_payload_json);
+          if (item.type !== "user_input_request") continue;
+          due.push({
+            thread: {
+              id: thread.id,
+              projectId: thread.projectId,
+              lineage: thread.lineage,
+              settledOverride: thread.settledOverride,
+              settledAt: thread.settledAt,
+              pullRequests: thread.pullRequests ?? [],
+            },
+            requestId: RuntimeRequestId.make(row.runtime_request_id),
+            questions: item.questions,
+          });
+        }
+        const nextCreatedAt = next[0]?.created_at ?? null;
+        return {
+          due,
+          nextCreatedAt: nextCreatedAt === null ? null : DateTime.makeUnsafe(nextCreatedAt),
+        };
+      },
+      Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+    );
+
     const getRecoveryThreadIds = Effect.fn("ProjectionStore.getRecoveryThreadIds")(
       function* (
         kind: ProjectionRecoveryKind,
@@ -7848,6 +7939,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getProviderControlContext: readOnReader(getProviderControlContext),
       getLimitRecoveryCandidates: readOnReader(getLimitRecoveryCandidates),
       getLimitRecoveryWakeAt: readOnReader(getLimitRecoveryWakeAt),
+      getDueQuestionRequests: readOnReader(getDueQuestionRequests),
       getRecoveryThreadIds: readOnReader(getRecoveryThreadIds),
       getUnreadableThreadIds: readOnReader(getUnreadableThreadIds),
       getThreadSnapshot: readOnReader(getThreadSnapshot),
