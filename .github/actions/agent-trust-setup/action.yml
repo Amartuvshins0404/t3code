@@ -1,0 +1,9 @@
+name: Set up Blind Checks
+description: Install Vite+ and the workspace dependencies for the shared Blind Checks job.
+runs:
+  using: composite
+  steps:
+    - name: Setup Vite+
+      uses: ./.github/actions/setup-ci-deps
+      with:
+        save-pnpm-store: "false"
