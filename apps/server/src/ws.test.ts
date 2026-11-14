@@ -6,6 +6,8 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthSessionId,
+  CommandId,
+  ORCHESTRATION_V2_WS_METHODS,
   AuthSourceControlWriteScope,
   EnvironmentId,
   EventId,
@@ -23,6 +25,8 @@ import {
   WsServerRefreshProvidersRpc,
   WsSubscribeServerConfigRpc,
   type OrchestrationV2AppThread,
+  type OrchestrationV2Command,
+  type TeamPresenceSnapshot,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadShell,
@@ -2131,4 +2135,213 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
     ),
     Effect.scoped,
   ),
+);
+
+it.effect(
+  "a teammate's socket refuses owner-only commands, ends unshared streams and hides others' presence",
+  () =>
+    Effect.gen(function* () {
+      const viewThread = ThreadId.make("thread:team-view");
+      const steerThread = ThreadId.make("thread:team-steer");
+      const privateThread = ThreadId.make("thread:private");
+      const sharedAt = "2026-11-14T00:00:00.000Z";
+      const shares = new Map([
+        [viewThread, { organizationId: "org-a", access: "view" as const, sharedAt }],
+        [steerThread, { organizationId: "org-a", access: "steer" as const, sharedAt }],
+      ]);
+      const presence = yield* TeamPresence.TeamPresence;
+      const domainEvents = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
+      const responses = yield* Queue.unbounded<
+        | { readonly kind: "chunk"; readonly values: ReadonlyArray<unknown> }
+        | { readonly kind: "exit"; readonly exit: Exit.Exit<unknown, unknown> }
+      >();
+      const tested = [
+        ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+        ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput,
+        WS_METHODS.teamSubscribePresence,
+      ] as const;
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (
+            tag,
+          ): tag is Exclude<
+            keyof typeof RpcAuthorization.RPC_REQUIRED_SCOPES,
+            (typeof tested)[number]
+          > => !(tested as ReadonlyArray<string>).includes(tag),
+        ),
+      );
+      const services = Layer.mergeAll(
+        layerUnusedConfigRpcServices,
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({}),
+        Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+        Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+        Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+        Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          scratchRoot: Effect.succeedNone,
+          namedProjectsRoot: process.cwd(),
+        }),
+        Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+        Layer.mock(ServerEnvironment.ServerEnvironment)({}),
+        Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: (threadId) =>
+            Effect.succeed({
+              teamShare: shares.get(threadId) ?? null,
+            } as unknown as OrchestrationV2ThreadShell),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          streamDomainEvents: Stream.fromQueue(domainEvents),
+        }),
+        Layer.mock(CommandOutputHub.CommandOutputHub)({ subscribe: () => Stream.never }),
+        Layer.succeed(TeamPresence.TeamPresence, presence),
+      );
+      const server = yield* RpcServer.makeNoSerialization(group, {
+        ...WS_RPC_SERVER_OPTIONS,
+        onFromServer: (response) =>
+          response._tag === "Chunk"
+            ? Queue.offer(responses, { kind: "chunk", values: response.values })
+            : response._tag === "Exit"
+              ? Queue.offer(responses, { kind: "exit", exit: response.exit })
+              : Effect.void,
+      }).pipe(
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make("teammate-socket-test"),
+              subject: "team-member",
+              method: "browser-session-cookie",
+              scopes: [AuthOrchestrationReadScope, AuthOrchestrationOperateScope],
+              member: {
+                userId: "ana",
+                name: "Ana",
+                organizationId: "org-a",
+                organizationSlug: "team-a",
+                role: "member",
+              },
+            },
+            {},
+            yield* ServerBrowser.ServerBrowser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(
+              RpcAuthorization.layer(
+                [AuthOrchestrationReadScope, AuthOrchestrationOperateScope],
+                undefined,
+                {
+                  organizationId: "org-a",
+                  threadShare: (threadId) => Effect.succeed(shares.get(threadId)),
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      const refusal = Effect.gen(function* () {
+        const response = yield* Queue.take(responses);
+        if (response.kind !== "exit" || !Exit.isFailure(response.exit)) {
+          return yield* Effect.die("Expected a refusal");
+        }
+        return String(Cause.squash(response.exit.cause));
+      });
+      const message = {
+        type: "message.dispatch",
+        commandId: CommandId.make("command:teammate-message"),
+        threadId: viewThread,
+        messageId: MessageId.make("message:teammate"),
+        text: "Please run the tests",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      } satisfies OrchestrationV2Command;
+
+      yield* server.write(0, {
+        _tag: "Request",
+        id: RpcMessage.RequestId("archive"),
+        tag: ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+        payload: {
+          type: "thread.archive",
+          commandId: CommandId.make("command:teammate-archive"),
+          threadId: steerThread,
+        },
+        headers: Headers.empty,
+      });
+      assert.include(yield* refusal, "Teammates can only send messages");
+      yield* server.write(0, {
+        _tag: "Request",
+        id: RpcMessage.RequestId("view"),
+        tag: ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+        payload: message,
+        headers: Headers.empty,
+      });
+      assert.include(yield* refusal, "to view only");
+
+      yield* server.write(0, {
+        _tag: "Request",
+        id: RpcMessage.RequestId("output"),
+        tag: ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput,
+        payload: { threadId: steerThread, itemId: TurnItemId.make("item:output") },
+        headers: Headers.empty,
+      });
+      yield* Queue.offer(domainEvents, {
+        id: EventId.make("event:unshare"),
+        type: "thread.team-share-updated",
+        threadId: steerThread,
+        occurredAt: DateTime.makeUnsafe(sharedAt),
+        payload: { id: steerThread, teamShare: null } as unknown as OrchestrationV2AppThread,
+      });
+      const ended = yield* Queue.take(responses);
+      assert.isTrue(ended.kind === "exit" && Exit.isSuccess(ended.exit));
+
+      yield* presence.join({ clientId: "owner" });
+      yield* presence.report("owner", { threadId: privateThread, typing: true });
+      yield* presence.join({
+        clientId: "ben",
+        person: { userId: "ben", name: "Ben" },
+        organizationId: "org-b",
+      });
+      yield* presence.join({
+        clientId: "cara",
+        person: { userId: "cara", name: "Cara" },
+        organizationId: "org-a",
+      });
+      yield* presence.report("cara", { threadId: steerThread, typing: true });
+      yield* server.write(0, {
+        _tag: "Request",
+        id: RpcMessage.RequestId("presence"),
+        tag: WS_METHODS.teamSubscribePresence,
+        payload: {},
+        headers: Headers.empty,
+      });
+      const snapshot = yield* Queue.take(responses);
+      if (snapshot.kind !== "chunk") return yield* Effect.die("Expected presence");
+      const [first] = snapshot.values as ReadonlyArray<TeamPresenceSnapshot>;
+      assert.deepEqual(
+        first?.entries.filter((entry) => ["owner", "ben", "cara"].includes(entry.clientId)),
+        [
+          { clientId: "owner", owner: true, typing: false },
+          {
+            clientId: "cara",
+            person: { userId: "cara", name: "Cara" },
+            owner: false,
+            threadId: steerThread,
+            typing: true,
+          },
+        ],
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.fresh(layerConfigSources),
+          TeamPresence.layer,
+          Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
+          Layer.mock(ServerBrowser.ServerBrowser)({}),
+        ),
+      ),
+      Effect.scoped,
+    ),
 );
