@@ -17,6 +17,7 @@ import {
   countProjectBoard,
   PROJECT_BOARD_COLUMNS,
   type ProjectBoardColumnId,
+  threadsOnProjectsPage,
 } from "./projectBoard.ts";
 
 const environmentId = EnvironmentId.make("environment-1");
@@ -531,5 +532,81 @@ describe("buildNeedsYouList", () => {
       buildNeedsYouList([...threads, shell("waiting", { hasPendingApprovals: true })]).total,
       1,
     );
+  });
+});
+
+type ProjectListing = "missing" | "listed" | "archived";
+
+const PROJECT_KEYS = [
+  ["environment-1", "project-a"],
+  ["environment-1", "project-b"],
+  ["environment-2", "project-a"],
+  ["environment-2", "project-b"],
+] as const;
+
+function projectList(
+  listings: ReadonlyArray<readonly [environment: string, project: string, ProjectListing]>,
+) {
+  return listings.flatMap(([environment, project, listing]) =>
+    listing === "missing"
+      ? []
+      : [
+          {
+            environmentId: EnvironmentId.make(environment),
+            id: ProjectId.make(project),
+            archivedAt: listing === "archived" ? at(0) : null,
+          },
+        ],
+  );
+}
+
+const ProjectListingSchema = Schema.Literals(["missing", "listed", "archived"]);
+
+describe("threadsOnProjectsPage", () => {
+  it.prop(
+    "keeps exactly the threads whose project, in the same environment, is listed and not archived",
+    [
+      Schema.Array(PlacedThreadSpecSchema),
+      Schema.Tuple([
+        ProjectListingSchema,
+        ProjectListingSchema,
+        ProjectListingSchema,
+        ProjectListingSchema,
+      ]),
+    ],
+    ([specs, states]) => {
+      const threads = specs.map((spec, index) =>
+        placed(shell(`thread-${index}`, { ...spec, archived: false, deleted: false }), spec),
+      );
+      const listings = PROJECT_KEYS.map(
+        ([environment, project], index) => [environment, project, states[index]!] as const,
+      );
+      const listed = new Set(
+        listings
+          .filter(([, , state]) => state === "listed")
+          .map(([environment, project]) => `${environment}/${project}`),
+      );
+      const expected = threads
+        .filter((thread) => listed.has(`${thread.environmentId}/${thread.projectId}`))
+        .map((thread) => rowKey({ thread }));
+      const onPage = threadsOnProjectsPage(projectList(listings), threads);
+      assert.deepEqual(onPage.map((thread) => rowKey({ thread })).toSorted(), expected.toSorted());
+    },
+    { arbitrary: { seed: 42 } },
+  );
+
+  it("drops a waiting thread while its project is missing or archived, and keeps it once the project is listed or brought back", () => {
+    const waiting = placed(shell("waiting", { hasPendingApprovals: true }), {
+      environment: "environment-1",
+      project: "project-a",
+    });
+    const needsYou = (listings: Parameters<typeof projectList>[0]) =>
+      countProjectBoard(threadsOnProjectsPage(projectList(listings), [waiting]))["needs-you"];
+    assert.equal(needsYou([]), 0);
+    assert.equal(needsYou([["environment-2", "project-a", "listed"]]), 0);
+    assert.equal(needsYou([["environment-1", "project-b", "listed"]]), 0);
+    assert.equal(needsYou([["environment-1", "project-a", "listed"]]), 1);
+    assert.equal(needsYou([["environment-1", "project-a", "archived"]]), 0);
+    assert.equal(needsYou([["environment-1", "project-a", "listed"]]), 1);
   });
 });

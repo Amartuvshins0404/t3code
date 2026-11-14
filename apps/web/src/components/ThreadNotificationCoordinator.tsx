@@ -3,10 +3,7 @@ import {
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
-import {
-  countProjectBoard,
-  dropArchivedProjectThreads,
-} from "@t3tools/client-runtime/state/projects";
+import { countProjectBoard, threadsOnProjectsPage } from "@t3tools/client-runtime/state/projects";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import type { AnyRouter } from "@tanstack/react-router";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
@@ -401,7 +398,7 @@ export function startThreadNotifications(
       const drawBadge = () =>
         showBadge(
           countProjectBoard(
-            dropArchivedProjectThreads(
+            threadsOnProjectsPage(
               registry.get(environmentProjects.projectsAtom),
               registry.get(environmentThreadShells.quietThreadShellsAtom),
             ),

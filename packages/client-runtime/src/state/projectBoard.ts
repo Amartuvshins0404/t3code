@@ -157,20 +157,18 @@ export function buildProjectBoard(
   });
 }
 
-export function dropArchivedProjectThreads(
+export function threadsOnProjectsPage(
   projects: ReadonlyArray<Pick<EnvironmentProject, "environmentId" | "id" | "archivedAt">>,
   threads: ReadonlyArray<EnvironmentThreadShell>,
 ): ReadonlyArray<EnvironmentThreadShell> {
-  const archived = new Set<string>();
+  const listed = new Set<string>();
   for (const project of projects) {
-    if (project.archivedAt != null) {
-      archived.add(scopedProjectKey(scopeProjectRef(project.environmentId, project.id)));
+    if (project.archivedAt == null) {
+      listed.add(scopedProjectKey(scopeProjectRef(project.environmentId, project.id)));
     }
   }
-  if (archived.size === 0) return threads;
-  return threads.filter(
-    (thread) =>
-      !archived.has(scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId))),
+  return threads.filter((thread) =>
+    listed.has(scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId))),
   );
 }
 
