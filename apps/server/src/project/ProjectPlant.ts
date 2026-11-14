@@ -215,7 +215,12 @@ const make = Effect.gen(function* () {
       if (reading._tag === "unavailable" || reading._tag === "blocked") return reading;
       const action = reading._tag === "planted" ? "unplant" : "plant";
       const slot = yield* findPlantSlot(action, projectId, reading.base.commit).pipe(
-        Effect.orElseSucceed(() => null),
+        Effect.catch((cause) =>
+          Effect.logWarning("Plant status: the plant thread lookup failed", {
+            projectId,
+            cause,
+          }).pipe(Effect.as(null)),
+        ),
       );
       if (slot === null) return { _tag: "unavailable", reason: "read_failed" } as const;
       return {

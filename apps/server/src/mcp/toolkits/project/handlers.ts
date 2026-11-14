@@ -337,7 +337,13 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         });
       const plant = yield* ProjectPlant.ProjectPlant.pipe(
         Effect.flatMap((service) => service.readStatus({ projectId: input.projectId })),
-        Effect.orElseSucceed(() => ({ _tag: "unavailable", reason: "read_failed" }) as const),
+        Effect.catchTags({
+          ProjectPlantError: (cause) =>
+            Effect.logWarning("Project read: the plant status read failed", {
+              projectId: input.projectId,
+              cause,
+            }).pipe(Effect.as({ _tag: "unavailable", reason: "read_failed" } as const)),
+        }),
       );
       return { ...result.value, plant };
     }),
