@@ -1,10 +1,18 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, TeamPerson, TeamPresenceSnapshot, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ScopedThreadRef,
+  TeamPerson,
+  TeamPresenceSnapshot,
+  ThreadId,
+} from "@t3tools/contracts";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import { useCloudAuth } from "~/cloud/cloudAuth";
+import { useIsTeammateEnvironment, useTeamMachine } from "~/cloud/teamWorkspace";
 import { serverEnvironment } from "~/state/server";
-import { AvatarStack, type AvatarStackPerson } from "../ui/avatar";
+import { Avatar, AvatarStack, type AvatarStackPerson } from "../ui/avatar";
+import { useThreadTeamShare } from "./TeamShareControls";
 
 const EMPTY_PRESENCE_ATOM = Atom.make(AsyncResult.initial<TeamPresenceSnapshot>()).pipe(
   Atom.withLabel("team-presence:empty"),
@@ -81,4 +89,45 @@ export function typingLine(people: ReadonlyArray<AvatarStackPerson>): string | n
   if (!second) return `${first.name} is typing…`;
   if (people.length === 2) return `${first.name} and ${second.name} are typing…`;
   return `${first.name} and ${people.length - 1} others are typing…`;
+}
+
+export interface TeamMessageSender {
+  readonly person: TeamPerson;
+  readonly self: boolean;
+}
+
+export function useTeamMessageSender(
+  threadRef: ScopedThreadRef | null,
+  member: TeamPerson | undefined,
+): TeamMessageSender | null {
+  const shared = useThreadTeamShare(threadRef) !== null;
+  const teammate = useIsTeammateEnvironment(threadRef?.environmentId ?? null);
+  const owner = useTeamMachine(threadRef?.environmentId ?? null)?.owner ?? null;
+  const auth = useCloudAuth();
+  if (member !== undefined) return { person: member, self: member.userId === auth.userId };
+  if (!shared) return null;
+  if (teammate) return owner ? { person: owner, self: false } : null;
+  if (!auth.user) return null;
+  return {
+    person: {
+      userId: auth.user.id,
+      name: auth.user.name,
+      ...(auth.user.image ? { image: auth.user.image } : {}),
+    },
+    self: true,
+  };
+}
+
+export function TeamMessageSenderLine({ sender }: { readonly sender: TeamMessageSender }) {
+  return (
+    <p aria-hidden className="me-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
+      <Avatar
+        name={sender.person.name}
+        src={sender.person.image ?? null}
+        seed={sender.person.userId}
+        size="xs"
+      />
+      {sender.self ? "You" : sender.person.name}
+    </p>
+  );
 }
