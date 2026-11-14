@@ -15,7 +15,12 @@ import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "../../lib/utils";
 import { usePullRequestsSupported } from "../../state/environments";
 import { useAppBaseName } from "../../state/appBranding";
-import { AppLogo } from "../AppLogo";
+import { getCloudAuth } from "../../cloud/cloudAuth";
+import {
+  WorkspaceBrandMark,
+  WorkspaceSwitcher,
+  workspaceTriggerClassName,
+} from "./WorkspaceSwitcher";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
@@ -165,28 +170,21 @@ function HistoryNavigationButton({
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
   const appBaseName = useAppBaseName();
+  const className = workspaceTriggerClassName(onBackdrop);
   return (
-    <Link
-      aria-label={`${appBaseName} home`}
-      className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset md:flex",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      <SidebarBrandMark />
-    </Link>
+    <WorkspaceSwitcher
+      className={className}
+      fallback={
+        <Link aria-label={`${appBaseName} home`} className={className} to="/">
+          <SidebarBrandMark />
+        </Link>
+      }
+    />
   );
 }
 
 function SidebarBrandMark() {
-  const appBaseName = useAppBaseName();
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium tracking-tight">
-      <AppLogo />
-      <span className="truncate">{appBaseName}</span>
-    </span>
-  );
+  return <WorkspaceBrandMark withChevron={getCloudAuth() !== null} />;
 }
 
 function SidebarUtilityItem({
