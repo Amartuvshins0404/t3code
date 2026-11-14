@@ -19,7 +19,9 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 
 const MINUTE_MS = 60_000;
 const DUE_BATCH = 50;
-const LABEL_RETRY_MS = 60_000;
+const RETRY_MS = 60_000;
+const LABEL_READ_TIMEOUT = "20 seconds";
+const MAX_SEND_ATTEMPTS = 3;
 const RECOMMENDED = /\(recommended\)$/i;
 
 const waitMinutes = Config.Int("T3CODE_QUESTION_AUTO_ANSWER_MINUTES").pipe(Config.withDefault(10));
@@ -62,6 +64,7 @@ const makeSweep = Effect.gen(function* () {
   const findDue = projections.getDueQuestionRequests;
   const waitMs = findDue === undefined ? 0 : minutes * MINUTE_MS;
   const due = DueHint.make();
+  const failedSends = new Map<string, { readonly attempts: number; readonly retryAtMs: number }>();
   if (waitMs > 0) {
     yield* forkParked(
       Stream.runForEach(orchestrator.streamDomainEvents, (event) =>
@@ -77,12 +80,15 @@ const makeSweep = Effect.gen(function* () {
       thread.pullRequests ?? [],
       (link) =>
         Effect.exit(
-          pullRequests.detail({
-            projectId: thread.projectId,
-            host: normalizeThreadPullRequestKey(link).host,
-            repository: link.repository,
-            number: link.number,
-          }),
+          pullRequests
+            .detail({
+              projectId: thread.projectId,
+              host: normalizeThreadPullRequestKey(link).host,
+              repository: link.repository,
+              number: link.number,
+              allowStale: false,
+            })
+            .pipe(Effect.timeout(LABEL_READ_TIMEOUT)),
         ),
       { concurrency: 4 },
     );
@@ -111,14 +117,21 @@ const makeSweep = Effect.gen(function* () {
     for (const request of requests) {
       const answer = recommendedAnswer(request.questions);
       if (answer === null) continue;
+      const failed = failedSends.get(request.requestId);
+      if (failed !== undefined) {
+        if (failed.attempts >= MAX_SEND_ATTEMPTS) continue;
+        if (failed.retryAtMs > nowMs) {
+          wakeAt = Math.min(wakeAt, failed.retryAtMs);
+          continue;
+        }
+      }
       const hold = yield* laneHold(request.thread);
       if (hold === "held") continue;
       if (hold === "unreadable") {
-        wakeAt = Math.min(wakeAt, nowMs + LABEL_RETRY_MS);
+        wakeAt = Math.min(wakeAt, nowMs + RETRY_MS);
         continue;
       }
-      acted = true;
-      yield* orchestrator
+      const sent = yield* orchestrator
         .autoAnswerQuestion({
           commandId: CommandId.make(`question-auto-answer:${request.requestId}`),
           threadId: request.thread.id,
@@ -127,14 +140,29 @@ const makeSweep = Effect.gen(function* () {
           notice: answer.notice,
         })
         .pipe(
+          Effect.as(true),
           Effect.catchCause((cause) =>
             Effect.logWarning("orchestration-v2.question-auto-answer.dispatch-failed", {
               threadId: request.thread.id,
               requestId: request.requestId,
               cause,
-            }),
+            }).pipe(Effect.as(false)),
           ),
         );
+      if (sent) {
+        acted = true;
+        failedSends.delete(request.requestId);
+        continue;
+      }
+      const attempts = (failed?.attempts ?? 0) + 1;
+      failedSends.set(request.requestId, { attempts, retryAtMs: nowMs + RETRY_MS });
+      if (attempts < MAX_SEND_ATTEMPTS) wakeAt = Math.min(wakeAt, nowMs + RETRY_MS);
+    }
+    if (failedSends.size > 0 && requests.length < DUE_BATCH) {
+      const stillDue = new Set<string>(requests.map((request) => request.requestId));
+      for (const requestId of failedSends.keys()) {
+        if (!stillDue.has(requestId)) failedSends.delete(requestId);
+      }
     }
     if (acted || requests.length >= DUE_BATCH) return;
     yield* due.record(readVersion, wakeAt, nowMs);
