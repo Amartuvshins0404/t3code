@@ -35,6 +35,7 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { ProjectPlantButton } from "../projectPlant/ProjectPlantButton";
 import { ProjectBoardCardView } from "./ProjectBoardCard";
 import {
   PROJECT_BOARD_COLUMN_TITLES,
@@ -91,7 +92,12 @@ function ProjectBoardHeader({ project }: { readonly project: EnvironmentProject 
         )}
       </WorkspaceBreadcrumb>
       {project === null || settingsKey === null ? null : (
-        <div className="shrink-0">
+        <div className="flex shrink-0 items-center gap-1">
+          <ProjectPlantButton
+            environmentId={project.environmentId}
+            projectId={project.id}
+            size="header"
+          />
           <Button
             variant="ghost"
             size="sm"
