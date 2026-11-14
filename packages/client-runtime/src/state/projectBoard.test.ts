@@ -12,6 +12,7 @@ import * as Schema from "effect/Schema";
 import { presentThreadShell, type EnvironmentThreadShell } from "./models.ts";
 import { v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 import {
+  buildNeedsYouList,
   buildProjectBoard,
   countProjectBoard,
   PROJECT_BOARD_COLUMNS,
@@ -287,4 +288,248 @@ describe("buildProjectBoard", () => {
     },
     { arbitrary: { seed: 42 } },
   );
+});
+
+function placed(
+  thread: EnvironmentThreadShell,
+  where: { readonly environment?: string; readonly project?: string },
+): EnvironmentThreadShell {
+  return {
+    ...thread,
+    environmentId: EnvironmentId.make(where.environment ?? "environment-1"),
+    projectId: ProjectId.make(where.project ?? "project-v2"),
+  };
+}
+
+function untimed(thread: EnvironmentThreadShell): EnvironmentThreadShell {
+  return {
+    ...thread,
+    createdAt: "",
+    updatedAt: "",
+    unsettledAt: null,
+    latestUserMessageAt: null,
+    latestUserAuthoredMessageAt: null,
+    pendingUserInputAt: null,
+    latestRun: null,
+  };
+}
+
+const rowKey = (item: { readonly thread: EnvironmentThreadShell }) =>
+  `${item.thread.environmentId}/${item.thread.id}`;
+
+function expectedGroup(spec: ThreadSpec): number {
+  if (spec.pullRequest === "open") return 0;
+  if (spec.lastError || spec.run === "failed") return 1;
+  return 2;
+}
+
+const PlacedThreadSpecSchema = Schema.Struct({
+  ...ThreadSpecSchema.fields,
+  environment: Schema.Literals(["environment-1", "environment-2"]),
+  project: Schema.Literals(["project-a", "project-b"]),
+});
+
+describe("buildNeedsYouList", () => {
+  it.prop(
+    "holds exactly the boards' Needs you cards from every project and environment, with the board's reason and pull request, and its total equals the tile counts",
+    [Schema.Array(PlacedThreadSpecSchema)],
+    ([specs]) => {
+      const threads = specs.map((spec, index) => placed(shell(`thread-${index}`, spec), spec));
+      const byProject = new Map<string, EnvironmentThreadShell[]>();
+      for (const thread of threads) {
+        const key = `${thread.environmentId}/${thread.projectId}`;
+        byProject.set(key, [...(byProject.get(key) ?? []), thread]);
+      }
+      const boardCards = new Map<
+        string,
+        ReturnType<typeof buildProjectBoard>[number]["cards"][number]
+      >();
+      let tileTotal = 0;
+      for (const projectThreads of byProject.values()) {
+        tileTotal += countProjectBoard(projectThreads)["needs-you"];
+        const column = buildProjectBoard(projectThreads).find((entry) => entry.id === "needs-you")!;
+        for (const card of column.cards) boardCards.set(rowKey(card), card);
+      }
+
+      const full = buildNeedsYouList(threads, { limit: Number.POSITIVE_INFINITY });
+      assert.equal(full.total, tileTotal);
+      assert.deepEqual(full.items.map(rowKey).toSorted(), [...boardCards.keys()].toSorted());
+      for (const item of full.items) {
+        const card = boardCards.get(rowKey(item))!;
+        assert.equal(item.reason, card.reason);
+        assert.deepEqual(item.pullRequest, card.pullRequest);
+      }
+
+      const shown = buildNeedsYouList(threads);
+      assert.equal(shown.total, tileTotal);
+      assert.deepEqual(shown.items.map(rowKey), full.items.slice(0, 5).map(rowKey));
+    },
+    { arbitrary: { seed: 42 } },
+  );
+
+  it.prop(
+    "ranks open pull requests, then stopped agents, then the rest, longest wait first in each group, in the same order whatever order the threads arrive in",
+    [Schema.Array(PlacedThreadSpecSchema)],
+    ([specs]) => {
+      const threads = specs.map((spec, index) => placed(shell(`thread-${index}`, spec), spec));
+      const specByKey = new Map(
+        threads.map((thread, index) => [rowKey({ thread }), specs[index]!]),
+      );
+      const list = buildNeedsYouList(threads, { limit: Number.POSITIVE_INFINITY });
+      const ranks = list.items.map((item) => {
+        const spec = specByKey.get(rowKey(item))!;
+        return [expectedGroup(spec), spec.minute] as const;
+      });
+      for (let index = 1; index < ranks.length; index += 1) {
+        const [previousGroup, previousMinute] = ranks[index - 1]!;
+        const [group, minute] = ranks[index]!;
+        assert.isTrue(
+          previousGroup < group || (previousGroup === group && previousMinute <= minute),
+          `row ${index} is out of order`,
+        );
+      }
+      for (const item of list.items) {
+        assert.equal(item.waitingSince, at(specByKey.get(rowKey(item))!.minute));
+      }
+      const reversed = buildNeedsYouList(threads.toReversed(), {
+        limit: Number.POSITIVE_INFINITY,
+      });
+      assert.deepEqual(reversed.items.map(rowKey), list.items.map(rowKey));
+    },
+    { arbitrary: { seed: 42 } },
+  );
+
+  it("puts an open pull request first, then a stopped agent, then the rest, even when the rest waited longer", () => {
+    const list = buildNeedsYouList(
+      [
+        shell("merged-question", { minute: 0, hasPendingUserInput: true, pullRequest: "merged" }),
+        shell("question", { minute: 1, hasPendingUserInput: true }),
+        shell("failed", { minute: 2, run: "failed" }),
+        shell("error", { minute: 3, lastError: true }),
+        shell("pr-approval", {
+          minute: 4,
+          run: "running",
+          hasPendingApprovals: true,
+          pullRequest: "open",
+        }),
+        shell("pr-failed", { minute: 5, run: "failed", pullRequest: "open" }),
+      ],
+      { limit: Number.POSITIVE_INFINITY },
+    );
+    assert.deepEqual(
+      list.items.map((item) => item.thread.id as string),
+      ["pr-approval", "pr-failed", "failed", "error", "merged-question", "question"],
+    );
+  });
+
+  it("starts the wait when the pending question was asked, and at the last activity otherwise", () => {
+    const asked = {
+      ...shell("asked-early", { minute: 8, hasPendingUserInput: true }),
+      pendingUserInputAt: at(2),
+    };
+    const approval = shell("approval", { minute: 5, hasPendingApprovals: true });
+    const list = buildNeedsYouList([approval, asked]);
+    assert.deepEqual(
+      list.items.map((item) => [item.thread.id as string, item.waitingSince]),
+      [
+        ["asked-early", at(2)],
+        ["approval", at(5)],
+      ],
+    );
+  });
+
+  it("puts a thread with no time last in its group, but still above a lower group", () => {
+    const list = buildNeedsYouList([
+      untimed(shell("untimed", { hasPendingApprovals: true })),
+      shell("timed", { minute: 9, hasPendingApprovals: true }),
+      untimed(shell("untimed-pr", { hasPendingApprovals: true, pullRequest: "open" })),
+      shell("timed-pr", { minute: 9, hasPendingApprovals: true, pullRequest: "open" }),
+    ]);
+    assert.deepEqual(
+      list.items.map((item) => [item.thread.id as string, item.waitingSince]),
+      [
+        ["timed-pr", at(9)],
+        ["untimed-pr", null],
+        ["timed", at(9)],
+        ["untimed", null],
+      ],
+    );
+  });
+
+  it("keeps a fixed order for tied threads, including one thread id in two environments", () => {
+    const tied = [
+      placed(shell("b", { minute: 3, hasPendingApprovals: true }), {
+        environment: "environment-2",
+      }),
+      placed(shell("same", { minute: 3, hasPendingApprovals: true }), {
+        environment: "environment-2",
+      }),
+      placed(shell("same", { minute: 3, hasPendingApprovals: true }), {
+        environment: "environment-1",
+      }),
+      placed(shell("a", { minute: 3, hasPendingApprovals: true }), {
+        environment: "environment-1",
+      }),
+    ];
+    const orders = [tied, tied.toReversed(), [...tied.slice(2), ...tied.slice(0, 2)]].map(
+      (threads) => buildNeedsYouList(threads).items.map(rowKey),
+    );
+    assert.equal(orders[0]!.length, 4);
+    assert.deepEqual(orders[1], orders[0]);
+    assert.deepEqual(orders[2], orders[0]);
+  });
+
+  const waiting = (count: number) =>
+    Array.from({ length: count }, (_, index) =>
+      shell(`waiting-${index}`, { minute: index, hasPendingApprovals: true }),
+    );
+
+  it("shows all 5 rows when exactly 5 threads wait", () => {
+    const list = buildNeedsYouList(waiting(5));
+    assert.equal(list.total, 5);
+    assert.deepEqual(
+      list.items.map((item) => item.thread.id as string),
+      ["waiting-0", "waiting-1", "waiting-2", "waiting-3", "waiting-4"],
+    );
+  });
+
+  it("shows the 5 longest waiting of 6 with the full count, and all 6 when the rest are asked for", () => {
+    const list = buildNeedsYouList(waiting(6));
+    assert.equal(list.total, 6);
+    assert.deepEqual(
+      list.items.map((item) => item.thread.id as string),
+      ["waiting-0", "waiting-1", "waiting-2", "waiting-3", "waiting-4"],
+    );
+    const all = buildNeedsYouList(waiting(6), { limit: Number.POSITIVE_INFINITY });
+    assert.equal(all.total, 6);
+    assert.equal(all.items.at(-1)!.thread.id, "waiting-5");
+  });
+
+  it("leaves out archived, deleted and helper threads, and is empty when nothing waits", () => {
+    const helper = shell("helper", { hasPendingApprovals: true });
+    const sideChat = shell("side-chat", { hasPendingUserInput: true });
+    const threads = [
+      shell("archived", { hasPendingApprovals: true, archived: true }),
+      shell("deleted", { hasPendingUserInput: true, deleted: true }),
+      {
+        ...helper,
+        lineage: {
+          ...helper.lineage,
+          parentThreadId: ThreadId.make("parent"),
+          relationshipToParent: "subagent" as const,
+        },
+      },
+      { ...sideChat, lineage: { ...sideChat.lineage, sideChat: true } },
+      shell("running", { run: "running" }),
+      shell("checks", { pullRequest: "open" }),
+      shell("done", {}),
+    ];
+    const list = buildNeedsYouList(threads);
+    assert.equal(list.total, 0);
+    assert.deepEqual(list.items, []);
+    assert.equal(
+      buildNeedsYouList([...threads, shell("waiting", { hasPendingApprovals: true })]).total,
+      1,
+    );
+  });
 });
