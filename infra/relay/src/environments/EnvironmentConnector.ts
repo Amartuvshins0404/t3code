@@ -42,11 +42,15 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
 
+import type { TeamMemberIdentity } from "@t3tools/contracts";
+
 import { diagnoseEndpointFailure } from "./endpointFailure.ts";
 import * as EnvironmentLinks from "./EnvironmentLinks.ts";
+import * as EnvironmentTeamShares from "./EnvironmentTeamShares.ts";
 import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
 import * as RelayConfiguration from "../Config.ts";
 import * as CloudMintSigner from "../auth/CloudMintSigner.ts";
+import * as TeamMembership from "../auth/TeamMembership.ts";
 import { isManagedEndpointHostname } from "../deploymentConfig.ts";
 
 function environmentConnectNotAuthorizedReasonMessage(
@@ -130,7 +134,18 @@ export type EnvironmentConnectorError =
   | EnvironmentMintRequestTimedOut
   | EnvironmentMintResponseInvalid
   | EnvironmentLinks.EnvironmentLinkLookupPersistenceError
-  | ManagedEndpointAllocations.ManagedEndpointAllocationPersistenceError;
+  | ManagedEndpointAllocations.ManagedEndpointAllocationPersistenceError
+  | EnvironmentTeamShares.EnvironmentTeamSharePersistenceError
+  | TeamMembership.TeamMembershipLookupError;
+
+interface EnvironmentAccess {
+  readonly link: EnvironmentLinks.RelayLinkedEnvironmentRecord;
+  readonly allocation: ManagedEndpointAllocations.ManagedEndpointAllocation | null;
+  readonly teammate?: {
+    readonly ownerUserId: string;
+    readonly member: TeamMemberIdentity;
+  };
+}
 
 const ENVIRONMENT_MINT_REQUEST_TIMEOUT_MS = 10_000;
 const ENVIRONMENT_HEALTH_CLOCK_SKEW_MILLIS = 60 * 1_000;
@@ -376,7 +391,52 @@ const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const signature = yield* Signature.Signature;
   const mint = yield* CloudMintSigner.CloudMintSigner;
+  const teamShares = yield* EnvironmentTeamShares.EnvironmentTeamShares;
+  const membership = yield* TeamMembership.TeamMembership;
   const relayIssuer = normalizeRelayIssuer(settings.relayIssuer);
+  const resolveAccess = Effect.fn("relay.environment_connector.resolve_access")(function* (input: {
+    readonly userId: string;
+    readonly environmentId: string;
+  }) {
+    const { link, allocation } = yield* Effect.all(
+      {
+        link: links.getForUser(input),
+        allocation: allocations.get(input),
+      },
+      { concurrency: 2 },
+    );
+    if (link) {
+      return { link, allocation } satisfies EnvironmentAccess;
+    }
+    if (!membership.available) {
+      return null;
+    }
+    const shares = yield* teamShares.listForEnvironment({ environmentId: input.environmentId });
+    for (const share of shares) {
+      if (share.ownerUserId === input.userId) continue;
+      const members = yield* membership.members({
+        organizationId: share.organizationId,
+        userIds: [input.userId, share.ownerUserId],
+      });
+      const member = members.find((candidate) => candidate.userId === input.userId);
+      if (!member || !members.some((candidate) => candidate.userId === share.ownerUserId)) {
+        continue;
+      }
+      const ownerKey = { userId: share.ownerUserId, environmentId: input.environmentId };
+      const ownerLink = yield* links.getForUser(ownerKey);
+      if (!ownerLink) continue;
+      yield* Effect.annotateCurrentSpan({
+        "relay.team.organization_id": share.organizationId,
+        "relay.team.role": member.role,
+      });
+      return {
+        link: ownerLink,
+        allocation: yield* allocations.get(ownerKey),
+        teammate: { ownerUserId: share.ownerUserId, member },
+      } satisfies EnvironmentAccess;
+    }
+    return null;
+  });
   const makeEnvironmentClient = (httpBaseUrl: string) =>
     makeEnvironmentHttpApiClient(httpBaseUrl).pipe(
       Effect.provideService(HttpClient.HttpClient, httpClient),
@@ -412,20 +472,15 @@ const make = Effect.gen(function* () {
         "relay.environment_id": input.environmentId,
         "relay.operation": "status",
       });
-      const { link, allocation } = yield* Effect.all(
-        {
-          link: links.getForUser(input),
-          allocation: allocations.get(input),
-        },
-        { concurrency: 2 },
-      );
-      if (!link) {
+      const access = yield* resolveAccess(input);
+      if (!access) {
         return yield* new EnvironmentConnectNotAuthorized({
           environmentId: input.environmentId,
           operation: "status",
           reason: "environment_link_not_found",
         });
       }
+      const { link, allocation } = access;
       const endpoint = yield* resolveManagedEndpoint({
         operation: "status",
         link,
@@ -446,7 +501,7 @@ const make = Effect.gen(function* () {
       const payload = {
         iss: relayIssuer,
         aud: `t3-env:${link.environmentId}`,
-        sub: input.userId,
+        sub: access.teammate?.ownerUserId ?? input.userId,
         jti: yield* random.uuidV4().pipe(
           Effect.mapError(
             (cause) =>
@@ -575,20 +630,15 @@ const make = Effect.gen(function* () {
           reason: "client_proof_key_thumbprint_missing",
         });
       }
-      const { link, allocation } = yield* Effect.all(
-        {
-          link: links.getForUser(input),
-          allocation: allocations.get(input),
-        },
-        { concurrency: 2 },
-      );
-      if (!link) {
+      const access = yield* resolveAccess(input);
+      if (!access) {
         return yield* new EnvironmentConnectNotAuthorized({
           environmentId: input.environmentId,
           operation: "connect",
           reason: "environment_link_not_found",
         });
       }
+      const { link, allocation } = access;
       const endpoint = yield* resolveManagedEndpoint({
         operation: "connect",
         link,
@@ -628,6 +678,7 @@ const make = Effect.gen(function* () {
         ...(input.deviceId ? { deviceId: input.deviceId } : {}),
         nonce,
         scope: ["environment:connect"],
+        ...(access.teammate ? { member: access.teammate.member } : {}),
       } satisfies RelayCloudMintCredentialProofPayload;
       const proof = yield* mint
         .sign({

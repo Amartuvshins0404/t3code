@@ -46,6 +46,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/relay
+      AUTH_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/auth
       RELAY_PUBLIC_URL: https://relay.amartuvshin.com
       RELAY_AUTH_ISSUER: https://auth.amartuvshin.com
       RELAY_AUTH_JWKS_URL: https://auth.amartuvshin.com/api/auth/jwks
