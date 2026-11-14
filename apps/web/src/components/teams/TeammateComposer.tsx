@@ -117,7 +117,7 @@ export function TeammateComposer({
         aria-label="Message"
         placeholder={running ? "Steer the agent while it works" : "Send a message"}
         value={text}
-        disabled={sending}
+        readOnly={sending}
         onChange={(event) => updateText(event.target.value)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.key !== "Enter" || event.shiftKey) return;
