@@ -4,7 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ProviderInteractionMode, RuntimeMode, ScopedThreadRef } from "@t3tools/contracts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useTeamMachine } from "~/cloud/teamWorkspace";
 import { newMessageId } from "~/lib/utils";
@@ -14,6 +14,7 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { teamAccessMessage } from "./teamPresentation";
+import { setTeammateTyping } from "./TeamThreadPresence";
 
 export function TeammateComposer({
   threadRef,
@@ -36,6 +37,17 @@ export function TeammateComposer({
   const [stopping, setStopping] = useState(false);
   const startTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn, { reportFailure: false });
+  const { environmentId, threadId } = threadRef;
+  const updateText = (next: string) => {
+    setText(next);
+    setTeammateTyping({ environmentId, threadId }, next.trim() !== "");
+  };
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears my typing state when I leave the thread
+  useEffect(
+    () => () => setTeammateTyping({ environmentId, threadId }, false),
+    [environmentId, threadId],
+  );
 
   if (mode === "unshared") {
     return (
@@ -66,7 +78,7 @@ export function TeammateComposer({
     });
     setSending(false);
     if (result._tag === "Success") {
-      setText("");
+      updateText("");
       return;
     }
     if (isAtomCommandInterrupted(result)) return;
@@ -105,7 +117,7 @@ export function TeammateComposer({
         placeholder={running ? "Queue a message for after this turn" : "Send a message"}
         value={text}
         disabled={sending}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => updateText(event.target.value)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.key !== "Enter" || event.shiftKey) return;
           event.preventDefault();

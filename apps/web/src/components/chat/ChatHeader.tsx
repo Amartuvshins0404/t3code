@@ -43,6 +43,7 @@ import { textDirection } from "~/textDirection";
 import { useClientSettings } from "../../hooks/useSettings";
 import { GuestShareIndicator } from "./GuestShareControls";
 import { TeamShareIndicator } from "../teams/TeamShareControls";
+import { ThreadPresenceAvatars } from "../teams/TeamThreadPresence";
 import { useIsTeammateEnvironment } from "~/cloud/teamWorkspace";
 
 interface ChatHeaderProps {
@@ -396,6 +397,7 @@ export const ChatHeader = memo(function ChatHeader({
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
+      {isServerThread ? <ThreadPresenceAvatars threadRef={activeThreadRef} /> : null}
       {isServerThread ? <TeamShareIndicator threadRef={activeThreadRef} /> : null}
     </div>
   );

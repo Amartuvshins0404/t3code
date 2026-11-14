@@ -264,6 +264,7 @@ import {
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { TeammateComposer } from "./teams/TeammateComposer";
+import { TeamPresenceReporter, ThreadTypingLine } from "./teams/TeamThreadPresence";
 import { useThreadTeamShare } from "./teams/TeamShareControls";
 import { useIsTeammateEnvironment } from "../cloud/teamWorkspace";
 import { TeamWorkspace } from "@t3tools/client-runtime/relay";
@@ -3543,6 +3544,12 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   >
                     <ChildThreadApprovals threadRef={activeThreadRef} />
+                    {isServerThread ? (
+                      <>
+                        <TeamPresenceReporter threadRef={routeThreadRef} />
+                        <ThreadTypingLine threadRef={routeThreadRef} />
+                      </>
+                    ) : null}
                     <div className="relative">
                       <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                         <ComposerSurface.Host
