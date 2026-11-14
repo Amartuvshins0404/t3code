@@ -113,6 +113,20 @@ describe("decideTeamMemberCommand", () => {
     ).toBe(true);
   });
 
+  it.each([
+    ["/logout", true],
+    ["  /compact", true],
+    ["\n/deploy now", true],
+    ["Read /etc/hosts first", false],
+  ])("decides whether %j would run as a command on the owner's machine", (text, refused) => {
+    const decision = decideTeamMemberCommand({
+      command: { ...message, text },
+      teamShare: share("org-a", "steer"),
+      member,
+    });
+    expect(Result.isFailure(decision)).toBe(refused);
+  });
+
   it.each<OrchestrationV2Command>([
     {
       type: "thread.runtime-mode.set",
