@@ -15,7 +15,7 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
-import { TeamMemberIdentity } from "./team.ts";
+import { TeamMemberIdentity, TeamPerson } from "./team.ts";
 
 export const RelayAgentAwarenessPlatform = Schema.Literals(["ios", "android"]);
 export type RelayAgentAwarenessPlatform = typeof RelayAgentAwarenessPlatform.Type;
@@ -607,6 +607,41 @@ export class RelayInternalError extends Schema.TaggedError<RelayInternalError>()
   }
 }
 
+export class RelayTeamsUnavailableError extends Schema.TaggedError<RelayTeamsUnavailableError>()(
+  "RelayTeamsUnavailableError",
+  {
+    code: Schema.Literal("teams_unavailable"),
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 503 },
+) {
+  override get message(): string {
+    return "Teams are not available on this relay";
+  }
+}
+
+export const RelayTeamAccessDeniedReason = Schema.Literals([
+  "not_team_member",
+  "environment_link_not_found",
+]);
+export type RelayTeamAccessDeniedReason = typeof RelayTeamAccessDeniedReason.Type;
+
+export class RelayTeamAccessDeniedError extends Schema.TaggedError<RelayTeamAccessDeniedError>()(
+  "RelayTeamAccessDeniedError",
+  {
+    code: Schema.Literal("team_access_denied"),
+    reason: RelayTeamAccessDeniedReason,
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 403 },
+) {
+  override get message(): string {
+    return this.reason === "not_team_member"
+      ? "You are not a member of this team"
+      : "No active link to this environment was found";
+  }
+}
+
 export const RelayProtectedError = Schema.Union([
   RelayAuthInvalidError,
   RelayEnvironmentLinkProofExpiredError,
@@ -619,6 +654,8 @@ export const RelayProtectedError = Schema.Union([
   RelayEnvironmentLinkLimitExceededError,
   RelayAgentActivityPublishProofExpiredError,
   RelayAgentActivityPublishProofInvalidError,
+  RelayTeamsUnavailableError,
+  RelayTeamAccessDeniedError,
   RelayInternalError,
 ]);
 export type RelayProtectedError = typeof RelayProtectedError.Type;
@@ -640,6 +677,13 @@ const RelayEnvironmentConnectErrors = [
   RelayEnvironmentConnectNotAuthorizedError,
   RelayEnvironmentEndpointUnavailableError,
   RelayEnvironmentEndpointTimedOutError,
+  RelayInternalError,
+] as const;
+
+const RelayTeamErrors = [
+  RelayAuthInvalidError,
+  RelayTeamsUnavailableError,
+  RelayTeamAccessDeniedError,
   RelayInternalError,
 ] as const;
 
@@ -722,6 +766,49 @@ export const RelayListEnvironmentsResponse = Schema.Struct({
   environments: Schema.Array(RelayClientEnvironmentRecord),
 });
 export type RelayListEnvironmentsResponse = typeof RelayListEnvironmentsResponse.Type;
+
+export const RelayEnvironmentTeamShareRequest = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+});
+export type RelayEnvironmentTeamShareRequest = typeof RelayEnvironmentTeamShareRequest.Type;
+
+export const RelayEnvironmentTeamShareParams = Schema.Struct({
+  environmentId: EnvironmentId,
+  organizationId: TrimmedNonEmptyString,
+});
+export type RelayEnvironmentTeamShareParams = typeof RelayEnvironmentTeamShareParams.Type;
+
+export const RelayEnvironmentTeamShareRecord = Schema.Struct({
+  environmentId: EnvironmentId,
+  organizationId: TrimmedNonEmptyString,
+  sharedAt: TrimmedNonEmptyString,
+});
+export type RelayEnvironmentTeamShareRecord = typeof RelayEnvironmentTeamShareRecord.Type;
+
+export const RelayListEnvironmentTeamSharesResponse = Schema.Struct({
+  shares: Schema.Array(RelayEnvironmentTeamShareRecord),
+});
+export type RelayListEnvironmentTeamSharesResponse =
+  typeof RelayListEnvironmentTeamSharesResponse.Type;
+
+export const RelayTeamParams = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+});
+export type RelayTeamParams = typeof RelayTeamParams.Type;
+
+export const RelayTeamEnvironmentRecord = Schema.Struct({
+  ...RelayClientEnvironmentRecord.fields,
+  organizationId: TrimmedNonEmptyString,
+  owner: TeamPerson,
+  isOwner: Schema.Boolean,
+  sharedAt: TrimmedNonEmptyString,
+});
+export type RelayTeamEnvironmentRecord = typeof RelayTeamEnvironmentRecord.Type;
+
+export const RelayListTeamEnvironmentsResponse = Schema.Struct({
+  environments: Schema.Array(RelayTeamEnvironmentRecord),
+});
+export type RelayListTeamEnvironmentsResponse = typeof RelayListTeamEnvironmentsResponse.Type;
 
 export const RelayEnvironmentConnectRequest = Schema.Struct({
   deviceId: Schema.optional(
@@ -1131,6 +1218,43 @@ const RelayClientGroup = HttpApiGroup.make("client")
         OpenApi.Description,
         "Deletes the provisioned Cloudflare tunnel while keeping the environment link and its hostname reservation, so a later link re-provisions the tunnel under the same URL. Environments call this when they shut down; Cloudflare bills per provisioned tunnel, so idle tunnels should not outlive their environment.",
       ),
+    HttpApiEndpoint.post(
+      "shareEnvironmentWithTeam",
+      "/v1/client/environment-links/:environmentId/team-shares",
+      {
+        headers: RelayBearerRequestHeaders,
+        params: RelayEnvironmentUnlinkParams,
+        payload: RelayEnvironmentTeamShareRequest,
+        success: RelayEnvironmentTeamShareRecord,
+        error: RelayTeamErrors,
+      },
+    ).annotate(OpenApi.Summary, "Share a linked environment with a team"),
+    HttpApiEndpoint.delete(
+      "unshareEnvironmentWithTeam",
+      "/v1/client/environment-links/:environmentId/team-shares/:organizationId",
+      {
+        headers: RelayBearerRequestHeaders,
+        params: RelayEnvironmentTeamShareParams,
+        success: RelayOkResponse,
+        error: RelayTeamErrors,
+      },
+    ).annotate(OpenApi.Summary, "Stop sharing a linked environment with a team"),
+    HttpApiEndpoint.get(
+      "listEnvironmentTeamShares",
+      "/v1/client/environment-links/:environmentId/team-shares",
+      {
+        headers: RelayBearerRequestHeaders,
+        params: RelayEnvironmentUnlinkParams,
+        success: RelayListEnvironmentTeamSharesResponse,
+        error: RelayTeamErrors,
+      },
+    ).annotate(OpenApi.Summary, "List the teams a linked environment is shared with"),
+    HttpApiEndpoint.get("listTeamEnvironments", "/v1/teams/:organizationId/environments", {
+      headers: RelayBearerRequestHeaders,
+      params: RelayTeamParams,
+      success: RelayListTeamEnvironmentsResponse,
+      error: RelayTeamErrors,
+    }).annotate(OpenApi.Summary, "List the environments shared with a team"),
     HttpApiEndpoint.get("getT3ChatLink", "/v1/client/t3chat-link", {
       headers: RelayBearerRequestHeaders,
       success: RelayT3ChatLinkResponse,

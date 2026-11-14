@@ -70,6 +70,12 @@ export function relayProtectedErrorMessage(error: RelayProtectedError): string {
       return "Relay rejected an expired agent activity publish proof.";
     case "RelayAgentActivityPublishProofInvalidError":
       return `Relay rejected the agent activity publish proof (${error.reason}).`;
+    case "RelayTeamsUnavailableError":
+      return "Teams are not available on this relay.";
+    case "RelayTeamAccessDeniedError":
+      return error.reason === "not_team_member"
+        ? "You are not a member of this team."
+        : "Relay has no active link from you to this environment.";
     case "RelayInternalError":
       return `Relay encountered an internal error (${error.reason}).`;
   }
