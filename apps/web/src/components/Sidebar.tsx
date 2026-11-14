@@ -1236,14 +1236,15 @@ function PersonalSidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
         setOpenMobile(false);
       }
       void router.navigate({
-        to: "/projects/$projectKey",
-        params: {
-          projectKey: getSidebarProjectSettingsKey(
+        to: "/settings/projects",
+        search: {
+          project: getSidebarProjectSettingsKey(
             projectGroup,
             projectGroupingSettings,
             projects,
             projectRef,
           ),
+          machine: undefined,
         },
       });
     },

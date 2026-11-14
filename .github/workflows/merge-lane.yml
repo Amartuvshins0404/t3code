@@ -12,39 +12,23 @@ permissions: {}
 
 jobs:
   lane:
-    name: Merge lane
-    if: github.repository == 'Amartuvshins0404/t3code' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    if: github.repository == 'Amartuvshins0404/t3code'
     permissions:
       actions: read
       contents: read
       issues: read
       pull-requests: write
-    concurrency:
-      group: merge-lane-${{ github.event.pull_request.head.repo.full_name || github.event.workflow_run.head_repository.full_name }}:${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
-      cancel-in-progress: false
-      queue: max
-    env:
-      TEST_STRENGTH_MODE: ${{ vars.TEST_STRENGTH_MODE }}
-      BLIND_CHECKS_MODE: ${{ vars.BLIND_CHECKS_MODE }}
-    steps:
-      - name: Checkout base branch rules without the vendored .repos tree
-        shell: bash
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
-          GIT_TERMINAL_PROMPT: "0"
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "refs/heads/$BASE_REF"
-          git sparse-checkout set --no-cone '/*' '!/.repos/'
-          git checkout --detach FETCH_HEAD
+    uses: Amartuvshins0404/agent-trust/.github/workflows/merge-lane.yml@bfcb74f13dec1042f808438e37637810c5473357 # v0 + agent-trust#7
 
-      - name: Judge the lane and test strength, and sync the labels
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const { syncPullRequest } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/merge-lane.cjs`);
-            await syncPullRequest({ github, context, core });
+  result:
+    name: Merge lane
+    needs: lane
+    if: always() && github.repository == 'Amartuvshins0404/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Pass only when the lane job passed
+        env:
+          RESULT: ${{ needs.lane.result }}
+        run: test "$RESULT" = success
