@@ -162,7 +162,11 @@ it("strips a member that any client sends on its own message", () => {
 
 describe("makeTeamShellFilter", () => {
   const project = (id: string) =>
-    ({ id: ProjectId.make(id), title: id }) as unknown as OrchestrationProjectShell;
+    ({
+      id: ProjectId.make(id),
+      title: id,
+      workspaceRoot: `/owner/${id}`,
+    }) as unknown as OrchestrationProjectShell;
   const thread = (id: string, projectId: string, teamShare: ThreadTeamShare | null) =>
     ({
       id: ThreadId.make(id),
@@ -205,6 +209,44 @@ describe("makeTeamShellFilter", () => {
     ).toEqual([]);
     expect(
       filter({ kind: "project.updated", sequence: 12, project: project("p-private") }),
+    ).toEqual([]);
+    expect(
+      filter({
+        kind: "snapshot",
+        snapshot: {
+          schemaVersion: 1,
+          snapshotSequence: 12,
+          projects: [project("p-shared"), project("p-private")],
+          threads: [],
+          archivedThreads: [],
+        },
+        resolvedRepositoryIdentityRoots: ["/owner/p-shared", "/owner/p-private"],
+      }),
+    ).toEqual([
+      {
+        kind: "snapshot",
+        snapshot: {
+          schemaVersion: 1,
+          snapshotSequence: 12,
+          projects: [project("p-shared")],
+          threads: [],
+          archivedThreads: [],
+        },
+        resolvedRepositoryIdentityRoots: ["/owner/p-shared"],
+      },
+    ]);
+    expect(
+      filter({
+        kind: "snapshot",
+        snapshot: {
+          schemaVersion: 1,
+          snapshotSequence: 12,
+          projects: [project("p-private")],
+          threads: [],
+          archivedThreads: [],
+        },
+        resolvedRepositoryIdentityRoots: ["/owner/p-private"],
+      }),
     ).toEqual([]);
 
     expect(
