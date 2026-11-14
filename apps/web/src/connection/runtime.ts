@@ -9,6 +9,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { Atom } from "effect/reactivity";
 
+import { APP_VERSION } from "../branding";
 import { isGuestPage } from "../guestPage";
 
 import * as Runtime from "../lib/runtime";
@@ -38,6 +39,7 @@ const layerProvidedClientConnection = layerSnapshotLoader.pipe(
       environmentThemes: true,
       usageLimitSources: true,
       usageLimitsCommand: true,
+      clientVersion: APP_VERSION,
     }),
   ),
   Layer.provideMerge(

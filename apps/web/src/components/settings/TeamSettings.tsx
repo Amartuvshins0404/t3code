@@ -46,6 +46,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Skeleton } from "../ui/skeleton";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import { TeamSharedMachinesSection } from "./TeamSharedMachines";
 
 export function TeamSettingsPanel() {
   const auth = useCloudAuth();
@@ -458,8 +459,4 @@ function TeamDetail({
       </AlertDialog>
     </>
   );
-}
-
-function TeamSharedMachinesSection(_props: { readonly team: CloudTeamSummary }) {
-  return null;
 }

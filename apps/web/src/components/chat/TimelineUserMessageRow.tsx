@@ -54,6 +54,7 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { GuestMessageName, guestBubbleClassName } from "./guestMessageStyle";
+import { TeamMessageSenderLine, useTeamMessageSender } from "../teams/teamPresence";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { PierreEntryIcon } from "./PierreEntryIcon";
@@ -457,6 +458,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     (attachment) => !isImageAttachment(attachment) && !isFileAttachment(attachment),
   );
   const userMessage = resolveUserMessagePresentation(row.message);
+  const teamSender = useTeamMessageSender(ctx.threadRef, userMessage.member);
+  const ownLabel = teamSender && !teamSender.self ? teamSender.person.name : "You";
   // Messages from other agents fold to one line so the user's own messages stay easy to find.
   const folded = userMessage.attribution === "agent";
   const [expanded, setExpanded] = useState(false);
@@ -842,6 +845,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           Sent by {appBaseName}
         </p>
       ) : null}
+      {teamSender && userMessage.attribution === null && !row.groupedWithPrevious ? (
+        <TeamMessageSenderLine sender={teamSender} />
+      ) : null}
       {/* The row's heading already names the guest for screen readers. */}
       {userMessage.guestName !== undefined ? (
         <div aria-hidden>
@@ -859,7 +865,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       {mediaAboveText ? (
         <div className="flex max-w-[80%] justify-end">
           {/* The heading leads the media so screen readers reach it before the images. */}
-          <MessageAuthorHeading>You</MessageAuthorHeading>
+          <MessageAuthorHeading>{ownLabel}</MessageAuthorHeading>
           {mediaBlock}
         </div>
       ) : null}
@@ -882,7 +888,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             {folded
               ? senderLabel
               : userMessage.guestName === undefined
-                ? "You"
+                ? ownLabel
                 : `${userMessage.guestName} (guest)`}
           </MessageAuthorHeading>
         )}

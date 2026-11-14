@@ -5,6 +5,8 @@ import {
   ManagedRelay,
   managedRelaySessionAtom,
   readManagedRelaySnapshotState,
+  shareManagedRelayEnvironmentWithTeam,
+  unshareManagedRelayEnvironmentWithTeam,
 } from "@t3tools/client-runtime/relay";
 import {
   createAtomCommandScheduler,
@@ -13,6 +15,7 @@ import {
 import type {
   RelayClientDeviceRecord,
   RelayClientEnvironmentRecord,
+  RelayTeamEnvironmentRecord,
 } from "@t3tools/contracts/relay";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -96,6 +99,73 @@ export function useManagedRelayDevices() {
     accountId,
     refresh,
   };
+}
+
+const teamShareScheduler = createAtomCommandScheduler();
+const teamShareConcurrency = {
+  mode: "serial" as const,
+  key: (input: { readonly environmentId: EnvironmentId }) => input.environmentId,
+};
+
+export const shareManagedRelayEnvironmentWithTeamCommand = createRuntimeCommand(
+  managedRelayAtomRuntime,
+  {
+    label: "web:managed-relay:share-environment-with-team",
+    scheduler: teamShareScheduler,
+    concurrency: teamShareConcurrency,
+    execute: (
+      input: {
+        readonly accountId: string;
+        readonly environmentId: EnvironmentId;
+        readonly organizationId: string;
+      },
+      registry,
+    ) => shareManagedRelayEnvironmentWithTeam(registry, input),
+  },
+);
+
+export const unshareManagedRelayEnvironmentWithTeamCommand = createRuntimeCommand(
+  managedRelayAtomRuntime,
+  {
+    label: "web:managed-relay:unshare-environment-with-team",
+    scheduler: teamShareScheduler,
+    concurrency: teamShareConcurrency,
+    execute: (
+      input: {
+        readonly accountId: string;
+        readonly environmentId: EnvironmentId;
+        readonly organizationId: string;
+      },
+      registry,
+    ) => unshareManagedRelayEnvironmentWithTeam(registry, input),
+  },
+);
+
+const EMPTY_TEAM_ENVIRONMENTS_ATOM = Atom.make(
+  AsyncResult.success<ReadonlyArray<RelayTeamEnvironmentRecord>>([]),
+).pipe(Atom.keepAlive, Atom.withLabel("managed-relay:web:team-environments:null"));
+
+const PENDING_TEAM_ENVIRONMENTS_ATOM = Atom.make(
+  AsyncResult.initial<ReadonlyArray<RelayTeamEnvironmentRecord>>(true),
+).pipe(Atom.keepAlive, Atom.withLabel("managed-relay:web:team-environments:pending"));
+
+export function useManagedRelayTeamEnvironments(organizationId: string | null) {
+  const session = useAtomValue(managedRelaySessionAtom);
+  const accountId = session?.accountId ?? null;
+  const atom =
+    organizationId === null
+      ? EMPTY_TEAM_ENVIRONMENTS_ATOM
+      : accountId
+        ? managedRelayQueryManager.teamEnvironmentsAtom(accountId, organizationId)
+        : PENDING_TEAM_ENVIRONMENTS_ATOM;
+  const result = useAtomValue(atom);
+  return { ...readManagedRelaySnapshotState(result), accountId };
+}
+
+export function refreshManagedRelayTeamEnvironments(organizationId: string) {
+  const accountId = appAtomRegistry.get(managedRelaySessionAtom)?.accountId;
+  if (!accountId) return;
+  managedRelayQueryManager.refreshTeamEnvironments(appAtomRegistry, accountId, organizationId);
 }
 
 export function refreshManagedTunnelUsage() {

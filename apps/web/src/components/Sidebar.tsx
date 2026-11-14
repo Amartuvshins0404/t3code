@@ -142,10 +142,11 @@ import {
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
   useDelegatedUnderParent,
-  useProjects,
   useServerConfigs,
-  useQuietThreadShells,
 } from "../state/entities";
+import { useActiveWorkspace } from "../cloud/cloudTeams";
+import { usePersonalProjects, usePersonalQuietThreadShells } from "../cloud/teamWorkspace";
+import { TeamWorkspaceSidebar } from "./sidebar/TeamWorkspaceSidebar";
 import { environmentPresentations } from "../state/presentation";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { environmentProjects } from "../state/projects";
@@ -157,6 +158,8 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { readCanShareWithTeam, readThreadTeamShare } from "./teams/teamShareAvailability";
+import { openTeamShareThreadDialog } from "./teams/teamUiStore";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
@@ -802,7 +805,7 @@ function isOptimisticDropReleased(input: {
 
 // Build maps in a hook so the compiler can prove they are frozen and cache them.
 function useSidebarLookups() {
-  const projects = useProjects();
+  const projects = usePersonalProjects();
   const environments = useEnvironmentIdentities();
   const serverConfigs = useServerConfigs();
   const providerEntriesByEnvironment = useAtomValue(sidebarProviderEntriesAtom);
@@ -897,6 +900,15 @@ function readRouteThreadKey(router: AnyRouter): string | null {
 }
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
+  const workspace = useActiveWorkspace();
+  return workspace.kind === "team" ? (
+    <TeamWorkspaceSidebar team={workspace.team} />
+  ) : (
+    <PersonalSidebar routeReveal={routeReveal} />
+  );
+}
+
+function PersonalSidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
   const {
     projects,
     serverConfigs,
@@ -1100,7 +1112,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
-  const threads = useQuietThreadShells();
+  const threads = usePersonalQuietThreadShells();
   const promotingDraftThreadKeys = usePromotingDraftThreadKeys();
   const listedThreads =
     promotingDraftThreadKeys.length === 0
@@ -2653,6 +2665,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               canShareWithGuest: appAtomRegistry.get(
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
+              canShareWithTeam: readCanShareWithTeam(threadRef.environmentId),
+              isSharedWithTeam: readThreadTeamShare(threadRef) !== null,
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
               supports: {
                 settlement: configLoaded,
@@ -2777,6 +2791,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "share-guest":
             openGuestShareDialog(threadRef);
+            return;
+          case "share-team":
+            openTeamShareThreadDialog(threadRef);
             return;
           case "regenerate-title": {
             if (isRegeneratingTitle) return;

@@ -28,8 +28,13 @@ export class RelayConnectionTarget extends Schema.TaggedClass<RelayConnectionTar
   "RelayConnectionTarget",
   {
     ...ConnectionTargetBase,
+    teammate: Schema.optionalKey(Schema.Literal(true)),
   },
 ) {}
+
+export function isTeammateConnectionTarget(target: ConnectionTarget): boolean {
+  return target._tag === "RelayConnectionTarget" && target.teammate === true;
+}
 
 export class SshConnectionTarget extends Schema.TaggedClass<SshConnectionTarget>()(
   "SshConnectionTarget",

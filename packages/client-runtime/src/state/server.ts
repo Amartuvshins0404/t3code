@@ -1267,6 +1267,46 @@ export function createServerEnvironmentAtoms<R, E>(
 
   return {
     configValueAtom,
+    teamSharedOrganizations: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:team:shared-organizations",
+      tag: WS_METHODS.teamListSharedOrganizations,
+      staleTimeMs: 60_000,
+    }),
+    addTeamSharedOrganization: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:add-shared-organization",
+      tag: WS_METHODS.teamAddSharedOrganization,
+    }),
+    removeTeamSharedOrganization: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:remove-shared-organization",
+      tag: WS_METHODS.teamRemoveSharedOrganization,
+    }),
+    setThreadTeamShare: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:set-thread-share",
+      tag: WS_METHODS.teamSetThreadShare,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => `${environmentId}:${input.threadId}`,
+      },
+    }),
+    clearThreadTeamShare: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:clear-thread-share",
+      tag: WS_METHODS.teamClearThreadShare,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => `${environmentId}:${input.threadId}`,
+      },
+    }),
+    reportTeamPresence: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:report-presence",
+      tag: WS_METHODS.teamReportPresence,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
+    teamPresence: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:team:presence",
+      tag: WS_METHODS.teamSubscribePresence,
+      idleTtlMs: 30_000,
+      transform: (stream) => stream.pipe(Stream.catchCause(() => Stream.empty)),
+    }),
     runStorageCleanup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:run-storage-cleanup",
       tag: WS_METHODS.serverRunStorageCleanup,

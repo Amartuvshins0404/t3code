@@ -35,6 +35,10 @@ function recordEffect(action: string) {
 }
 
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
+vi.mock("../components/teams/teamShareAvailability", () => ({
+  readCanShareWithTeam: () => false,
+  readThreadTeamShare: () => null,
+}));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useMemo: (factory: () => unknown) => factory(),

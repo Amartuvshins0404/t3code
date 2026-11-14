@@ -2,6 +2,11 @@ import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
 import {
+  readCanShareWithTeam,
+  readThreadTeamShare,
+} from "../components/teams/teamShareAvailability";
+import { openTeamShareThreadDialog } from "../components/teams/teamUiStore";
+import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
   settlePromise,
@@ -151,6 +156,8 @@ export function useThreadActionMenu(input: {
         supports,
         snoozePresets,
         canShareWithGuest,
+        canShareWithTeam: readCanShareWithTeam(threadRef.environmentId),
+        isSharedWithTeam: readThreadTeamShare(threadRef) !== null,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
@@ -264,6 +271,9 @@ export function useThreadActionMenu(input: {
           return;
         case "share-guest":
           openGuestShareDialog(threadRef);
+          return;
+        case "share-team":
+          openTeamShareThreadDialog(threadRef);
           return;
         case "turn-into-project": {
           const result = await turnThreadIntoProject(threadRef);

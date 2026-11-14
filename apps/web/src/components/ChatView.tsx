@@ -263,6 +263,11 @@ import {
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { TeammateComposer } from "./teams/TeammateComposer";
+import { TeamPresenceReporter, ThreadTypingLine } from "./teams/TeamThreadPresence";
+import { useThreadTeamShare } from "./teams/teamShareAvailability";
+import { useIsTeammateEnvironment } from "../cloud/teamWorkspace";
+import { TeamWorkspace } from "@t3tools/client-runtime/relay";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
@@ -426,7 +431,9 @@ export default function ChatView(props: ChatViewProps) {
     embedded: parentPanel,
   } = props;
   const embedded = parentPanel !== undefined;
-  const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
+  const teammate = useIsTeammateEnvironment(environmentId);
+  const canOperateThread =
+    useEnvironmentScope(environmentId, AuthOrchestrationOperateScope) && !teammate;
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
@@ -1313,6 +1320,8 @@ export default function ChatView(props: ChatViewProps) {
     conversationProviderStatus !== null &&
     conversationProviderStatus.supportsConversationRollback !== false;
   const phase = derivePhase(activeRuntime);
+  const teamShare = useThreadTeamShare(teammate && isServerThread ? routeThreadRef : null);
+  const composerMode = TeamWorkspace.threadComposerMode({ teammate, teamShare });
   const serverThreadId = serverThread?.id;
   const serverThreadEnvironmentId = serverThread?.environmentId;
   const setThreadError = makeThreadErrorSetter({
@@ -3535,6 +3544,12 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   >
                     <ChildThreadApprovals threadRef={activeThreadRef} />
+                    {isServerThread ? (
+                      <>
+                        <TeamPresenceReporter threadRef={routeThreadRef} />
+                        <ThreadTypingLine threadRef={routeThreadRef} />
+                      </>
+                    ) : null}
                     <div className="relative">
                       <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                         <ComposerSurface.Host
@@ -3566,7 +3581,21 @@ export default function ChatView(props: ChatViewProps) {
                                 }
                               />
                             ) : null}
-                            {!composerMounted ? null : (
+                            {!composerMounted ? null : composerMode !== "owner" &&
+                              isServerThread &&
+                              activeThread ? (
+                              <TeammateComposer
+                                threadRef={routeThreadRef}
+                                mode={composerMode}
+                                running={phase === "running" || phase === "connecting"}
+                                canInterrupt={deriveCanInterruptRunningThread(
+                                  activeThread !== undefined,
+                                  activeRuntime,
+                                )}
+                                runtimeMode={activeThread.runtimeMode}
+                                interactionMode={activeThread.interactionMode}
+                              />
+                            ) : (
                               <ChatComposer
                                 canOperateThread={canOperateThread}
                                 reportedModelSelection={reportedModelSelection}

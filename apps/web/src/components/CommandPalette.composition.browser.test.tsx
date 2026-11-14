@@ -18,6 +18,14 @@ vi.mock("@effect/atom-react", async (original) => ({
   useAtomValue: (atom: unknown) =>
     atom === primaryServerKeybindingsAtom ? DEFAULT_RESOLVED_KEYBINDINGS : [],
 }));
+vi.mock("./teams/teamShareAvailability", () => ({
+  useCanShareWithTeam: () => false,
+  useThreadTeamShare: () => null,
+}));
+vi.mock("../cloud/teamWorkspace", async (original) => ({
+  ...(await original<typeof import("../cloud/teamWorkspace")>()),
+  useIsTeammateEnvironment: () => false,
+}));
 vi.mock("../hooks/useTheme", () => ({
   useRenderedAppearance: () => "light",
   useTheme: () => ({ theme: "t3-chat", resolvedTheme: "light", appearanceMode: "light" }),
