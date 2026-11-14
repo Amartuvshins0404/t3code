@@ -4,6 +4,7 @@ import {
   planTeamConnections,
   shareMachineWithTeam,
   stopSharingMachine,
+  threadComposerMode,
   workspaceListsThread,
   type WorkspaceScope,
 } from "./teamWorkspace.ts";
@@ -68,6 +69,15 @@ describe("workspace scope", () => {
     expect(joined.register).toEqual(["teammate-machine"]);
     expect(joined.remove).toEqual([]);
     expect(joined.tracked).toEqual(["teammate-machine"]);
+  });
+});
+
+describe("thread composer", () => {
+  it("gives a View teammate no composer, and none once the share ends", () => {
+    expect(threadComposerMode({ teammate: true, teamShare: { access: "view" } })).toBe("view");
+    expect(threadComposerMode({ teammate: true, teamShare: null })).toBe("unshared");
+    expect(threadComposerMode({ teammate: true, teamShare: { access: "steer" } })).toBe("steer");
+    expect(threadComposerMode({ teammate: false, teamShare: { access: "view" } })).toBe("owner");
   });
 });
 

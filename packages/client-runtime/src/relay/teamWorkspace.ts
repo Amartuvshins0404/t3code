@@ -26,6 +26,17 @@ export function workspaceListsThread(
   return scope.kind === "personal" || thread.teamShare?.organizationId === scope.teamId;
 }
 
+export type ThreadComposerMode = "owner" | "steer" | "view" | "unshared";
+
+export function threadComposerMode(input: {
+  readonly teammate: boolean;
+  readonly teamShare: Pick<ThreadTeamShare, "access"> | null | undefined;
+}): ThreadComposerMode {
+  if (!input.teammate) return "owner";
+  if (!input.teamShare) return "unshared";
+  return input.teamShare.access === "steer" ? "steer" : "view";
+}
+
 export function orderTeamMachines(
   machines: ReadonlyArray<RelayTeamEnvironmentRecord>,
 ): ReadonlyArray<RelayTeamEnvironmentRecord> {

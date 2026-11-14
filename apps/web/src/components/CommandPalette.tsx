@@ -263,6 +263,7 @@ import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import { useCanShareWithTeam, useThreadTeamShare } from "./teams/TeamShareControls";
 import { teamAccessMessage } from "./teams/teamPresentation";
+import { useIsTeammateEnvironment } from "../cloud/teamWorkspace";
 import { openTeamShareMachineDialog, openTeamShareThreadDialog } from "./teams/teamUiStore";
 import { openUseInAnotherApp } from "./mcp/UseInAnotherAppDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
@@ -511,6 +512,7 @@ function OpenCommandPaletteDialog(props: {
   const canShareActiveThreadWithGuest = useAtomValue(
     canShareWithGuestAtom(activeThread?.environmentId ?? ("" as EnvironmentId)),
   );
+  const activeThreadIsTeammate = useIsTeammateEnvironment(activeThread?.environmentId ?? null);
   const teamShareEnvironmentId = activeThread?.environmentId ?? primaryEnvironmentId;
   const canShareWithTeam = useCanShareWithTeam(teamShareEnvironmentId);
   const activeThreadTeamShare = useThreadTeamShare(
@@ -714,9 +716,12 @@ function OpenCommandPaletteDialog(props: {
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
-  const currentProjectEnvironmentId =
-    activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
-  const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+  const currentProjectEnvironmentId = activeThreadIsTeammate
+    ? null
+    : (activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null);
+  const currentProjectId = activeThreadIsTeammate
+    ? null
+    : (activeThread?.projectId ?? activeDraftThread?.projectId ?? null);
   const scratchTargetEnvironmentId = scratchEnvironmentId(currentProjectEnvironmentId);
   const supportsTriage = (environmentId: EnvironmentId | null) =>
     environments.find((environment) => environment.environmentId === environmentId)?.serverConfig

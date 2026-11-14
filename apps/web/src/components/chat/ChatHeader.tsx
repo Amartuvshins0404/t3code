@@ -43,6 +43,7 @@ import { textDirection } from "~/textDirection";
 import { useClientSettings } from "../../hooks/useSettings";
 import { GuestShareIndicator } from "./GuestShareControls";
 import { TeamShareIndicator } from "../teams/TeamShareControls";
+import { useIsTeammateEnvironment } from "~/cloud/teamWorkspace";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -89,10 +90,10 @@ export const ChatHeader = memo(function ChatHeader({
   const breadcrumbContainerRef = useRef<HTMLDivElement>(null);
   const [collapseParentTitle, setCollapseParentTitle] = useState(false);
   const activeThreadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
-  const canOperateThread = useEnvironmentScope(
-    activeThreadEnvironmentId,
-    AuthOrchestrationOperateScope,
-  );
+  const teammate = useIsTeammateEnvironment(activeThreadEnvironmentId);
+  const ownerThread = isServerThread && !teammate;
+  const canOperateThread =
+    useEnvironmentScope(activeThreadEnvironmentId, AuthOrchestrationOperateScope) && !teammate;
   const canShareWithGuest = useAtomValue(canShareWithGuestAtom(activeThreadEnvironmentId));
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -198,7 +199,7 @@ export const ChatHeader = memo(function ChatHeader({
     });
   };
   const { openMenu, closeMenu } = useThreadActionMenu({
-    threadRef: isServerThread ? activeThreadRef : null,
+    threadRef: ownerThread ? activeThreadRef : null,
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
     onFind: onFindInThread,
@@ -217,7 +218,7 @@ export const ChatHeader = memo(function ChatHeader({
     startRename();
   };
   const handleHeaderContextMenu = (event: ReactMouseEvent) => {
-    if (renamingTitle !== null) return;
+    if (renamingTitle !== null || teammate) return;
     if (!isServerThread && onOpenProjectSettings === undefined) return;
     event.preventDefault();
     if (!isServerThread) {
@@ -258,7 +259,7 @@ export const ChatHeader = memo(function ChatHeader({
         ariaLabel="Thread breadcrumb"
         className="flex-1 overflow-clip [overflow-clip-margin:2px]"
       >
-        {activeProject ? (
+        {activeProject && !teammate ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
               <Tooltip>
@@ -341,7 +342,7 @@ export const ChatHeader = memo(function ChatHeader({
               onFocus={(event) => event.currentTarget.select()}
               onKeyDown={handleRenameKeyDown}
             />
-          ) : isServerThread ? (
+          ) : ownerThread ? (
             <Tooltip>
               <TooltipTrigger
                 render={

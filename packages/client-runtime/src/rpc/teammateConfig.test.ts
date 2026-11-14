@@ -22,15 +22,11 @@ describe("teammate connection", () => {
     Effect.gen(function* () {
       wire.length = 0;
       const client = teammateProtocolClient(fakeClient);
-      const refused = yield* Effect.flip(
-        client[WS_METHODS.serverGetConfig]({}) as Effect.Effect<unknown, unknown>,
-      );
+      const refused = yield* Effect.flip(client[WS_METHODS.serverGetConfig]({}));
       expect(refused).toMatchObject({ _tag: "EnvironmentAuthorizationError" });
-      const stream = client[WS_METHODS.subscribeServerLifecycle]({}) as Stream.Stream<
-        unknown,
-        unknown
-      >;
-      const streamRefusal = yield* Effect.flip(Stream.runDrain(stream));
+      const streamRefusal = yield* Effect.flip(
+        Stream.runDrain(client[WS_METHODS.subscribeServerLifecycle]({})),
+      );
       expect(streamRefusal).toMatchObject({ _tag: "EnvironmentAuthorizationError" });
       expect(wire).toEqual([]);
 
