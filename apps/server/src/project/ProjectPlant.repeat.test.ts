@@ -118,15 +118,17 @@ const harness = (input: {
           return Effect.fail(new OrchestratorProjectionError({ threadId }));
         const launch = launched.find((candidate) => candidate.threadId === threadId);
         return Effect.succeed(
-          launch === undefined
+          launch === undefined || deleted.has(threadId)
             ? null
             : ({
                 id: threadId,
                 projectId: launch.projectId,
-                deletedAt: deleted.has(threadId) ? "2026-11-14T00:00:00.000Z" : null,
+                deletedAt: null,
               } as unknown as OrchestrationV2ThreadShell),
         );
       },
+      hasReceipt: (commandId) =>
+        Effect.succeed(launched.some((launch) => launch.commandId === commandId)),
     }),
     Layer.mock(ThreadLaunch.ThreadLaunchService)({
       checkWorktreeBase: () => Effect.void,
