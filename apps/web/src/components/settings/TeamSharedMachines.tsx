@@ -74,7 +74,7 @@ export function machineShareHint(state: MachineShareState, teamName: string): st
   }
 }
 
-export async function setMachineShared(input: {
+async function setMachineShared(input: {
   readonly environmentId: EnvironmentId;
   readonly team: Pick<CloudTeamSummary, "id" | "name">;
   readonly label: string;
@@ -136,14 +136,16 @@ export function TeamSharedMachinesSection({ team }: { readonly team: CloudTeamSu
   );
 }
 
-function MyMachineRow({
+export function MyMachineRow({
   machine,
   team,
   relayShared,
+  title,
 }: {
   readonly machine: RelayClientEnvironmentRecord;
   readonly team: CloudTeamSummary;
   readonly relayShared: boolean;
+  readonly title?: string;
 }) {
   const state = useMachineShareState(machine.environmentId, team.id, relayShared);
   const [busy, setBusy] = useState(false);
@@ -153,7 +155,7 @@ function MyMachineRow({
     (state.kind === "ready" || (shared && (state.kind === "offline" || state.kind === "unlinked")));
   return (
     <SettingsRow
-      title={machine.label}
+      title={title ?? machine.label}
       description={machineShareHint(state, team.name)}
       control={
         <Switch

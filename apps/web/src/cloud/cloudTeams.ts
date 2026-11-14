@@ -95,6 +95,10 @@ export function useCloudTeamsState(): CloudTeamsState {
   );
 }
 
+export function readCloudTeamsState(): CloudTeamsState {
+  return getCloudTeamsStore()?.getState() ?? SIGNED_OUT;
+}
+
 export function getCloudTeams(): CloudTeams | null {
   return getCloudTeamsStore()?.teams ?? null;
 }

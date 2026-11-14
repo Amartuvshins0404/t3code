@@ -158,6 +158,8 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { readCanShareWithTeam, readThreadTeamShare } from "./teams/TeamShareControls";
+import { openTeamShareThreadDialog } from "./teams/teamUiStore";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
@@ -2663,6 +2665,8 @@ function PersonalSidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
               canShareWithGuest: appAtomRegistry.get(
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
+              canShareWithTeam: readCanShareWithTeam(threadRef.environmentId),
+              isSharedWithTeam: readThreadTeamShare(threadRef) !== null,
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
               supports: {
                 settlement: configLoaded,
@@ -2787,6 +2791,9 @@ function PersonalSidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
             return;
           case "share-guest":
             openGuestShareDialog(threadRef);
+            return;
+          case "share-team":
+            openTeamShareThreadDialog(threadRef);
             return;
           case "regenerate-title": {
             if (isRegeneratingTitle) return;

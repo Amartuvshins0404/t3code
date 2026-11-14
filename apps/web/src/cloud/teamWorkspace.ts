@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  isTeammateConnectionTarget,
   RelayConnectionRegistration,
   RelayConnectionTarget,
 } from "@t3tools/client-runtime/connection";
@@ -7,6 +8,7 @@ import { TeamWorkspace } from "@t3tools/client-runtime/relay";
 import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { RelayTeamEnvironmentRecord } from "@t3tools/contracts/relay";
+import { Atom } from "effect/reactivity";
 import { useEffect, useSyncExternalStore } from "react";
 
 import type {
@@ -160,8 +162,23 @@ export function useTeamMachine(
   return state.machines.find((machine) => machine.environmentId === environmentId) ?? null;
 }
 
+export const teammateConnectionAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get) => {
+    const entry = get(environmentCatalog.catalogValueAtom).entries.get(environmentId);
+    return entry !== undefined && isTeammateConnectionTarget(entry.target);
+  }).pipe(Atom.withLabel(`team-workspace:teammate:${environmentId}`)),
+);
+
+const NOT_TEAMMATE_ATOM = Atom.make(false).pipe(Atom.withLabel("team-workspace:not-teammate"));
+
 export function useIsTeammateEnvironment(environmentId: EnvironmentId | null): boolean {
-  return useTeamMachine(environmentId)?.isOwner === false;
+  return useAtomValue(
+    environmentId === null ? NOT_TEAMMATE_ATOM : teammateConnectionAtom(environmentId),
+  );
+}
+
+export function readIsTeammateEnvironment(environmentId: EnvironmentId): boolean {
+  return appAtomRegistry.get(teammateConnectionAtom(environmentId));
 }
 
 export function usePersonalProjects(): ReadonlyArray<EnvironmentProject> {
