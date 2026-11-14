@@ -3,6 +3,7 @@ import {
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
+import { countProjectBoard } from "@t3tools/client-runtime/state/projects";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import type { AnyRouter } from "@tanstack/react-router";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
@@ -58,7 +59,7 @@ interface WatchedEnvironment {
 
 /**
  * Turns thread status transitions in every connected environment into sounds, in-app toasts,
- * and desktop notifications, and keeps the dock badge in step with the unread ones.
+ * and desktop notifications, and keeps the app badge at the number of threads that need the user.
  */
 export function startThreadNotifications(
   registry: AtomRegistry.AtomRegistry,
@@ -77,7 +78,6 @@ export function startThreadNotifications(
   ) => {
     pending.get(notification.tag)?.notification.close();
     pending.set(notification.tag, { environmentId, threadId, notification });
-    setNotificationBadge(pending.size);
   };
   // Toast ids by thread key, so hiding or opening a thread can close its open toasts.
   const openToasts = new Map<string, Array<ToastId>>();
@@ -113,18 +113,21 @@ export function startThreadNotifications(
       : null;
     const shouldClose = (key: string) => hidden.has(key) || (live !== null && !live.has(key));
     closeToasts(shouldClose);
-    const count = pending.size;
     for (const [tag, entry] of pending) {
       if (!shouldClose(threadKey(entry))) continue;
       entry.notification.close();
       pending.delete(tag);
     }
-    if (count !== pending.size) setNotificationBadge(pending.size);
   };
   const clearPending = () => {
     for (const { notification } of pending.values()) notification.close();
     pending.clear();
-    setNotificationBadge(0);
+  };
+  let badgeCount: number | null = null;
+  const showBadge = (count: number) => {
+    if (count === badgeCount) return;
+    badgeCount = count;
+    setNotificationBadge(count);
   };
 
   const present = (
@@ -373,13 +376,11 @@ export function startThreadNotifications(
 
   const pruneRemovedEnvironments = () => {
     const activeIds = new Set(registry.get(environmentSummaries.environmentIdsAtom));
-    const count = pending.size;
     for (const [tag, entry] of pending) {
       if (activeIds.has(entry.environmentId)) continue;
       entry.notification.close();
       pending.delete(tag);
     }
-    if (count !== pending.size) setNotificationBadge(pending.size);
   };
 
   // Listeners that only exist for some notification modes, rebuilt when the mode changes.
@@ -393,13 +394,19 @@ export function startThreadNotifications(
     clearPending();
     const stops: Array<() => void> = [];
     if (hasDesktopNotifications(nextMode)) {
-      const unsubscribeBadgeClear = window.desktopBridge?.onNotificationBadgeClear(clearPending);
+      const unsubscribeBadge = registry.subscribe(
+        environmentThreadShells.quietThreadShellsAtom,
+        (threads) => showBadge(countProjectBoard(threads)["needs-you"]),
+        { immediate: true },
+      );
       window.addEventListener("focus", clearPending);
       stops.push(() => {
-        unsubscribeBadgeClear?.();
+        unsubscribeBadge();
         window.removeEventListener("focus", clearPending);
         clearPending();
       });
+    } else {
+      showBadge(0);
     }
     if (hasNotificationSound(nextMode)) {
       document.addEventListener("pointerdown", unlockNotificationAudio);
@@ -442,6 +449,7 @@ export function startThreadNotifications(
     for (const entry of watched.values()) entry.unsubscribe();
     watched.clear();
     stopModeListeners();
+    showBadge(0);
     closeToasts(() => true);
   };
 }
