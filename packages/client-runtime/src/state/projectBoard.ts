@@ -1,7 +1,8 @@
 import { isListedThreadLineage, type ThreadPullRequestLink } from "@t3tools/contracts";
 
+import { scopedProjectKey, scopeProjectRef } from "../environment/scoped.ts";
 import { resolveThreadCurrentPullRequestLink } from "../threadPullRequests.ts";
-import type { EnvironmentThreadShell } from "./models.ts";
+import type { EnvironmentProject, EnvironmentThreadShell } from "./models.ts";
 import {
   isThreadWorking,
   threadAttentionReason,
@@ -154,6 +155,23 @@ export function buildProjectBoard(
       cards: id === "done" ? cards.slice(0, doneLimit) : cards,
     };
   });
+}
+
+export function dropArchivedProjectThreads(
+  projects: ReadonlyArray<Pick<EnvironmentProject, "environmentId" | "id" | "archivedAt">>,
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+): ReadonlyArray<EnvironmentThreadShell> {
+  const archived = new Set<string>();
+  for (const project of projects) {
+    if (project.archivedAt != null) {
+      archived.add(scopedProjectKey(scopeProjectRef(project.environmentId, project.id)));
+    }
+  }
+  if (archived.size === 0) return threads;
+  return threads.filter(
+    (thread) =>
+      !archived.has(scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId))),
+  );
 }
 
 export function countProjectBoard(

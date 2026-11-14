@@ -1,3 +1,4 @@
+import { presentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { AnyRouter } from "@tanstack/react-router";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -63,6 +64,9 @@ vi.mock(import("../state/threads"), async (original) => {
       get delegatedUnderParentAtom() {
         return noDelegatedAtom as never;
       },
+      get quietThreadShellsAtom() {
+        return quietThreadShellsAtom as never;
+      },
     },
   };
 });
@@ -91,6 +95,18 @@ const shellAtom = Atom.family((_id: string) => Atom.make<unknown>(null));
 const environmentIdsAtom = Atom.make<ReadonlyArray<string>>([]);
 const noRequestsAtom = Atom.make(new Map());
 const noDelegatedAtom = Atom.make<ReadonlySet<string>>(new Set<string>());
+const quietThreadShellsAtom = Atom.make((get) =>
+  get(environmentIdsAtom).flatMap((id) => {
+    const value = get(shellAtom(id)) as {
+      snapshot: Option.Option<{ threads: ReadonlyArray<unknown> }>;
+    } | null;
+    return value === null || Option.isNone(value.snapshot)
+      ? []
+      : value.snapshot.value.threads.map((raw) =>
+          presentThreadShell(EnvironmentId.make(id), raw as never),
+        );
+  }),
+);
 state.shells = { set: (id, value) => registry.set(shellAtom(id), value) };
 
 class TestNotification extends EventTarget {
@@ -241,7 +257,7 @@ function setup() {
 }
 
 it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
-  "badges %s and clears when notifications are disabled",
+  "badges %s and follows the notification setting both ways",
   async (flag) => {
     await using app = setup();
     app.start();
@@ -257,6 +273,103 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     app.changeSettings();
     expect(state.badge).toHaveBeenLastCalledWith(0);
     expect(notification.close).toHaveBeenCalled();
+    state.mode = "notifications";
+    app.changeSettings();
+    expect(state.badge).toHaveBeenLastCalledWith(1);
+  },
+);
+
+it("badges threads that need you in every environment and keeps the count when the app gets focus", async () => {
+  await using app = setup();
+  app.start();
+  state.shells.set("one", shell({ hasPendingApprovals: true }));
+  expect(state.badge).toHaveBeenLastCalledWith(1);
+  const notification = TestNotification.sent[0]!;
+  focused = true;
+  state.shells.set("two", shell({ hasPendingUserInput: true }));
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+  window.dispatchEvent(new Event("focus"));
+  expect(notification.close).toHaveBeenCalled();
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+  app.openThread("one", "thread");
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+});
+
+it("lowers the badge when a thread stops needing you, and only redraws when the count changes", async () => {
+  await using app = setup();
+  focused = true;
+  app.start();
+  state.shells.set("one", shell({ hasPendingApprovals: true }, { id: "working" }));
+  expect(state.badge).toHaveBeenLastCalledWith(1);
+  const calls = state.badge.mock.calls.length;
+  state.shells.set(
+    "one",
+    shell({ hasPendingApprovals: true }, { id: "working", title: "Renamed while working" }),
+  );
+  expect(state.badge).toHaveBeenCalledTimes(calls);
+  state.shells.set("one", shell({}, { id: "working", hasPendingUserInput: true }));
+  expect(state.badge).toHaveBeenCalledTimes(calls);
+  state.shells.set("one", shell({}, { id: "working" }));
+  expect(state.badge).toHaveBeenLastCalledWith(0);
+});
+
+it("counts threads already waiting at start, leaving out the ones the projects page leaves out", async () => {
+  await using app = setup();
+  const waiting = (id: string, extra: Record<string, unknown> = {}) => ({
+    ...toV2ThreadShell({ ...thread, id, hasPendingApprovals: true }),
+    ...extra,
+  });
+  state.shells.set("one", {
+    status: "live",
+    snapshot: Option.some({
+      threads: [
+        waiting("thread"),
+        waiting("archived", { archivedAt: SHELL_NOW }),
+        waiting("deleted", { deletedAt: SHELL_NOW }),
+        waiting("helper", {
+          lineage: {
+            rootThreadId: "thread",
+            parentThreadId: "thread",
+            relationshipToParent: "subagent",
+          },
+        }),
+        waiting("side-chat", {
+          lineage: {
+            rootThreadId: "thread",
+            parentThreadId: "thread",
+            relationshipToParent: null,
+            sideChat: true,
+          },
+        }),
+      ],
+    }),
+  });
+  state.shells.set(
+    "two",
+    shell({
+      id: "failed",
+      latestTurn: { turnId: "turn", state: "error", completedAt: "2026-09-13T07:00:01.000Z" },
+    }),
+  );
+  app.start();
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+});
+
+it.each(["off", "sound"])(
+  "shows no badge in %s mode and shows the count as soon as notifications turn on",
+  async (mode) => {
+    await using app = setup();
+    state.mode = mode;
+    app.start();
+    state.shells.set("one", shell({ hasPendingApprovals: true }));
+    state.shells.set("two", shell({ hasPendingUserInput: true }));
+    expect(state.badge.mock.calls.filter(([count]) => count !== 0)).toEqual([]);
+    state.mode = "notifications-and-sound";
+    app.changeSettings();
+    expect(state.badge).toHaveBeenLastCalledWith(2);
+    state.mode = mode;
+    app.changeSettings();
+    expect(state.badge).toHaveBeenLastCalledWith(0);
   },
 );
 
