@@ -9,12 +9,12 @@ import {
   type ProjectPlantStartResult,
   type ProjectPlantStatus,
   type ProjectPlantUnavailableReason,
+  type ProviderInteractionMode,
   type RuntimeMode,
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
-import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
@@ -22,8 +22,10 @@ import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { runtimeModeRank } from "../mcp/delegatedTaskModes.ts";
+import { OrchestratorRuntimeModeAboveCeilingError } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -35,6 +37,8 @@ const MERGE_LANE_PATH = ".github/workflows/merge-lane.yml";
 const BLIND_CHECKS_PATH = ".github/workflows/blind-checks.yml";
 const MERGE_LANE_CALL = "Amartuvshins0404/agent-trust/.github/workflows/merge-lane.yml@";
 const BLIND_CHECKS_CALL = "Amartuvshins0404/agent-trust/.github/workflows/blind-checks.yml@";
+const MAX_PLANT_ATTEMPTS = 20;
+const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
 
 export const threadTitle = (action: ProjectPlantAction) =>
   action === "plant" ? "Plant agent-trust" : "Unplant agent-trust";
@@ -92,6 +96,7 @@ export class ProjectPlant extends Context.Service<
       readonly createdBy: OrchestrationV2Actor;
       readonly creationSource: OrchestrationV2CreationSource;
       readonly runtimeMode?: RuntimeMode;
+      readonly interactionMode?: ProviderInteractionMode;
     }) => Effect.Effect<ProjectPlantStartResult, ProjectPlantError>;
   }
 >()("t3/project/ProjectPlant") {}
@@ -178,17 +183,30 @@ const make = Effect.gen(function* () {
     action: ProjectPlantAction,
     projectId: ProjectId,
     commit: string,
+    attempt: number,
   ) {
-    // @effect-diagnostics-next-line globalJsonInEffect:off - a JSON tuple keeps the three parts apart.
-    const bytes = new TextEncoder().encode(JSON.stringify([action, projectId, commit]));
+    const parts =
+      attempt === 0 ? [action, projectId, commit] : [action, projectId, commit, attempt];
+    // @effect-diagnostics-next-line globalJsonInEffect:off - a JSON tuple keeps the parts apart.
+    const bytes = new TextEncoder().encode(JSON.stringify(parts));
     const hash = yield* digest.digest(Digest.sha256, bytes).pipe(Effect.orDie);
     return CommandId.make(`project-plant:${Hex.encode(hash)}`);
   });
 
-  const liveThread = (threadId: ThreadId) =>
-    threads
-      .getThreadShell(threadId)
-      .pipe(Effect.map((shell) => (shell !== null && shell.deletedAt === null ? shell : null)));
+  const findPlantSlot = Effect.fn("ProjectPlant.findSlot")(function* (
+    action: ProjectPlantAction,
+    projectId: ProjectId,
+    commit: string,
+  ) {
+    for (let attempt = 0; attempt < MAX_PLANT_ATTEMPTS; attempt++) {
+      const commandId = yield* plantCommandId(action, projectId, commit, attempt);
+      const threadId = ThreadId.make(commandId);
+      const shell = yield* threads.getThreadShell(threadId);
+      if (shell === null) return { _tag: "free", commandId } as const;
+      if (shell.deletedAt === null) return { _tag: "open", threadId } as const;
+    }
+    return { _tag: "exhausted" } as const;
+  });
 
   const readStatus: ProjectPlant["Service"]["readStatus"] = Effect.fn("ProjectPlant.readStatus")(
     function* ({ projectId }) {
@@ -196,9 +214,14 @@ const make = Effect.gen(function* () {
       const reading = yield* readDefaultBranch(project.workspaceRoot);
       if (reading._tag === "unavailable" || reading._tag === "blocked") return reading;
       const action = reading._tag === "planted" ? "unplant" : "plant";
-      const threadId = ThreadId.make(yield* plantCommandId(action, projectId, reading.base.commit));
-      const open = yield* liveThread(threadId).pipe(Effect.orDie);
-      return { _tag: reading._tag, openThread: open === null ? null : { threadId } };
+      const slot = yield* findPlantSlot(action, projectId, reading.base.commit).pipe(
+        Effect.orElseSucceed(() => null),
+      );
+      if (slot === null) return { _tag: "unavailable", reason: "read_failed" } as const;
+      return {
+        _tag: reading._tag,
+        openThread: slot._tag === "open" ? { threadId: slot.threadId } : null,
+      };
     },
   );
 
@@ -207,7 +230,9 @@ const make = Effect.gen(function* () {
       const { projectId, action } = input;
       const refuse = (
         reason: ProjectPlantError["reason"],
-        details: Partial<Pick<ProjectPlantError, "file" | "unavailableReason" | "cause">> = {},
+        details: Partial<
+          Pick<ProjectPlantError, "file" | "unavailableReason" | "ceiling" | "cause">
+        > = {},
       ) => new ProjectPlantError({ projectId, reason, ...details });
       const project = yield* loadProject(projectId);
       const reading = yield* readDefaultBranch(project.workspaceRoot);
@@ -218,17 +243,14 @@ const make = Effect.gen(function* () {
       if (action === "unplant" && reading._tag === "not_planted")
         return yield* refuse("not_planted");
 
-      const derivedCommandId = yield* plantCommandId(action, projectId, reading.base.commit);
-      const derivedThreadId = ThreadId.make(derivedCommandId);
-      const existing = yield* threads
-        .getThreadShell(derivedThreadId)
-        .pipe(Effect.mapError((cause) => refuse("launch_failed", { cause })));
-      if (existing !== null && existing.deletedAt === null)
-        return { threadId: derivedThreadId, reused: true };
-      const commandId =
-        existing === null
-          ? derivedCommandId
-          : CommandId.make(`project-plant:${yield* randomUuidV4}`);
+      const slot = yield* findPlantSlot(action, projectId, reading.base.commit).pipe(
+        Effect.mapError((cause) =>
+          refuse("unavailable", { unavailableReason: "read_failed", cause }),
+        ),
+      );
+      if (slot._tag === "open") return { threadId: slot.threadId, reused: true };
+      if (slot._tag === "exhausted") return yield* refuse("launch_failed");
+      const { commandId } = slot;
 
       const settings = yield* serverSettings.getSettings.pipe(
         Effect.mapError((cause) => refuse("launch_failed", { cause })),
@@ -265,7 +287,7 @@ const make = Effect.gen(function* () {
           title: threadTitle(action),
           modelSelection,
           runtimeMode,
-          interactionMode: "default",
+          interactionMode: input.interactionMode ?? "default",
           workspaceStrategy,
           initialMessage: {
             messageId: MessageId.make(commandId),
@@ -275,7 +297,19 @@ const make = Effect.gen(function* () {
           createdBy: input.createdBy,
           creationSource: input.creationSource,
         })
-        .pipe(Effect.mapError((cause) => refuse("launch_failed", { cause })));
+        .pipe(
+          Effect.mapError((cause) =>
+            cause._tag === "ThreadLaunchError" && isAboveCeilingError(cause.cause)
+              ? refuse("launch_failed", {
+                  cause,
+                  ceiling: {
+                    organization: cause.cause.organization,
+                    maxRuntimeMode: cause.cause.maxRuntimeMode,
+                  },
+                })
+              : refuse("launch_failed", { cause }),
+          ),
+        );
       return { threadId: launched.threadId, reused: false };
     },
   );

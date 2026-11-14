@@ -35,7 +35,6 @@ import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../t
 import { ProjectToolkit } from "./tools.ts";
 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
-const isThreadLaunchError = Schema.is(ThreadLaunch.ThreadLaunchError);
 
 function projectFailure(error: Project.ProjectServiceError) {
   if (error._tag === "ProjectOperationError") return unavailable();
@@ -338,14 +337,14 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         });
       const plant = yield* ProjectPlant.ProjectPlant.pipe(
         Effect.flatMap((service) => service.readStatus({ projectId: input.projectId })),
-        Effect.mapError(unavailable),
+        Effect.orElseSucceed(() => ({ _tag: "unavailable", reason: "read_failed" }) as const),
       );
       return { ...result.value, plant };
     }),
   ),
   t3_project_plant: McpToolAccess.startsThreads(
     () => ({}),
-    (input, { runtimeMode }) =>
+    (input, { runtimeMode, interactionMode }) =>
       Effect.gen(function* () {
         const scope = yield* McpInvocationContext.McpInvocationContext;
         const result = yield* ProjectPlant.ProjectPlant.pipe(
@@ -356,6 +355,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
               createdBy: "agent",
               creationSource: "mcp",
               runtimeMode,
+              interactionMode,
             }),
           ),
           Effect.mapError((error) => {
@@ -364,11 +364,10 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 code: "invalid_request",
                 message: `${error.reason}: ${error.message} No thread was started.`,
               });
-            const launchCause = error.cause;
-            if (isThreadLaunchError(launchCause) && isAboveCeilingError(launchCause.cause))
+            if (error.ceiling !== undefined)
               return new OrchestratorMcpFailure({
                 code: "invalid_request",
-                message: launchCause.cause.message,
+                message: error.message,
               });
             return unavailable();
           }),
