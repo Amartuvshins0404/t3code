@@ -39,3 +39,48 @@ export const TeamPresenceEntry = Schema.Struct({
   typing: Schema.Boolean,
 });
 export type TeamPresenceEntry = typeof TeamPresenceEntry.Type;
+
+export const TeamSharedOrganizations = Schema.Struct({
+  organizationIds: Schema.Array(TrimmedNonEmptyString),
+});
+export type TeamSharedOrganizations = typeof TeamSharedOrganizations.Type;
+
+export const TeamSharedOrganizationInput = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+});
+export type TeamSharedOrganizationInput = typeof TeamSharedOrganizationInput.Type;
+
+export const TeamThreadShareSetInput = Schema.Struct({
+  threadId: ThreadId,
+  organizationId: TrimmedNonEmptyString,
+  access: TeamThreadAccess,
+});
+export type TeamThreadShareSetInput = typeof TeamThreadShareSetInput.Type;
+
+export const TeamThreadShareClearInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type TeamThreadShareClearInput = typeof TeamThreadShareClearInput.Type;
+
+export const TeamPresenceReportInput = Schema.Struct({
+  threadId: Schema.optional(ThreadId),
+  typing: Schema.Boolean,
+});
+export type TeamPresenceReportInput = typeof TeamPresenceReportInput.Type;
+
+export const TeamPresenceSnapshot = Schema.Struct({
+  entries: Schema.Array(TeamPresenceEntry),
+});
+export type TeamPresenceSnapshot = typeof TeamPresenceSnapshot.Type;
+
+export class TeamAccessError extends Schema.TaggedError<TeamAccessError>()("TeamAccessError", {
+  reason: Schema.Literals([
+    "not_allowed_for_teammates",
+    "organization_not_shared",
+    "thread_not_shared",
+    "thread_view_only",
+    "thread_unavailable",
+    "internal",
+  ]),
+  message: Schema.String,
+}) {}

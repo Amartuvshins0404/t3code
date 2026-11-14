@@ -596,6 +596,8 @@ export function threadHasUnfinishedWork(records: {
 function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
   switch (command.type) {
     case "thread.create":
+    case "thread.team-share.set":
+    case "thread.team-share.clear":
     case "thread.archive":
     case "thread.unarchive":
     case "thread.delete":
@@ -3668,6 +3670,52 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: decided.success,
     });
     yield* releaseGuestAttachments(command, thread.guestShare, decided.success.guestShare, effects);
+  });
+
+  const dispatchTeamShare = Effect.fn("orchestrationV2.dispatch.teamShare")(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.team-share.set" | "thread.team-share.clear" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    if (thread.deletedAt !== null) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${command.threadId} is deleted.`,
+      });
+    }
+    const current = thread.teamShare ?? null;
+    const now = yield* DateTime.now;
+    const teamShare =
+      command.type === "thread.team-share.clear"
+        ? null
+        : current?.organizationId === command.organizationId && current.access === command.access
+          ? current
+          : {
+              organizationId: command.organizationId,
+              access: command.access,
+              sharedAt: DateTime.formatIso(now),
+            };
+    if (teamShare === current) return;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.team-share-updated",
+      threadId: command.threadId,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: { ...thread, teamShare },
+    });
   });
 
   // Emitted before the message so the send and the status change commit together, and so
@@ -14132,6 +14180,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.guest-message.submit":
       case "thread.guest-message.dismiss":
         yield* dispatchGuestShare(command, events, effects);
+        break;
+      case "thread.team-share.set":
+      case "thread.team-share.clear":
+        yield* dispatchTeamShare(command, events);
         break;
       case "provider-session.detach":
         yield* dispatchProviderSessionDetach(command, events, effects);
