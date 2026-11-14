@@ -12,6 +12,7 @@ import {
   OrchestrationV2TurnItem,
   OrchestrationV2ThreadTranscript,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
+  type TeamMemberIdentity,
   ThreadId,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
@@ -97,7 +98,7 @@ const items = Schema.decodeUnknownSync(Schema.Array(OrchestrationV2TurnItem))(
 );
 
 // Serves the orchestration HTTP routes over real stores; `allowed` gates the read scope.
-const serveOrchestrationHttp = (allowed: () => boolean) =>
+const serveOrchestrationHttp = (allowed: () => boolean, member?: TeamMemberIdentity) =>
   Effect.gen(function* () {
     const runtime = ProviderReplayHarness.layerWithRegistry(
       { name: "thread-transcript" },
@@ -144,6 +145,7 @@ const serveOrchestrationHttp = (allowed: () => boolean) =>
                 subject: "test",
                 method: "bearer-access-token",
                 scopes: new Set<AuthEnvironmentScope>(allowed() ? ["orchestration:read"] : []),
+                ...(member === undefined ? {} : { member }),
               }),
             ),
           ),
@@ -293,4 +295,68 @@ it.effect("leaves older settled threads out of the HTTP shell only when asked", 
     );
     expect(cut.olderSettled?.counts).toEqual([{ projectId: thread.projectId, count: 1 }]);
   }),
+);
+
+it.effect(
+  "answers a teammate's shell and thread reads only for threads shared with their team",
+  () =>
+    Effect.gen(function* () {
+      const { eventSink, handler } = yield* serveOrchestrationHttp(() => true, {
+        userId: "user-ana",
+        name: "Ana",
+        organizationId: "org-a",
+        organizationSlug: "team-a",
+        role: "member",
+      });
+      const sharedAt = "2026-11-14T00:00:00.000Z";
+      const threads = [
+        { id: "shared", teamShare: { organizationId: "org-a", access: "view", sharedAt } },
+        { id: "other-team", teamShare: { organizationId: "org-b", access: "steer", sharedAt } },
+      ] as const;
+      yield* eventSink.write({
+        events: threads.map(({ id, teamShare }) => ({
+          id: EventId.make(`create-${id}`),
+          type: "thread.created" as const,
+          threadId: ThreadId.make(id),
+          occurredAt: now,
+          payload: {
+            ...thread,
+            id: ThreadId.make(id),
+            lineage: { ...thread.lineage, rootThreadId: ThreadId.make(id) },
+            teamShare,
+          },
+        })),
+      });
+      const get = (path: string) =>
+        Effect.promise(() =>
+          handler(
+            new Request(`http://localhost${path}`, {
+              headers: { [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT },
+            }),
+          ),
+        );
+
+      const shell = (yield* Effect.promise(async () =>
+        (
+          await handler(
+            new Request("http://localhost/api/orchestration/shell?omitOlderSettled=1", {
+              headers: { [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT },
+            }),
+          )
+        ).json(),
+      )) as { readonly threads: ReadonlyArray<{ readonly id: string }> };
+      expect(shell.threads.map((row) => row.id)).toEqual(["shared"]);
+
+      for (const suffix of ["", "/bounded", "/history?cursor=x"]) {
+        for (const threadId of [thread.id, "other-team", "missing"]) {
+          const response = yield* get(`/api/orchestration/threads/${threadId}${suffix}`);
+          expect([threadId, suffix, response.status]).toEqual([threadId, suffix, 404]);
+          expect(yield* Effect.promise(() => response.json())).toMatchObject({
+            reason: "thread_not_found",
+          });
+        }
+      }
+      expect((yield* get("/api/orchestration/threads/shared")).status).toBe(200);
+      expect((yield* get("/api/orchestration/threads/shared/bounded")).status).toBe(200);
+    }),
 );

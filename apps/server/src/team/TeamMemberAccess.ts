@@ -7,6 +7,7 @@ import {
   type OrchestrationMessageContext,
   type OrchestrationProjectShell,
   type OrchestrationV2Command,
+  type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2ThreadShell,
   type ProjectId,
@@ -40,6 +41,24 @@ const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.teamReportPresence,
   WS_METHODS.teamSubscribePresence,
 ]);
+
+const TEAM_MEMBER_HTTP_ENDPOINTS: ReadonlySet<string> = new Set([
+  "auth.webSocketTicket",
+  "orchestration.shellSnapshot",
+  "orchestration.threadSnapshot",
+  "orchestration.threadBoundedSnapshot",
+  "orchestration.threadHistoryPage",
+]);
+
+export const teamMemberMayUseHttpEndpoint = (input: {
+  readonly group: string;
+  readonly endpoint: string;
+  readonly pathname: string | undefined;
+}) => {
+  const key = `${input.group}.${input.endpoint}`;
+  if (key === "auth.webSocketTicketFor") return input.pathname?.endsWith("/rpc") === true;
+  return TEAM_MEMBER_HTTP_ENDPOINTS.has(key);
+};
 
 const teamMemberRpcRefusal = (method: string, requiredScope: AuthEnvironmentScope) =>
   new EnvironmentAuthorizationError({
@@ -276,4 +295,14 @@ export function visiblePresenceEntries(input: {
     const { threadId: _threadId, typing: _typing, ...machineLevel } = entry;
     return [{ ...machineLevel, typing: false }];
   });
+}
+
+export function teamShellSnapshot(
+  organizationId: string,
+  snapshot: OrchestrationV2ShellSnapshot,
+): OrchestrationV2ShellSnapshot {
+  const [item] = makeTeamShellFilter(organizationId)({ kind: "snapshot", snapshot });
+  if (item?.kind === "snapshot") return item.snapshot;
+  const { olderSettled: _olderSettled, ...rest } = snapshot;
+  return { ...rest, projects: [], threads: [], archivedThreads: [] };
 }
