@@ -113,6 +113,7 @@ export function TeammateComposer({
       }}
     >
       <Textarea
+        unstyled
         aria-label="Message"
         placeholder={running ? "Steer the agent while it works" : "Send a message"}
         value={text}
