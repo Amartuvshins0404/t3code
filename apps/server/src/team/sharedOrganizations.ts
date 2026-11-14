@@ -8,6 +8,7 @@ const SHARED_ORGANIZATIONS_SECRET = "team-shared-organizations";
 
 const SharedOrganizationIds = Schema.fromJsonString(Schema.Array(Schema.String));
 const decodeSharedOrganizationIds = Schema.decodeUnknownOption(SharedOrganizationIds);
+const encodeSharedOrganizationIds = Schema.encodeEffect(SharedOrganizationIds);
 
 export const readSharedOrganizationIds = Effect.fn("TeamSharing.readSharedOrganizationIds")(
   function* (secrets: ServerSecretStore.ServerSecretStore["Service"]) {
@@ -17,5 +18,18 @@ export const readSharedOrganizationIds = Effect.fn("TeamSharing.readSharedOrgani
       decodeSharedOrganizationIds(new TextDecoder().decode(stored.value)),
       () => [],
     );
+  },
+);
+
+export const writeSharedOrganizationIds = Effect.fn("TeamSharing.writeSharedOrganizationIds")(
+  function* (
+    secrets: ServerSecretStore.ServerSecretStore["Service"],
+    organizationIds: ReadonlyArray<string>,
+  ) {
+    if (organizationIds.length === 0) {
+      return yield* secrets.remove(SHARED_ORGANIZATIONS_SECRET);
+    }
+    const encoded = yield* encodeSharedOrganizationIds(organizationIds);
+    yield* secrets.set(SHARED_ORGANIZATIONS_SECRET, new TextEncoder().encode(encoded));
   },
 );
