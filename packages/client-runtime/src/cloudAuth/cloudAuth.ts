@@ -401,3 +401,46 @@ export function createCloudAuth(input: {
     getRelayIdentityToken,
   };
 }
+
+export interface CloudAuthSnapshot {
+  readonly isLoaded: boolean;
+  readonly isSignedIn: boolean | undefined;
+  readonly userId: string | null;
+  readonly user: CloudUser | null;
+}
+
+export function readCloudAuthSnapshot(state: CloudAuthState): CloudAuthSnapshot {
+  switch (state.status) {
+    case "loading":
+      return { isLoaded: false, isSignedIn: undefined, userId: null, user: null };
+    case "signedOut":
+      return { isLoaded: true, isSignedIn: false, userId: null, user: null };
+    case "signedIn":
+      return { isLoaded: true, isSignedIn: true, userId: state.user.id, user: state.user };
+  }
+}
+
+export function cloudAuthSource(auth: CloudAuth) {
+  return {
+    auth,
+    addListener: (
+      listener: (resources: { readonly user: CloudUser | null | undefined }) => void,
+    ) => {
+      const emit = () => {
+        const state = auth.getState();
+        listener({
+          user:
+            state.status === "loading"
+              ? undefined
+              : state.status === "signedIn"
+                ? state.user
+                : null,
+        });
+      };
+      emit();
+      return auth.subscribe(emit);
+    },
+  };
+}
+
+export type CloudAuthSource = ReturnType<typeof cloudAuthSource>;

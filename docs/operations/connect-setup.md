@@ -31,20 +31,21 @@ from a new origin or shipping a desktop build with a new app scheme, add the ori
 [cors.ts](../../infra/auth/src/cors.ts). Without the first, GitHub sign-in rejects the callback;
 without the second, the browser blocks every auth request.
 
-## Mobile (Clerk)
+## Mobile
 
-The mobile app still signs in with Clerk. EAS preview and production environments need
-`T3CODE_CLERK_PUBLISHABLE_KEY`, `T3CODE_CLERK_JWT_TEMPLATE`, and the relay URL.
+The mobile app signs in against the same auth service, with GitHub or a passkey. GitHub returns to
+the app through `<scheme>://auth-callback`, so each app scheme a build uses must be in
+`trustedOrigins` in [auth.ts](../../infra/auth/src/auth.ts). A passkey sign-in opens the device
+approval page in the in-app browser and needs no callback.
 
-Clerk's native Android SDK uses `clerk://<applicationId>.callback`. In the Clerk instance selected by the app's publishable key, add each supported package to **Native applications > Allowlist for mobile SSO redirect**:
+A build reads `T3CODE_AUTH_URL` and `T3CODE_RELAY_URL` at prebuild and bundling. With
+`T3CODE_OWNER_NAME` set, the app takes the owner's name, bundle identifier and scheme, and drops the
+upstream Apple team, universal links and OTA update source.
 
-| Variant     | Callback                                      |
-| ----------- | --------------------------------------------- |
-| Development | `clerk://com.t3tools.t3code.dev.callback`     |
-| Preview     | `clerk://com.t3tools.t3code.preview.callback` |
-| Production  | `clerk://com.t3tools.t3code.callback`         |
-
-Preserve existing entries. These callbacks are separate from the `t3code-dev` / `t3code-preview` / `t3code` navigation schemes.
+On the fork, pushing a `mobile-v*` tag runs
+[fork-mobile-android.yml](../../.github/workflows/fork-mobile-android.yml), which builds a release
+APK for arm64 phones and keeps it as a workflow artifact. It is signed with the debug keystore, so
+it installs by hand and is not a store build.
 
 ## Signed macOS builds
 

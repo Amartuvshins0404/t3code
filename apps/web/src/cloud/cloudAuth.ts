@@ -2,12 +2,13 @@ import {
   type CloudAuth,
   CloudAuthError,
   type CloudAuthPlatform,
+  type CloudAuthSnapshot,
   type CloudAuthState,
   type CloudSessionStore,
   CloudStoredSession,
-  type CloudUser,
   createCloudAuth,
   readCallbackError,
+  readCloudAuthSnapshot,
   readSessionTokenFromCallback,
 } from "@t3tools/client-runtime/cloud-auth";
 import { CLOUD_AUTH_APP_LINK_HOST, isCloudAuthAppLink } from "@t3tools/shared/remote";
@@ -212,24 +213,6 @@ export function getCloudAuth(): CloudAuth | null {
 
 const SIGNED_OUT: CloudAuthState = { status: "signedOut" };
 const noop = () => () => {};
-
-export interface CloudAuthSnapshot {
-  readonly isLoaded: boolean;
-  readonly isSignedIn: boolean | undefined;
-  readonly userId: string | null;
-  readonly user: CloudUser | null;
-}
-
-export function readCloudAuthSnapshot(state: CloudAuthState): CloudAuthSnapshot {
-  switch (state.status) {
-    case "loading":
-      return { isLoaded: false, isSignedIn: undefined, userId: null, user: null };
-    case "signedOut":
-      return { isLoaded: true, isSignedIn: false, userId: null, user: null };
-    case "signedIn":
-      return { isLoaded: true, isSignedIn: true, userId: state.user.id, user: state.user };
-  }
-}
 
 export function useCloudAuth(): CloudAuthSnapshot {
   const auth = getCloudAuth();
