@@ -5,6 +5,7 @@ import {
   countProjectBoard,
   NEEDS_YOU_LIST_LIMIT,
   PROJECT_BOARD_COLUMNS,
+  threadsOnProjectsPage,
 } from "@t3tools/client-runtime/state/projects";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -41,8 +42,9 @@ export function ProjectsPage() {
     environments.map((environment) => [environment.environmentId, environment.label]),
   );
   const showEnvironment = environments.length > 1;
+  const pageThreads = threadsOnProjectsPage(projects, threads);
   const threadsByProject = new Map<string, EnvironmentThreadShell[]>();
-  for (const thread of threads) {
+  for (const thread of pageThreads) {
     const key = scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId));
     const list = threadsByProject.get(key);
     if (list) list.push(thread);
@@ -64,7 +66,6 @@ export function ProjectsPage() {
         : project.title,
     ]),
   );
-  const tileThreads = tiles.flatMap(({ key }) => threadsByProject.get(key) ?? []);
 
   return (
     <SidebarInset
@@ -92,7 +93,7 @@ export function ProjectsPage() {
           ) : null
         ) : (
           <WorkspacePageContainer width="expanded">
-            <NeedsYouSection threads={tileThreads} projectPlaces={projectPlaces} />
+            <NeedsYouSection threads={pageThreads} projectPlaces={projectPlaces} />
             <ul className="grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
               {tiles.map(({ project, key, counts }) => (
                 <li key={key} className="min-w-0">
