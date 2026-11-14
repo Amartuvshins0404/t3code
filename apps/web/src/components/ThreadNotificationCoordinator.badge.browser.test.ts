@@ -70,6 +70,18 @@ vi.mock(import("../state/threads"), async (original) => {
     },
   };
 });
+vi.mock(import("../state/projects"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    environmentProjects: {
+      ...actual.environmentProjects,
+      get projectsAtom() {
+        return projectsAtom as never;
+      },
+    },
+  };
+});
 vi.mock(import("../hooks/useSettings"), async (original) => ({
   ...(await original()),
   subscribeClientSettings: ((listener: () => void) => {
@@ -95,6 +107,13 @@ const shellAtom = Atom.family((_id: string) => Atom.make<unknown>(null));
 const environmentIdsAtom = Atom.make<ReadonlyArray<string>>([]);
 const noRequestsAtom = Atom.make(new Map());
 const noDelegatedAtom = Atom.make<ReadonlySet<string>>(new Set<string>());
+const projectsAtom = Atom.make<ReadonlyArray<unknown>>([]);
+const project = (environmentId: string, archivedAt: string | null = null) => ({
+  environmentId: EnvironmentId.make(environmentId),
+  id: "project",
+  title: "Project",
+  archivedAt,
+});
 const quietThreadShellsAtom = Atom.make((get) =>
   get(environmentIdsAtom).flatMap((id) => {
     const value = get(shellAtom(id)) as {
@@ -216,6 +235,7 @@ function setup() {
   state.inApp = false;
   state.settingsListeners.clear();
   registry.set(environmentIdsAtom, ["one", "two"]);
+  registry.set(projectsAtom, [project("one"), project("two")]);
   state.shells.set("one", shell());
   state.shells.set("two", shell());
   focused = false;
@@ -245,6 +265,7 @@ function setup() {
       stack.defer(startThreadNotifications(testRegistry, router));
     },
     setEnvironmentIds: (ids: ReadonlyArray<string>) => testRegistry.set(environmentIdsAtom, ids),
+    setProjects: (projects: ReadonlyArray<unknown>) => testRegistry.set(projectsAtom, projects),
     openThread: (environmentId: string, threadId: string) => {
       route.params = { environmentId, threadId };
       for (const listener of routeListeners) listener();
@@ -352,6 +373,27 @@ it("counts threads already waiting at start, leaving out the ones the projects p
     }),
   );
   app.start();
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+});
+
+it("counts a waiting thread only while its project is listed and not archived, and redraws only when the count changes", async () => {
+  await using app = setup();
+  app.setProjects([project("one")]);
+  state.shells.set("one", shell({ hasPendingApprovals: true }));
+  state.shells.set("two", shell({ hasPendingUserInput: true }));
+  app.start();
+  expect(state.badge).toHaveBeenLastCalledWith(1);
+  app.setProjects([project("one"), project("two")]);
+  expect(state.badge).toHaveBeenLastCalledWith(2);
+  app.setProjects([project("one", "2026-09-13T07:00:00.000Z"), project("two")]);
+  expect(state.badge).toHaveBeenLastCalledWith(1);
+  const calls = state.badge.mock.calls.length;
+  app.setProjects([
+    project("one", "2026-09-13T07:00:00.000Z"),
+    { ...project("two"), title: "Renamed" },
+  ]);
+  expect(state.badge).toHaveBeenCalledTimes(calls);
+  app.setProjects([project("one"), project("two")]);
   expect(state.badge).toHaveBeenLastCalledWith(2);
 });
 
