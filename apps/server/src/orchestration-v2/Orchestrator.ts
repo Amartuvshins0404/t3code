@@ -66,6 +66,8 @@ import {
   orchestrationV2WorktreePending,
   ProviderInstanceId,
   ProviderInteractionMode,
+  type ProviderUserInputAnswers,
+  type RuntimeRequestId,
   isRuntimeModeAbove,
   resolveProviderInstanceEnabled,
   resolveProjectProviderInstanceEnabled,
@@ -407,6 +409,13 @@ export interface OrchestratorV2Shape {
     readonly commandId: CommandId;
     readonly threadId: ThreadId;
     readonly limitRecovery: OrchestrationV2LimitRecoveryUpdate;
+  }) => Effect.Effect<void, OrchestratorV2Error>;
+  readonly autoAnswerQuestion: (input: {
+    readonly commandId: CommandId;
+    readonly threadId: ThreadId;
+    readonly requestId: RuntimeRequestId;
+    readonly answers: ProviderUserInputAnswers;
+    readonly notice: string;
   }) => Effect.Effect<void, OrchestratorV2Error>;
   readonly searchThreadStream: (
     input: OrchestrationV2SearchThreadInput,
@@ -9975,6 +9984,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       command: Extract<OrchestrationV2Command, { readonly type: "runtime-request.respond" }>,
       events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
       effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+      autoAnswer?: { readonly notice: string },
     ) {
       const context = yield* projectionStore
         .getRuntimeResponseContext(command.threadId, command.requestId)
@@ -10257,6 +10267,45 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           },
         });
       }
+      if (autoAnswer !== undefined) {
+        yield* emitEvent({
+          type: "turn-item.updated",
+          threadId: command.threadId,
+          ...(requestNode?.runId == null ? {} : { runId: requestNode.runId }),
+          ...(providerSession === undefined
+            ? {}
+            : {
+                driver: providerSession.driver,
+                providerInstanceId: providerSession.providerInstanceId,
+              }),
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`turn-item:question-auto-answer:${command.requestId}`),
+            threadId: command.threadId,
+            runId: requestNode?.runId ?? null,
+            nodeId: null,
+            providerThreadId:
+              approvalTurnItem?.providerThreadId ?? requestNode?.providerThreadId ?? null,
+            providerTurnId: runtimeRequest.providerTurnId,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: yield* projectionStore
+              .getNextTurnItemOrdinal(command.threadId)
+              .pipe(
+                Effect.mapError(
+                  (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+                ),
+              ),
+            status: "completed",
+            title: null,
+            startedAt: now,
+            completedAt: now,
+            updatedAt: now,
+            type: "system_notice",
+            message: autoAnswer.notice,
+          },
+        });
+      }
       if (runtimeRequest.responseCapability.type === "message") {
         if (resolvedNodeStatus === "cancelled") return;
         let dispatchMode: Extract<
@@ -10307,7 +10356,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* recordSubagentFollowup(answer, events).pipe(mapDispatchError(answer));
       }
       if (providerSessionId === null) return;
-      if (runtimeRequest.kind === "user_input" && resolvedNodeStatus === "completed") {
+      if (
+        runtimeRequest.kind === "user_input" &&
+        resolvedNodeStatus === "completed" &&
+        autoAnswer === undefined
+      ) {
         const thread = yield* projectionStore
           .getThread(command.threadId)
           .pipe(mapDispatchError(command));
@@ -13972,6 +14025,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const dispatchOnce = Effect.fn("orchestrationV2.dispatch.once")(function* (
     command: OrchestrationV2ServerCommand,
     sideChatIds: ReadonlyArray<ThreadId>,
+    autoAnswer?: { readonly notice: string },
   ): Effect.fn.Return<
     {
       readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
@@ -14186,7 +14240,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         yield* dispatchPreparedRunRetry(command, events);
         break;
       case "runtime-request.respond":
-        yield* dispatchRuntimeRequestRespond(command, events, effects);
+        yield* dispatchRuntimeRequestRespond(command, events, effects, autoAnswer);
         break;
       case "thread.user-input.dismiss":
         yield* dispatchThreadUserInputDismiss(command, events, effects);
@@ -14440,6 +14494,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     command: OrchestrationV2ServerCommand,
     sideChatIds: ReadonlyArray<ThreadId> = [],
     cancelledTask?: OrchestrationV2Subagent,
+    autoAnswer?: { readonly notice: string },
   ): Effect.fn.Return<OrchestratorV2DispatchResult, OrchestratorV2Error> {
     yield* Effect.annotateCurrentSpan({
       "orchestration_v2.command_id": command.commandId,
@@ -14473,7 +14528,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (shell !== null) yield* refuseAboveDispatchModeLimit(command, threadId, shell);
     }
 
-    const plan = yield* dispatchOnce(command, sideChatIds).pipe(
+    const plan = yield* dispatchOnce(command, sideChatIds, autoAnswer).pipe(
       Effect.tap((planned) => refuseAboveRuntimeModeCeiling(command, planned.events)),
       Effect.filterOrFail(
         (planned) =>
@@ -15194,6 +15249,52 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   limitRecovery: { ...input.limitRecovery, autoResume: false, snooze: false },
                 }
               : command,
+          );
+        }),
+      );
+    }),
+    autoAnswerQuestion: Effect.fn("OrchestratorV2.autoAnswerQuestion")(function (input) {
+      return threadDispatch.withLock(
+        input.threadId,
+        Effect.gen(function* () {
+          const thread = yield* projectionStore
+            .getThread(input.threadId)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestratorProjectionError({ threadId: input.threadId, cause }),
+              ),
+            );
+          if (
+            thread.archivedAt !== null ||
+            thread.deletedAt !== null ||
+            thread.lineage.relationshipToParent === "subagent"
+          )
+            return;
+          const context = yield* projectionStore
+            .getRuntimeResponseContext(input.threadId, input.requestId)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestratorProjectionError({ threadId: input.threadId, cause }),
+              ),
+            );
+          if (
+            context.request?.status !== "pending" ||
+            context.request.kind !== "user_input" ||
+            context.request.responseCapability.type !== "live" ||
+            context.session === undefined
+          )
+            return;
+          yield* dispatchWithReceiptEffect(
+            {
+              type: "runtime-request.respond",
+              commandId: input.commandId,
+              threadId: input.threadId,
+              requestId: input.requestId,
+              answers: input.answers,
+            },
+            [],
+            undefined,
+            { notice: input.notice },
           );
         }),
       );
