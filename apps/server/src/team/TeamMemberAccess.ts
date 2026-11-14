@@ -173,6 +173,14 @@ export function decideTeamMemberCommand(input: {
       ),
     );
   }
+  if (command.text.trimStart().startsWith("/")) {
+    return Result.fail(
+      refusal(
+        "Teammates cannot send slash commands. Start the message with a word.",
+        AuthOrchestrationOperateScope,
+      ),
+    );
+  }
   return Result.succeed({
     type: "message.dispatch",
     commandId: command.commandId,
