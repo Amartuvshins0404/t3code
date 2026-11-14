@@ -8,6 +8,7 @@ import {
   PAIRING_CODE_LENGTH,
   parseMcpApprovalCode,
   type ServerAuthBootstrapMethod,
+  type TeamMemberIdentity,
 } from "@t3tools/contracts";
 import {
   DESKTOP_BOOTSTRAP_TOKEN_WINDOW_MS,
@@ -35,6 +36,7 @@ export interface BootstrapGrant {
   readonly subject: string;
   readonly label?: string;
   readonly proofKeyThumbprint?: string;
+  readonly member?: TeamMemberIdentity;
   readonly expiresAt: DateTime.DateTime;
 }
 
@@ -219,6 +221,7 @@ export class PairingGrantStore extends Context.Service<
       readonly subject?: string;
       readonly label?: string;
       readonly proofKeyThumbprint?: string;
+      readonly member?: TeamMemberIdentity;
       readonly purpose?: "startup";
       /** Issues a hidden `<LEVEL>-` code that only an agent sign-in at this level can spend. */
       readonly mcpApproval?: AuthMcpClientAccess;
@@ -229,6 +232,9 @@ export class PairingGrantStore extends Context.Service<
     >;
     readonly streamChanges: Stream.Stream<BootstrapCredentialChange>;
     readonly revoke: (id: string) => Effect.Effect<boolean, BootstrapCredentialInternalError>;
+    readonly revokeForOrganization: (
+      organizationId: string,
+    ) => Effect.Effect<number, BootstrapCredentialInternalError>;
     readonly consume: (
       credential: string,
       input?: {
@@ -387,6 +393,21 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const revokeForOrganization: PairingGrantStore["Service"]["revokeForOrganization"] = Effect.fn(
+    "PairingGrantStore.revokeForOrganization",
+  )(function* (organizationId) {
+    const revokedAt = yield* DateTime.now;
+    const revokedIds = yield* pairingLinks
+      .revokeForOrganization({ organizationId, revokedAt })
+      .pipe(
+        Effect.mapError(
+          (cause) => new PairingLinkRevokeError({ pairingLinkId: organizationId, cause }),
+        ),
+      );
+    yield* Effect.forEach(revokedIds, emitRemoved, { discard: true });
+    return revokedIds.length;
+  });
+
   const issueOneTimeToken: PairingGrantStore["Service"]["issueOneTimeToken"] = Effect.fn(
     "PairingGrantStore.issueOneTimeToken",
   )(function* (input) {
@@ -426,6 +447,7 @@ const make = Effect.gen(function* () {
         subject,
         label: input?.label ?? null,
         proofKeyThumbprint: input?.proofKeyThumbprint ?? null,
+        member: input?.member ?? null,
         createdAt: now,
         expiresAt: expiresAt,
       })
@@ -596,6 +618,7 @@ const make = Effect.gen(function* () {
           ...(consumed.value.proofKeyThumbprint
             ? { proofKeyThumbprint: consumed.value.proofKeyThumbprint }
             : {}),
+          ...(consumed.value.member ? { member: consumed.value.member } : {}),
           expiresAt: consumed.value.expiresAt,
         } satisfies BootstrapGrant;
       }
@@ -646,6 +669,7 @@ const make = Effect.gen(function* () {
       return Stream.fromPubSub(changesPubSub);
     },
     revoke,
+    revokeForOrganization,
     consume,
   });
 });
