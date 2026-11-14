@@ -236,12 +236,18 @@ export function makeTeamShellFilter(organizationId: string) {
         const shownProjects = item.snapshot.projects.filter((project) => projectInUse(project.id));
         for (const project of shownProjects) sentProjects.add(project.id);
         const { olderSettled: _olderSettled, ...snapshot } = item.snapshot;
-        return [
-          {
-            ...item,
-            snapshot: { ...snapshot, projects: shownProjects, threads, archivedThreads },
-          },
-        ];
+        const filtered = {
+          kind: item.kind,
+          snapshot: { ...snapshot, projects: shownProjects, threads, archivedThreads },
+        };
+        if (item.resolvedRepositoryIdentityRoots === undefined) return [filtered];
+        const shownRoots = new Set(shownProjects.map((project) => project.workspaceRoot));
+        const resolvedRepositoryIdentityRoots = item.resolvedRepositoryIdentityRoots.filter(
+          (root) => shownRoots.has(root),
+        );
+        return resolvedRepositoryIdentityRoots.length === 0
+          ? []
+          : [{ ...filtered, resolvedRepositoryIdentityRoots }];
       }
       case "project.updated":
         projects.set(item.project.id, item.project);
