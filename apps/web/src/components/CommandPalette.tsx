@@ -607,7 +607,7 @@ function OpenCommandPaletteDialog(props: {
       : currentView?.groups[0]?.value === PROJECT_PLANT_GROUP.unplant
         ? "unplant"
         : null;
-  const plantStatuses = useAtomValue(
+  const { statuses: plantStatuses, pending: isPlantStatusPending } = useAtomValue(
     projectPlantStatusesAtom(plantView === null ? "" : projectPlantStatusesKey(plantCandidates)),
   );
   const startProjectPlant = useStartProjectPlant();
@@ -3225,7 +3225,9 @@ function OpenCommandPaletteDialog(props: {
                   }
                 : isThreadSearchPending
                   ? { emptyStateMessage: "Searching thread messages…" }
-                  : {})}
+                  : isPlantStatusPending
+                    ? { emptyStateMessage: "Reading agent-trust status…" }
+                    : {})}
       />
     </CommandPaletteContent>
   );

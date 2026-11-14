@@ -12,18 +12,18 @@ export function projectPlantStatusesKey(
 export const projectPlantStatusesAtom = Atom.family((key: string) =>
   Atom.make((get) => {
     const statuses = new Map<string, ProjectPlantStatus>();
+    let pending = false;
     for (const line of key.split("\n")) {
       const [rawEnvironmentId, rawProjectId] = line.split("\t");
       if (!rawEnvironmentId || !rawProjectId) continue;
       const environmentId = EnvironmentId.make(rawEnvironmentId);
       const projectId = ProjectId.make(rawProjectId);
       if (!get(projectEnvironment.plant.permissionAtom(environmentId))) continue;
-      const status = AsyncResult.getOrElse(
-        get(projectEnvironment.readPlant({ environmentId, input: { projectId } })),
-        () => null,
-      );
+      const result = get(projectEnvironment.readPlant({ environmentId, input: { projectId } }));
+      if (AsyncResult.isInitial(result)) pending = true;
+      const status = AsyncResult.getOrElse(result, () => null);
       if (status !== null) statuses.set(`${environmentId}:${projectId}`, status);
     }
-    return statuses;
+    return { statuses, pending };
   }),
 );
