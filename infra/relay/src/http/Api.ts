@@ -46,6 +46,9 @@ import {
   RelayEnvironmentLinkUnavailableError,
   RelayEnvironmentLinkLimitExceededError,
   RelayEnvironmentPrincipal,
+  RelayTeamAccessDeniedError,
+  type RelayTeamAccessDeniedReason,
+  RelayTeamsUnavailableError,
   type RelayEnvironmentConnectRequest,
   type RelayManagedEndpointOrigin,
   RelayManagedEndpointRecoveryProofPayload,
@@ -65,6 +68,8 @@ import * as DpopProofs from "../auth/DpopProofs.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
 import * as EnvironmentCredentials from "../environments/EnvironmentCredentials.ts";
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
+import * as EnvironmentTeamShares from "../environments/EnvironmentTeamShares.ts";
+import * as TeamMembership from "../auth/TeamMembership.ts";
 import * as HeldHooks from "../hooks/HeldHooks.ts";
 import * as HookInbox from "../hooks/HookInbox.ts";
 import * as LiveActivities from "../agentActivity/LiveActivities.ts";
@@ -470,6 +475,7 @@ const revokeEnvironmentLinkRecord = Effect.fn("relay.api.client.revokeEnvironmen
     const transactions = yield* RelayDb.RelayTransactions;
     const links = yield* EnvironmentLinks.EnvironmentLinks;
     const credentials = yield* EnvironmentCredentials.EnvironmentCredentials;
+    const teamShares = yield* EnvironmentTeamShares.EnvironmentTeamShares;
     return yield* transactions.withTransaction(
       Effect.gen(function* () {
         const revoked = yield* links.revokeForUser({
@@ -480,6 +486,10 @@ const revokeEnvironmentLinkRecord = Effect.fn("relay.api.client.revokeEnvironmen
           yield* credentials.revokeForEnvironmentPublicKey({
             environmentId: input.environmentId,
             environmentPublicKey: input.environmentPublicKey,
+          });
+          yield* teamShares.revokeForOwner({
+            environmentId: input.environmentId,
+            ownerUserId: input.userId,
           });
         }
         return revoked;
@@ -798,6 +808,31 @@ export const layerClientApi = HttpApiBuilder.group(
     const managedEndpointProvider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
     const devices = yield* Devices.Devices;
     const tunnelLimits = yield* ManagedTunnelLimits.ManagedTunnelLimits;
+    const teamShares = yield* EnvironmentTeamShares.EnvironmentTeamShares;
+    const membership = yield* TeamMembership.TeamMembership;
+    const requireOwnLink = Effect.fnUntraced(function* (input: {
+      readonly userId: string;
+      readonly environmentId: string;
+    }) {
+      const link = yield* links.getForUser(input);
+      if (!link) {
+        return yield* relayTeamAccessDenied("environment_link_not_found");
+      }
+      return link;
+    });
+    const requireTeamMember = Effect.fnUntraced(function* (input: {
+      readonly userId: string;
+      readonly organizationId: string;
+    }) {
+      if (!membership.available) {
+        return yield* relayTeamsUnavailable();
+      }
+      const member = yield* TeamMembership.findMember(membership, input);
+      if (!member) {
+        return yield* relayTeamAccessDenied("not_team_member");
+      }
+      return member;
+    });
     return handlers
       .handle(
         "listEnvironments",
@@ -961,6 +996,92 @@ export const layerClientApi = HttpApiBuilder.group(
             })
             .pipe(Effect.catch(() => relayInternalErrorResponse("upstream_unavailable")));
           return { ok: released };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "shareEnvironmentWithTeam",
+        Effect.fn("relay.api.client.shareEnvironmentWithTeam")(function* (args) {
+          const { params, payload } = args;
+          const { userId } = yield* RelayClientPrincipal;
+          const link = yield* requireOwnLink({ userId, environmentId: params.environmentId });
+          yield* requireTeamMember({ userId, organizationId: payload.organizationId });
+          const share = yield* teamShares.share({
+            environmentId: link.environmentId,
+            organizationId: payload.organizationId,
+            ownerUserId: userId,
+          });
+          return {
+            environmentId: share.environmentId,
+            organizationId: share.organizationId,
+            sharedAt: share.sharedAt,
+          };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "unshareEnvironmentWithTeam",
+        Effect.fn("relay.api.client.unshareEnvironmentWithTeam")(function* (args) {
+          const { params } = args;
+          const { userId } = yield* RelayClientPrincipal;
+          const link = yield* requireOwnLink({ userId, environmentId: params.environmentId });
+          const unshared = yield* teamShares.unshare({
+            environmentId: link.environmentId,
+            organizationId: params.organizationId,
+          });
+          return { ok: unshared };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "listEnvironmentTeamShares",
+        Effect.fn("relay.api.client.listEnvironmentTeamShares")(function* (args) {
+          const { params } = args;
+          const { userId } = yield* RelayClientPrincipal;
+          const link = yield* requireOwnLink({ userId, environmentId: params.environmentId });
+          const shares = yield* teamShares.listForEnvironment({
+            environmentId: link.environmentId,
+          });
+          return {
+            shares: shares.map((share) => ({
+              environmentId: share.environmentId,
+              organizationId: share.organizationId,
+              sharedAt: share.sharedAt,
+            })),
+          };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "listTeamEnvironments",
+        Effect.fn("relay.api.client.listTeamEnvironments")(function* (args) {
+          const { organizationId } = args.params;
+          const { userId } = yield* RelayClientPrincipal;
+          yield* requireTeamMember({ userId, organizationId });
+          const shared = yield* teamShares.listForOrganization({ organizationId });
+          const owners = yield* membership.members({
+            organizationId,
+            userIds: [...new Set(shared.map(({ share }) => share.ownerUserId))],
+          });
+          const ownersById = new Map(owners.map((owner) => [owner.userId, owner]));
+          return {
+            environments: shared.flatMap(({ share, link }) => {
+              const owner = ownersById.get(share.ownerUserId);
+              if (!owner) return [];
+              return [
+                {
+                  environmentId: link.environmentId,
+                  label: link.label,
+                  endpoint: link.endpoint,
+                  linkedAt: link.linkedAt,
+                  organizationId: share.organizationId,
+                  owner: {
+                    userId: owner.userId,
+                    name: owner.name,
+                    ...(owner.image ? { image: owner.image } : {}),
+                  },
+                  isOwner: share.ownerUserId === userId,
+                  sharedAt: share.sharedAt,
+                },
+              ];
+            }),
+          };
         }, mapRelayCommonApiErrors("not_authorized")),
       )
       .handle(
@@ -1434,6 +1555,8 @@ const RelayCommonPersistenceError = Schema.Union([
   DeliveryAttempts.DeliveryAttemptRecordPersistenceError,
   EnvironmentLinks.EnvironmentLinkEnvironmentLookupPersistenceError,
   HookInbox.HookInboxError,
+  EnvironmentTeamShares.EnvironmentTeamSharePersistenceError,
+  TeamMembership.TeamMembershipLookupError,
 ]);
 type RelayCommonPersistenceError = typeof RelayCommonPersistenceError.Type;
 const isRelayCommonPersistenceError = Schema.is(RelayCommonPersistenceError);
@@ -1474,6 +1597,22 @@ function relayInternalErrorResponse(reason: RelayInternalError["reason"]) {
   return currentTraceId.pipe(
     Effect.flatMap((traceId) =>
       Effect.fail(new RelayInternalError({ code: "internal_error", reason, traceId })),
+    ),
+  );
+}
+
+function relayTeamsUnavailable() {
+  return currentTraceId.pipe(
+    Effect.flatMap((traceId) =>
+      Effect.fail(new RelayTeamsUnavailableError({ code: "teams_unavailable", traceId })),
+    ),
+  );
+}
+
+function relayTeamAccessDenied(reason: RelayTeamAccessDeniedReason) {
+  return currentTraceId.pipe(
+    Effect.flatMap((traceId) =>
+      Effect.fail(new RelayTeamAccessDeniedError({ code: "team_access_denied", reason, traceId })),
     ),
   );
 }

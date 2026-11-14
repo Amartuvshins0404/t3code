@@ -87,6 +87,24 @@ export const relayEnvironmentLinks = pgTable(
   ],
 );
 
+export const relayEnvironmentTeamShares = pgTable(
+  "relay_environment_team_shares",
+  {
+    environmentId: varchar("environment_id", { length: 191 }).notNull(),
+    organizationId: varchar("organization_id", { length: 191 }).notNull(),
+    ownerUserId: varchar("owner_user_id", { length: 191 }).notNull(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    revokedAt: varchar("revoked_at", { length: 64 }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.environmentId, table.organizationId] }),
+    index("idx_relay_environment_team_shares_organization").on(
+      table.organizationId,
+      table.revokedAt,
+    ),
+  ],
+);
+
 export const relayManagedEndpointAllocations = pgTable(
   "relay_managed_endpoint_allocations",
   {

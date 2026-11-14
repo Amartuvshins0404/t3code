@@ -53,6 +53,7 @@ import * as EnvironmentConnector from "./environments/EnvironmentConnector.ts";
 import * as EnvironmentCredentials from "./environments/EnvironmentCredentials.ts";
 import * as EnvironmentLinker from "./environments/EnvironmentLinker.ts";
 import * as EnvironmentLinks from "./environments/EnvironmentLinks.ts";
+import * as EnvironmentTeamShares from "./environments/EnvironmentTeamShares.ts";
 import * as EnvironmentPublishSignatures from "./environments/EnvironmentPublishSignatures.ts";
 import * as ManagedEndpointAllocations from "./environments/ManagedEndpointAllocations.ts";
 import * as ManagedEndpointReaper from "./environments/ManagedEndpointReaper.ts";
@@ -69,6 +70,7 @@ import {
 import * as MobileTelemetry from "./mobileTelemetry/MobileTelemetry.ts";
 import * as CloudflareApi from "./node/CloudflareApi.ts";
 import * as Database from "./node/Database.ts";
+import * as NodeTeamMembership from "./node/TeamMembership.ts";
 import * as Observability from "./spanAttributes.ts";
 import * as WebCrypto from "./WebCrypto.ts";
 
@@ -200,6 +202,8 @@ const layerRuntime = Layer.empty.pipe(
     Layer.mergeAll(
       CloudflareApiPause.layer,
       EnvironmentLinks.layer,
+      EnvironmentTeamShares.layer,
+      NodeTeamMembership.layer,
       ManagedEndpointAllocations.layer,
       ManagedTunnelLimits.layer,
     ),
