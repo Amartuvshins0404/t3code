@@ -16,6 +16,7 @@ import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
+import * as ProjectPlant from "../../../project/ProjectPlant.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import { mutateProjectWithClone } from "../../../project/ProjectMutation.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
@@ -34,6 +35,7 @@ import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../t
 import { ProjectToolkit } from "./tools.ts";
 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
+const isThreadLaunchError = Schema.is(ThreadLaunch.ThreadLaunchError);
 
 function projectFailure(error: Project.ProjectServiceError) {
   if (error._tag === "ProjectOperationError") return unavailable();
@@ -334,8 +336,53 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           code: "invalid_request",
           message: "The project was not found.",
         });
-      return result.value;
+      const plant = yield* ProjectPlant.ProjectPlant.pipe(
+        Effect.flatMap((service) => service.readStatus({ projectId: input.projectId })),
+        Effect.mapError(unavailable),
+      );
+      return { ...result.value, plant };
     }),
+  ),
+  t3_project_plant: McpToolAccess.startsThreads(
+    () => ({}),
+    (input, { runtimeMode }) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const result = yield* ProjectPlant.ProjectPlant.pipe(
+          Effect.flatMap((service) =>
+            service.start({
+              projectId: input.projectId,
+              action: input.action,
+              createdBy: "agent",
+              creationSource: "mcp",
+              runtimeMode,
+            }),
+          ),
+          Effect.mapError((error) => {
+            if (error.reason !== "launch_failed")
+              return new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: `${error.reason}: ${error.message} No thread was started.`,
+              });
+            const launchCause = error.cause;
+            if (isThreadLaunchError(launchCause) && isAboveCeilingError(launchCause.cause))
+              return new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: launchCause.cause.message,
+              });
+            return unavailable();
+          }),
+        );
+        return {
+          ...result,
+          link: McpInvocationContext.threadLinkFor(
+            scope,
+            result.threadId,
+            ProjectPlant.threadTitle(input.action),
+          ),
+        };
+      }),
+    { refused: "plant projects in this environment" },
   ),
   t3_project_create: McpToolAccess.writesEnvironment(
     ({ workspaceRoot, ...input }) =>
