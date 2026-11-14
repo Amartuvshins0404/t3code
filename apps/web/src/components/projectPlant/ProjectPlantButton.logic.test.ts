@@ -5,6 +5,7 @@ import { plantButtonState } from "./ProjectPlantButton.logic";
 
 const threadId = ThreadId.make("project-plant:open");
 const openThread = { threadId };
+const archivedOpenThread = { threadId, archived: true as const };
 
 describe("plantButtonState", () => {
   it.each<{
@@ -60,6 +61,18 @@ describe("plantButtonState", () => {
       status: { _tag: "unavailable", reason: "no_remote" },
       openThreadKnown: false,
       expected: "disabled",
+    },
+    {
+      name: "not planted, archived open thread the client does not know",
+      status: { _tag: "not_planted", openThread: archivedOpenThread },
+      openThreadKnown: false,
+      expected: "open",
+    },
+    {
+      name: "planted, archived open thread the client does not know",
+      status: { _tag: "planted", openThread: archivedOpenThread },
+      openThreadKnown: false,
+      expected: "open",
     },
     { name: "still reading", status: null, openThreadKnown: false, expected: "disabled" },
   ])("$name gives $expected", ({ status, openThreadKnown, expected }) => {

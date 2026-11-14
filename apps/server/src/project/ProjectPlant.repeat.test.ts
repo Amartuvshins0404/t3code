@@ -92,6 +92,7 @@ const harness = (input: {
   readonly threadLookupFails?: true;
   readonly refusedByCeiling?: true;
   readonly otherCallerCommitsAfterFirstRead?: true;
+  readonly launchResumed?: true;
 }) => {
   const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
   const deleted = new Set<ThreadId>();
@@ -153,7 +154,7 @@ const harness = (input: {
         return Effect.succeed({
           threadId: launch.threadId,
           projection: { thread: { id: launch.threadId }, runs: [], messages: [] },
-          resumed: false,
+          resumed: input.launchResumed === true,
         } as unknown as ThreadLaunch.ThreadLaunchResult);
       },
     }),
@@ -280,5 +281,20 @@ it.live("a Plant whose first read races another caller's commit returns that cal
     expect(result).toEqual({ threadId: otherThreadId, reused: true });
     expect(launched).toHaveLength(0);
     expect(new Set([...otherCaller, ...launched.map((launch) => launch.threadId)]).size).toBe(1);
+  }).pipe(Effect.scoped, Effect.provide(gitLayer)),
+);
+
+it.live("a start whose launch replays an earlier one reports it as reused", () =>
+  Effect.gen(function* () {
+    const clone = yield* makeClone();
+    const { launched, layer } = harness({ workspaceRoot: clone, launchResumed: true });
+    const result = yield* ProjectPlant.ProjectPlant.pipe(
+      Effect.flatMap((plant) =>
+        plant.start({ projectId, action: "plant", createdBy: "user", creationSource: "web" }),
+      ),
+      Effect.provide(layer),
+    );
+    expect(launched).toHaveLength(1);
+    expect(result).toEqual({ threadId: launched[0]?.threadId, reused: true });
   }).pipe(Effect.scoped, Effect.provide(gitLayer)),
 );

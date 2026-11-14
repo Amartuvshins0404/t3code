@@ -212,3 +212,35 @@ it.live("after a real delete of the plant thread, Plant starts a second thread a
     }).pipe(Effect.provide(storeHarness(clone)));
   }).pipe(Effect.scoped, Effect.provide(gitLayer)),
 );
+
+it.live("an archived plant thread is still the open thread, marked archived", () =>
+  Effect.gen(function* () {
+    const clone = yield* makeClone();
+    yield* Effect.gen(function* () {
+      const plant = yield* ProjectPlant.ProjectPlant;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const start = plant.start({
+        projectId,
+        action: "plant",
+        createdBy: "user",
+        creationSource: "web",
+      });
+
+      const first = yield* start;
+      expect(yield* plant.readStatus({ projectId })).toStrictEqual({
+        _tag: "not_planted",
+        openThread: { threadId: first.threadId },
+      });
+      yield* threads.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("command:plant-store:archive"),
+        threadId: first.threadId,
+      });
+      expect(yield* plant.readStatus({ projectId })).toStrictEqual({
+        _tag: "not_planted",
+        openThread: { threadId: first.threadId, archived: true },
+      });
+      expect(yield* start).toEqual({ threadId: first.threadId, reused: true });
+    }).pipe(Effect.provide(storeHarness(clone)));
+  }).pipe(Effect.scoped, Effect.provide(gitLayer)),
+);
