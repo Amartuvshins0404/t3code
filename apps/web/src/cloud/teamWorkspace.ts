@@ -9,6 +9,7 @@ import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { RelayTeamEnvironmentRecord } from "@t3tools/contracts/relay";
 import { Atom } from "effect/reactivity";
+import { useRouter } from "@tanstack/react-router";
 import { useEffect, useSyncExternalStore } from "react";
 
 import type {
@@ -16,6 +17,7 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
 
+import { toastManager } from "../components/ui/toast";
 import { environmentCatalog } from "../connection/catalog";
 import { useProjects, useQuietThreadShells } from "../state/entities";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -74,12 +76,14 @@ function useTeamOnlyEnvironmentIds(): ReadonlySet<string> {
   return useSyncExternalStore(subscribeTracked, readTracked, () => EMPTY_IDS);
 }
 
-let reconciling: Promise<void> = Promise.resolve();
+let reconciling: Promise<unknown> = Promise.resolve();
 
-function reconcileTeamConnections(wanted: ReadonlyArray<RelayTeamEnvironmentRecord>) {
-  reconciling = reconciling.then(async () => {
+function reconcileTeamConnections(
+  wanted: ReadonlyArray<RelayTeamEnvironmentRecord>,
+): Promise<ReadonlySet<string>> {
+  const run = reconciling.then(async (): Promise<ReadonlySet<string>> => {
     const catalog = appAtomRegistry.get(environmentCatalog.catalogValueAtom);
-    if (!catalog.isReady) return;
+    if (!catalog.isReady) return EMPTY_IDS;
     const plan = TeamWorkspace.planTeamConnections({
       catalogIds: new Set(catalog.entries.keys()),
       tracked: [...readTracked()],
@@ -117,8 +121,10 @@ function reconcileTeamConnections(wanted: ReadonlyArray<RelayTeamEnvironmentReco
       ...plan.tracked.filter((id) => !plan.register.includes(id) || registered.includes(id)),
       ...plan.remove.filter((id) => !removed.has(id)),
     ]);
+    return removed;
   });
-  return reconciling;
+  reconciling = run;
+  return run;
 }
 
 export type TeamMachinesState =
@@ -209,12 +215,26 @@ export function TeamWorkspaceConnections() {
       savedWorkspace !== PERSONAL_WORKSPACE &&
       teamsStatus === "loading");
   const wanted = settling ? null : teamId === null ? NO_MACHINES : snapshot.data;
+  const router = useRouter();
+  const teamName = workspace.kind === "team" ? workspace.team.name : null;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- connects the team's shared machines in the connection registry and drops them when the workspace changes
   useEffect(() => {
     if (!catalogReady || wanted === null) return;
-    void reconcileTeamConnections(wanted);
-  }, [catalogReady, wanted]);
+    void reconcileTeamConnections(wanted).then((removed) => {
+      const open = router.state.matches.at(-1)?.params;
+      const environmentId = open && "environmentId" in open ? open.environmentId : undefined;
+      if (environmentId === undefined || !removed.has(environmentId)) return;
+      if (teamName !== null) {
+        toastManager.add({
+          type: "info",
+          title: `That machine is no longer shared with ${teamName}`,
+          description: "Its threads are closed for you until it is shared again.",
+        });
+      }
+      void router.navigate({ to: "/", replace: true });
+    });
+  }, [catalogReady, wanted, router, teamName]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the team's machine list when the window regains focus
   useEffect(() => {
