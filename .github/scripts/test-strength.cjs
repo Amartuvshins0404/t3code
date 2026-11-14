@@ -5,6 +5,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const { TEST_FILE, checksMarker, isTestSupport, parseGitDiff } = require("./merge-lane.cjs");
+const { hideMarkers } = require("./test-delta.cjs");
 
 const MAX_LINES = 800;
 const MINUTES = 5;
@@ -86,7 +87,7 @@ const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0)
 const plural = (n, word) => `${n} ${n === 1 ? word : `${word}s`}`;
 const unique = (items) => [...new Set(items)];
 const safePath = (file) =>
-  String(file)
+  hideMarkers(file)
     .replace(/[`\r\n]/g, "?")
     .slice(0, 200);
 const plainNote = (text) =>

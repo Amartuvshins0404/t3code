@@ -2,6 +2,7 @@
 // say when a change grows the suite. Counting declarations keeps the number deterministic, unlike
 // CI timings, which move with runner load.
 const MARKER = "<!-- test-delta -->";
+const hideMarkers = (text) => String(text).replaceAll("<!--", "<!\u200b--");
 const NET_CASES_TO_REPORT = 20;
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 // `<` admits type arguments, as in `it.each<Row>(...)`, which may span lines.
@@ -64,7 +65,7 @@ function render(delta) {
   if (delta.newBrowserFiles.length > 0) {
     lines.push(
       "",
-      `New browser test files: ${delta.newBrowserFiles.map((file) => `\`${file}\``).join(", ")}.`,
+      `New browser test files: ${delta.newBrowserFiles.map((file) => `\`${hideMarkers(file)}\``).join(", ")}.`,
       "Each browser test file costs CI seconds of module loading before its first test runs; a unit test costs milliseconds.",
     );
   }
@@ -75,4 +76,4 @@ function render(delta) {
   return lines.join("\n");
 }
 
-module.exports = { MARKER, TEST_CASE, countTestDelta, render };
+module.exports = { MARKER, TEST_CASE, countTestDelta, hideMarkers, render };
