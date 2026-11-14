@@ -73,6 +73,7 @@ import {
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
+  SquareKanbanIcon,
   MonitorIcon,
   PinIcon,
   PinOffIcon,
@@ -1681,6 +1682,17 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
+  actionItems.push({
+    kind: "action",
+    value: "action:projects",
+    searchTerms: ["projects", "board", "kanban", "columns", "overview", "needs you", "working"],
+    title: "Open projects",
+    icon: <SquareKanbanIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/projects" });
+    },
+  });
+
   for (const direction of [1, -1] as const) {
     const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
     actionItems.push({
@@ -1756,8 +1768,8 @@ function OpenCommandPaletteDialog(props: {
       icon: <FolderIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({
-          to: "/projects/$projectKey",
-          params: { projectKey: contextualProjectGroup.projectKey },
+          to: "/settings/projects",
+          search: { project: contextualProjectGroup.projectKey, machine: undefined },
         });
       },
     });
