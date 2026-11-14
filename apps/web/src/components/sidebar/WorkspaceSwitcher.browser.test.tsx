@@ -1,4 +1,5 @@
 import type {
+  CloudAuthSnapshot,
   CloudTeamDetail,
   CloudTeamInvite,
   CloudTeamsState,
@@ -9,7 +10,6 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../../test/render";
-import type { CloudAuthSnapshot } from "../../cloud/cloudAuth";
 import type { TeamDetailState } from "../../cloud/cloudTeams";
 import { useUiStateStore } from "../../uiStateStore";
 import { TeamSettingsPanel } from "../settings/TeamSettings";
