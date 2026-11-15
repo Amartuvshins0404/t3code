@@ -685,6 +685,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification toast popup completion input approval failure"],
   },
   {
+    id: "answer-for-me",
+    title: "Answer for me",
+    to: "/settings/general",
+    searchTerms: ["question recommended auto answer decide wait minutes needs you"],
+  },
+  {
     id: "language",
     title: msg("Language"),
     to: "/settings/general",

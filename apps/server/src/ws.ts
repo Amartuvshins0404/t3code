@@ -115,6 +115,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
+import * as QuestionAutoAnswerWorker from "./orchestration-v2/QuestionAutoAnswerWorker.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -1888,6 +1889,10 @@ export const layerWsRpc = (
         const auth = yield* serverAuth.getDescriptor();
         const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
         const lastEventLoopStall = yield* eventLoopMonitor.latestNoticeableStall;
+        const questionAutoAnswerDefaultMinutes =
+          yield* QuestionAutoAnswerWorker.defaultWaitMinutes.pipe(
+            Effect.orElseSucceed(() => undefined),
+          );
         const discovery = yield* resolveOpenDiscoveryForConfig({
           editors: externalLauncher.resolveAvailableEditors(),
           fileManagerRevealKind: externalLauncher.resolveFileManagerRevealKind(),
@@ -1948,6 +1953,9 @@ export const layerWsRpc = (
           threadSnapshotPagination: true,
           threadFind: true,
           threadFindProgressive: true,
+          ...(questionAutoAnswerDefaultMinutes === undefined
+            ? {}
+            : { questionAutoAnswerDefaultMinutes }),
           secretProviderSettings: true,
           secretReferences: true,
           secretRequestReferences: true,

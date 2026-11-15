@@ -1348,6 +1348,9 @@ const OwnerLogo = Schema.String.check(
   Schema.isPattern(/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/),
   Schema.isMaxLength(OWNER_LOGO_MAX_LENGTH),
 );
+const QuestionAutoAnswerMinutes = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: 7 * 24 * 60 }),
+);
 
 export const ServerSettings = Schema.Struct({
   // Null means unmigrated; empty is authoritative and must not resurrect cleared preferences.
@@ -1440,6 +1443,9 @@ export const ServerSettings = Schema.Struct({
   idleCompaction: Schema.optionalKey(IdleCompactionMode),
   snoozeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoResumeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  questionAutoAnswerMinutes: Schema.NullOr(QuestionAutoAnswerMinutes).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   snoozePresets: SnoozePresetSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNOOZE_PRESETS)),
   ),
@@ -1880,6 +1886,7 @@ export const ServerSettingsPatch = Schema.Struct({
   sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   autoResumeLimitedThreads: Schema.optionalKey(Schema.Boolean),
   snoozeLimitedThreads: Schema.optionalKey(Schema.Boolean),
+  questionAutoAnswerMinutes: Schema.optionalKey(Schema.NullOr(QuestionAutoAnswerMinutes)),
   snoozePresets: Schema.optionalKey(SnoozePresetSettings),
   hiddenThreadTags: Schema.optionalKey(Schema.Array(Schema.String)),
   hideTaggedThreads: Schema.optionalKey(Schema.Boolean),
