@@ -118,6 +118,7 @@ import * as TeamPresence from "./team/TeamPresence.ts";
 import * as TeamSharing from "./team/TeamSharing.ts";
 import * as TeamConnectivity from "./team/TeamConnectivity.ts";
 import * as TeamAgent from "./team/TeamAgent.ts";
+import * as TeamProjects from "./team/TeamProjects.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -853,6 +854,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(TeamSharing.TeamSharing)({}),
   Layer.mock(TeamConnectivity.TeamConnectivity)({}),
   Layer.mock(TeamAgent.TeamAgent)({}),
+  Layer.mock(TeamProjects.TeamProjects)({}),
   TeamPresence.layer,
   Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({}),
   Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({}),
@@ -2210,6 +2212,7 @@ it.effect(
         Layer.succeed(TeamPresence.TeamPresence, presence),
         Layer.mock(TeamConnectivity.TeamConnectivity)({}),
         Layer.mock(TeamAgent.TeamAgent)({}),
+        Layer.mock(TeamProjects.TeamProjects)({}),
       );
       const server = yield* RpcServer.makeNoSerialization(group, {
         ...WS_RPC_SERVER_OPTIONS,
