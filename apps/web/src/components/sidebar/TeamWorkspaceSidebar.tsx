@@ -249,7 +249,7 @@ function TeamThreadRow({
           <EyeIcon aria-label="View only" className="size-3.5 shrink-0" />
         )}
         <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-        {asker && asker.userId !== selfUserId ? (
+        {asker && asker.userId !== selfUserId && asker.userId !== owner.userId ? (
           <span className="max-w-20 shrink-0 truncate text-muted-foreground text-xs">
             {asker.name}
           </span>
