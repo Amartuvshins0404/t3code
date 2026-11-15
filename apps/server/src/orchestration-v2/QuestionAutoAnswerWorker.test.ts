@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  DEFAULT_SERVER_SETTINGS,
   EventId,
   NodeId,
   type OrchestrationV2DomainEvent,
@@ -11,13 +12,17 @@ import {
   ProviderSessionId,
   PullRequestOperationError,
   RuntimeRequestId,
+  type ServerSettings as ServerSettingsValue,
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -26,6 +31,7 @@ import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAda
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EventSink from "./EventSink.ts";
@@ -300,12 +306,41 @@ const seedRequest = Effect.fn("test.seedRequest")(function* (input: {
 
 type PullRequestReads = Partial<PullRequestService.PullRequestService["Service"]>;
 
+const storedWait = Effect.fn("test.storedWait")(function* (initial: number | null) {
+  const minutes = yield* Ref.make(initial);
+  const changes = yield* PubSub.unbounded<ServerSettingsValue>();
+  const subscribed = yield* Deferred.make<void>();
+  const settingsOf = (questionAutoAnswerMinutes: number | null) => ({
+    ...DEFAULT_SERVER_SETTINGS,
+    questionAutoAnswerMinutes,
+  });
+  return {
+    layer: Layer.mock(ServerSettings.ServerSettingsService)({
+      getSettings: Ref.get(minutes).pipe(Effect.map(settingsOf)),
+      streamChanges: Stream.unwrap(
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(changes);
+          yield* Deferred.succeed(subscribed, undefined);
+          return Stream.fromSubscription(subscription);
+        }),
+      ),
+    }),
+    set: (value: number | null) =>
+      Deferred.await(subscribed).pipe(
+        Effect.andThen(Ref.set(minutes, value)),
+        Effect.andThen(PubSub.publish(changes, settingsOf(value))),
+      ),
+  };
+});
+
 const startWorker = Effect.fn("test.startWorker")(function* (
   options: {
     readonly pullRequests?: PullRequestReads;
     readonly env?: Record<string, string>;
+    readonly settings?: Layer.Layer<ServerSettings.ServerSettingsService>;
   } = {},
 ) {
+  const settings = options.settings ?? (yield* storedWait(null)).layer;
   const sweeps: Array<Effect.Effect<void>> = [];
   const scheduler = Scheduler.Scheduler.of({
     register: <E, R>(_name: string, runDueWork: Effect.Effect<void, E, R>) =>
@@ -326,6 +361,7 @@ const startWorker = Effect.fn("test.startWorker")(function* (
           Layer.succeed(Scheduler.Scheduler, scheduler),
           Layer.mock(PullRequestService.PullRequestService)(options.pullRequests ?? {}),
           ConfigProvider.layer(ConfigProvider.fromEnv({ env: options.env ?? {} })),
+          settings,
         ),
       ),
     ),
@@ -794,27 +830,62 @@ it.effect("keeps a snoozed thread snoozed and leaves requests a user answered or
   }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("takes the wait from the server environment in minutes, and 0 turns it off", () =>
-  Effect.gen(function* () {
-    yield* TestClock.setTime(startMs);
-    const thread = yield* liveThread("env");
-    const old = yield* seedRequest({ thread, name: "old" });
-    const threeMinutes = yield* seedRequest({
-      thread,
-      name: "three",
-      createdAtMs: 117 * MINUTE_MS,
-    });
-    const twoMinutes = yield* seedRequest({ thread, name: "two", createdAtMs: 118 * MINUTE_MS });
-    const off = yield* startWorker({ env: { T3CODE_QUESTION_AUTO_ANSWER_MINUTES: "0" } });
-    const three = yield* startWorker({ env: { T3CODE_QUESTION_AUTO_ANSWER_MINUTES: "3" } });
+it.effect(
+  "takes the wait in minutes from the stored setting, else the server environment, and 0 turns it off",
+  () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(startMs);
+      const thread = yield* liveThread("env");
+      const old = yield* seedRequest({ thread, name: "old" });
+      const threeMinutes = yield* seedRequest({
+        thread,
+        name: "three",
+        createdAtMs: 117 * MINUTE_MS,
+      });
+      const twoMinutes = yield* seedRequest({ thread, name: "two", createdAtMs: 118 * MINUTE_MS });
+      const envOff = yield* startWorker({ env: { T3CODE_QUESTION_AUTO_ANSWER_MINUTES: "0" } });
+      const storedOff = yield* startWorker({
+        env: { T3CODE_QUESTION_AUTO_ANSWER_MINUTES: "3" },
+        settings: (yield* storedWait(0)).layer,
+      });
+      const envThree = yield* startWorker({ env: { T3CODE_QUESTION_AUTO_ANSWER_MINUTES: "3" } });
 
-    yield* sweepAt(off, 120 * MINUTE_MS);
-    yield* assertLeftAlone(thread, old);
-    yield* assertLeftAlone(thread, threeMinutes);
+      yield* sweepAt(envOff, 120 * MINUTE_MS);
+      yield* sweepAt(storedOff, 120 * MINUTE_MS);
+      yield* assertLeftAlone(thread, old);
+      yield* assertLeftAlone(thread, threeMinutes);
 
-    yield* sweepAt(three, 120 * MINUTE_MS);
-    yield* assertServerAnswered(thread, old, keepGoing("old"));
-    yield* assertServerAnswered(thread, threeMinutes, keepGoing("three"));
-    yield* assertLeftAlone(thread, twoMinutes);
-  }).pipe(Effect.provide(layerTest)),
+      yield* sweepAt(envThree, 120 * MINUTE_MS);
+      yield* assertServerAnswered(thread, old, keepGoing("old"));
+      yield* assertServerAnswered(thread, threeMinutes, keepGoing("three"));
+      yield* assertLeftAlone(thread, twoMinutes);
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "a stored wait shorter than the environment's answers earlier, and a change applies on the next sweep",
+  () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(startMs);
+      const thread = yield* liveThread("stored");
+      const first = yield* seedRequest({ thread, name: "first" });
+      const settings = yield* storedWait(null);
+      const sweep = yield* startWorker({ settings: settings.layer });
+
+      yield* sweepAt(sweep, 5 * MINUTE_MS);
+      yield* assertLeftAlone(thread, first);
+
+      yield* settings.set(3);
+      yield* sweepAt(sweep, 5 * MINUTE_MS + 1);
+      yield* assertServerAnswered(thread, first, keepGoing("first"));
+
+      const second = yield* seedRequest({ thread, name: "second", createdAtMs: 6 * MINUTE_MS });
+      yield* settings.set(0);
+      yield* sweepAt(sweep, 30 * MINUTE_MS);
+      yield* assertLeftAlone(thread, second);
+
+      yield* settings.set(null);
+      yield* sweepAt(sweep, 30 * MINUTE_MS + 1);
+      yield* assertServerAnswered(thread, second, keepGoing("second"));
+    }).pipe(Effect.provide(layerTest)),
 );
