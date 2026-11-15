@@ -1,4 +1,6 @@
 import {
+  type ClaudeSettings,
+  type CodexSettings,
   defaultInstanceIdForDriver,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -18,6 +20,9 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 
+import type { ProviderAdapterDriverCreateInput } from "@t3tools/provider-core/server/adapterDriver";
+import * as ClaudeAdapterV2 from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
+import * as CodexAdapterV2 from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as ManagedProviders from "../policy/managedProviders.ts";
 import * as Settings from "../serverSettings.ts";
 import * as SecretResolver from "../secrets/SecretResolver.ts";
@@ -198,6 +203,26 @@ export const layer: Layer.Layer<
       configMap: initialConfigMap,
       blockedReason: (driver) =>
         ManagedProviders.disallowedDriverReason(serverSettings.managedPolicy, driver),
+      detachedAdapter: (driver) => {
+        if (ManagedProviders.disallowedDriverReason(serverSettings.managedPolicy, driver)) {
+          return undefined;
+        }
+        if (driver === "claudeAgent") {
+          return (input) =>
+            ClaudeAdapterV2.createClaudeAdapterV2(
+              input as ProviderAdapterDriverCreateInput<ClaudeSettings>,
+              {},
+            );
+        }
+        if (driver === "codex") {
+          return (input) =>
+            CodexAdapterV2.createCodexAdapterV2(
+              input as ProviderAdapterDriverCreateInput<CodexSettings>,
+              {},
+            );
+        }
+        return undefined;
+      },
     }).pipe(
       Layer.provide(ProviderOrchestrationAdapterInfrastructure.layer),
       Layer.provide(AcpRegistrySupport.layerFromHost),

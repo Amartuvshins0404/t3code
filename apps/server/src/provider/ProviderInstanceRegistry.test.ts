@@ -54,6 +54,7 @@ import * as PortScanner from "../preview/PortScanner.ts";
 import * as ProviderHostLive from "./ProviderHostLive.ts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import type { AnyProviderDriver, ProviderInstance } from "@t3tools/provider-core/server/driver";
+import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", { spy: true });
 
@@ -1115,5 +1116,79 @@ describe("ProviderInstanceRegistry secret environment", () => {
       expect(yield* registry.getInstance(instanceId)).toBeDefined();
       expect(yield* registry.listUnavailable).toEqual([]);
     }).pipe(Effect.scoped);
+  });
+});
+
+describe("ProviderInstanceRegistry detached adapters", () => {
+  it.effect("builds a routed adapter from a live instance without listing it", () => {
+    const driverKind = ProviderDriverKind.make("fake");
+    const instanceId = ProviderInstanceId.make("fake_main");
+    const routedEnvironments: Array<ResolvedProviderInstanceEnvironment> = [];
+    const driver: AnyProviderDriver = {
+      driverKind,
+      metadata: { displayName: "Fake" },
+      configSchema: Schema.Unknown,
+      defaultConfig: () => ({}),
+      create: (input) =>
+        Effect.succeed({
+          instanceId: input.instanceId,
+          enabled: input.enabled,
+        } as ProviderInstance),
+    };
+    return Effect.gen(function* () {
+      const { registry } = yield* makeProviderInstanceRegistry({
+        drivers: [driver],
+        configMap: {
+          [instanceId]: {
+            driver: driverKind,
+            environment: [{ name: "BASE_URL", value: "https://owner.test", sensitive: false }],
+          },
+        },
+        detachedAdapter: () => (input) =>
+          Effect.sync(() => {
+            routedEnvironments.push(input.environment);
+            return { instanceId: input.instanceId } as ProviderAdapter.ProviderAdapterV2["Service"];
+          }),
+      });
+      const listedBefore = yield* registry.listInstances;
+
+      yield* registry.buildDetachedAdapter!({
+        instanceId,
+        environment: (_driver, environment) => [
+          ...environment.filter((variable) => variable.name !== "BASE_URL"),
+          { name: "BASE_URL", value: "https://team.test", sensitive: false },
+          { name: "TEAM_KEY", value: "fake-team-key", sensitive: true },
+        ],
+        config: (_driver, config) => config,
+      });
+
+      expect(routedEnvironments).toEqual([
+        [
+          { name: "BASE_URL", value: "https://team.test", sensitive: false },
+          { name: "TEAM_KEY", value: "fake-team-key", sensitive: true },
+        ],
+      ]);
+      expect(yield* registry.listInstances).toEqual(listedBefore);
+      expect(yield* registry.listUnavailable).toEqual([]);
+      expect(
+        yield* registry.buildDetachedAdapter!({
+          instanceId: ProviderInstanceId.make("fake_missing"),
+          environment: (_driver, environment) => environment,
+          config: (_driver, config) => config,
+        }).pipe(
+          Effect.flip,
+          Effect.map((error) => error._tag),
+        ),
+      ).toBe("DetachedAdapterUnavailableError");
+    }).pipe(
+      Effect.provide(
+        Layer.succeed(SecretResolver.SecretResolver, {
+          label: (provider) => Effect.succeed(provider),
+          read: () => Effect.succeed([]),
+          invalidate: () => Effect.void,
+        }),
+      ),
+      Effect.scoped,
+    );
   });
 });
