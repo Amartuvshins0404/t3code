@@ -44,7 +44,7 @@ import {
 import { AuthMcpClientAccess } from "./auth.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import { ThreadGuestShare } from "./guestShare.ts";
-import { TeamThreadAccess, ThreadTeamShare } from "./team.ts";
+import { TeamAgentConversation, TeamThreadAccess, ThreadTeamShare } from "./team.ts";
 import { StoredThreadTags, ThreadTag } from "./threadTags.ts";
 import {
   OrchestrationSearchThreadsInput,
@@ -3476,6 +3476,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     organizationId: TrimmedNonEmptyString,
     access: TeamThreadAccess,
+    agent: Schema.optional(TeamAgentConversation),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.team-share.clear"),

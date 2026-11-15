@@ -15,8 +15,10 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
   dispatchFailure,
   newCommandId,
+  outsideTeamAgentProject,
   readCaller,
   readThread,
+  teamAgentReadsOutsideProject,
   unavailable,
 } from "../../threadAccess.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
@@ -128,6 +130,9 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       const { caller } = yield* readCaller();
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
+      if (teamAgentReadsOutsideProject(caller, input.projectId ?? caller?.projectId)) {
+        return yield* outsideTeamAgentProject();
+      }
       const { matches } = yield* threadSearch
         .searchThreads({ ...input, projectId: input.projectId ?? caller?.projectId })
         .pipe(Effect.mapError(unavailable));

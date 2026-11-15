@@ -1,0 +1,227 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import {
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type TeamAccessError,
+  TeamAgentAskInput,
+  type TeamAgentSetInput,
+  TEAM_AGENT_QUESTION_MAX_LENGTH,
+} from "@t3tools/contracts";
+import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
+
+import type { TeamSharingState } from "./sharedOrganizations.ts";
+import { decideTeamAgentAsk, decideTeamAgentSetting, teamAgentStatuses } from "./TeamAgent.ts";
+import { decideTeamAgentToolUse } from "./TeamAgentToolGuard.ts";
+
+const web = ProjectId.make("project-web");
+const api = ProjectId.make("project-api");
+const claude = ProviderDriverKind.make("claudeAgent");
+const modelSelection = { instanceId: ProviderInstanceId.make("claude"), model: "claude-sonnet" };
+const state: TeamSharingState = {
+  organizationIds: ["org-a", "org-b"],
+  agents: {
+    "org-a": { enabled: true, projectIds: [web], modelSelection },
+    "org-b": { enabled: false, projectIds: [web], modelSelection },
+  },
+};
+const teammate = { organizationId: "org-a" };
+
+const ask = (
+  overrides: Partial<Parameters<typeof decideTeamAgentAsk>[0]> & {
+    readonly input?: Partial<TeamAgentAskInput>;
+  } = {},
+) =>
+  decideTeamAgentAsk({
+    ask: { organizationId: "org-a", text: "Where is auth handled?", ...overrides.input },
+    member: teammate,
+    state,
+    existingProjectIds: new Set([web, api]),
+    modelDriver: claude,
+    runningAgentTurns: 0,
+    ...overrides,
+  });
+
+const refusal = (decision: ReturnType<typeof decideTeamAgentAsk>): TeamAccessError["reason"] => {
+  if (Result.isSuccess(decision)) throw new Error("expected a refusal");
+  return decision.failure.reason;
+};
+
+describe("decideTeamAgentAsk", () => {
+  it("starts a teammate's question on the first allowed project with the owner's model", () => {
+    expect(Result.getOrThrow(ask())).toEqual({ projectId: web, modelSelection });
+  });
+
+  it.each([
+    ["a member of another team", { member: { organizationId: "org-c" } }],
+    ["a payload naming another team", { input: { organizationId: "org-b" } }],
+    [
+      "a team this machine is not shared with",
+      { member: undefined, input: { organizationId: "org-c" } },
+    ],
+  ])("refuses %s", (_label, overrides) => {
+    expect(refusal(ask(overrides))).toBe("organization_not_shared");
+  });
+
+  it.each<[string, Parameters<typeof ask>[0], TeamAccessError["reason"]]>([
+    [
+      "an agent that is off",
+      { member: { organizationId: "org-b" }, input: { organizationId: "org-b" } },
+      "agent_off",
+    ],
+    [
+      "a project the owner did not pick",
+      { input: { projectId: api } },
+      "agent_project_not_allowed",
+    ],
+    [
+      "text that would run a slash command",
+      { input: { text: "  /logout" } },
+      "not_allowed_for_teammates",
+    ],
+    [
+      "a model that cannot stay read-only",
+      { modelDriver: ProviderDriverKind.make("codex") },
+      "agent_provider_unsupported",
+    ],
+    ["a third question while two are running", { runningAgentTurns: 2 }, "agent_busy"],
+  ])("refuses %s with its reason", (_label, overrides, reason) => {
+    expect(refusal(ask(overrides))).toBe(reason);
+  });
+
+  it("answers while only one other question is running", () => {
+    expect(Result.isSuccess(ask({ runningAgentTurns: 1 }))).toBe(true);
+  });
+});
+
+it("refuses a question longer than the limit before it reaches the owner's model", () => {
+  const decode = Schema.decodeUnknownOption(TeamAgentAskInput);
+  const text = (length: number) => ({ organizationId: "org-a", text: "a".repeat(length) });
+  expect(Option.isSome(decode(text(TEAM_AGENT_QUESTION_MAX_LENGTH)))).toBe(true);
+  expect(Option.isNone(decode(text(TEAM_AGENT_QUESTION_MAX_LENGTH + 1)))).toBe(true);
+});
+
+describe("decideTeamAgentSetting", () => {
+  const set = (overrides: Partial<TeamAgentSetInput>, modelDriver = claude) =>
+    decideTeamAgentSetting({
+      set: {
+        organizationId: "org-a",
+        enabled: true,
+        projectIds: [web],
+        modelSelection,
+        ...overrides,
+      },
+      existingProjectIds: new Set([web]),
+      modelDriver,
+      modelEnabled: true,
+    });
+
+  it.each<[string, Partial<TeamAgentSetInput>, ProviderDriverKind, TeamAccessError["reason"]]>([
+    [
+      "a model that cannot stay read-only",
+      {},
+      ProviderDriverKind.make("codex"),
+      "agent_provider_unsupported",
+    ],
+    ["no project that still exists", { projectIds: [api] }, claude, "agent_project_not_allowed"],
+  ])("will not turn an agent on with %s", (_label, overrides, driver, reason) => {
+    const decision = set(overrides, driver);
+    expect(Result.isFailure(decision) && decision.failure.reason).toBe(reason);
+  });
+
+  it("can always turn an agent off", () => {
+    const decision = set({ enabled: false, projectIds: [] }, ProviderDriverKind.make("codex"));
+    expect(Result.getOrThrow(decision)).toMatchObject({ enabled: false, projectIds: [] });
+  });
+});
+
+describe("teamAgentStatuses", () => {
+  const projects = [{ projectId: web, title: "Web" }];
+
+  it("shows a teammate only their own team's agent and never the model", () => {
+    expect(teamAgentStatuses({ state, member: teammate, projects })).toEqual({
+      agents: [
+        { organizationId: "org-a", enabled: true, projects: [{ projectId: web, title: "Web" }] },
+      ],
+    });
+  });
+
+  it("shows the owner every shared team with its model", () => {
+    const statuses = teamAgentStatuses({ state, member: undefined, projects });
+    expect(statuses.agents.map((agent) => agent.organizationId)).toEqual(["org-a", "org-b"]);
+    expect(statuses.agents[0]?.modelSelection).toEqual(modelSelection);
+  });
+});
+
+it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
+  const withProject = <A, E, R>(
+    run: (dirs: { readonly project: string; readonly outside: string }) => Effect.Effect<A, E, R>,
+  ) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-team-agent-guard-" });
+      const project = path.join(root, "project");
+      const outside = path.join(root, "outside");
+      yield* fs.makeDirectory(path.join(project, "src"), { recursive: true });
+      yield* fs.makeDirectory(outside);
+      yield* fs.writeFileString(path.join(project, "src", "auth.ts"), "export {}");
+      yield* fs.writeFileString(path.join(project, ".env.local"), "TOKEN=fake-test-value");
+      yield* fs.writeFileString(path.join(outside, "notes.md"), "private");
+      yield* fs.symlink(path.join(outside, "notes.md"), path.join(project, "notes.md"));
+      return yield* run({ project, outside });
+    });
+
+  const decide = (toolName: string, toolInput: unknown, project: string) =>
+    decideTeamAgentToolUse({ toolName, toolInput, cwd: project, readableRoots: [project] });
+
+  it.effect("lets a read inside the project through", () =>
+    withProject(({ project }) =>
+      Effect.gen(function* () {
+        const decision = yield* decide("Read", { file_path: "src/auth.ts" }, project);
+        expect(decision.allow).toBe(true);
+      }),
+    ),
+  );
+
+  it.effect("refuses writes, commands, secrets and anything outside the project", () =>
+    withProject(({ project, outside }) =>
+      Effect.gen(function* () {
+        const refused = [
+          yield* decide("Write", { file_path: "src/auth.ts", content: "" }, project),
+          yield* decide("Bash", { command: "cat .env.local" }, project),
+          yield* decide("Read", { file_path: `${outside}/notes.md` }, project),
+          yield* decide("Read", { file_path: "notes.md" }, project),
+          yield* decide("Read", { file_path: ".env.local" }, project),
+          yield* decide("Glob", { pattern: "../outside/*" }, project),
+          yield* decide("Grep", { pattern: "TOKEN", glob: ".env*" }, project),
+          yield* decide("Grep", { pattern: "TOKEN", path: outside }, project),
+          yield* decide(
+            "mcp__t3-code__t3_thread_read",
+            { threadId: "thread-1", environmentId: "environment:other" },
+            project,
+          ),
+        ];
+        expect(refused.map((decision) => decision.allow)).toEqual(refused.map(() => false));
+      }),
+    ),
+  );
+
+  it.effect("keeps secret files out of every Grep", () =>
+    withProject(({ project }) =>
+      Effect.gen(function* () {
+        const decision = yield* decide("Grep", { pattern: "TOKEN" }, project);
+        expect(decision).toMatchObject({
+          allow: true,
+          updatedInput: { pattern: "TOKEN", glob: expect.stringContaining(".env*") },
+        });
+      }),
+    ),
+  );
+});

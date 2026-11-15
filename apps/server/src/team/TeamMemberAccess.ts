@@ -35,6 +35,8 @@ const TEAM_MEMBER_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.teamReportPresence,
   WS_METHODS.teamSubscribePresence,
   WS_METHODS.teamGetConnectivity,
+  WS_METHODS.teamGetAgents,
+  WS_METHODS.teamAskAgent,
 ]);
 
 const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
@@ -43,6 +45,8 @@ const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.teamReportPresence,
   WS_METHODS.teamSubscribePresence,
   WS_METHODS.teamGetConnectivity,
+  WS_METHODS.teamGetAgents,
+  WS_METHODS.teamAskAgent,
 ]);
 
 const TEAM_MEMBER_HTTP_ENDPOINTS: ReadonlySet<string> = new Set([
@@ -142,10 +146,13 @@ const STEER_DISPATCH_MODES: ReadonlySet<string> = new Set([
   "steer_active",
 ]);
 
+export const TEAM_AGENT_OFF_DETAIL = "agent_off";
+
 export function decideTeamMemberCommand(input: {
   readonly command: OrchestrationV2Command;
   readonly teamShare: ThreadTeamShare | null | undefined;
   readonly member: TeamMemberIdentity;
+  readonly agentEnabled?: boolean;
 }): Result.Result<OrchestrationV2Command, EnvironmentAuthorizationError> {
   const { command, member } = input;
   if (command.type !== "message.dispatch" && command.type !== "run.interrupt") {
@@ -190,6 +197,15 @@ export function decideTeamMemberCommand(input: {
         "Teammates cannot send slash commands. Start the message with a word.",
         AuthOrchestrationOperateScope,
       ),
+    );
+  }
+  if (input.teamShare?.agent !== undefined && input.agentEnabled !== true) {
+    return Result.fail(
+      new EnvironmentAuthorizationError({
+        message: "This agent is off, so it does not take new messages.",
+        requiredScope: AuthOrchestrationOperateScope,
+        requiredPermission: TEAM_AGENT_OFF_DETAIL,
+      }),
     );
   }
   return Result.succeed({

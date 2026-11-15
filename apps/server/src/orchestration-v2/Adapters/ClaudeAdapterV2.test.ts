@@ -267,6 +267,43 @@ function makeClaudeTestTurnInput(input: {
 }
 
 describe("ClaudeAdapterV2 runtime query policy", () => {
+  it("keeps an agent conversation read-only and declines every prompt without anyone answering", async () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "team-agent-thread",
+      resume: false,
+      cwd: "/workspace",
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      allowedTools: ["Bash", "Write"],
+      settings: { ...DEFAULT_CLAUDE_SETTINGS, launchArgs: "--dangerously-skip-permissions" },
+      teamAgent: {
+        readableRoots: ["/workspace"],
+        ownerName: "Sam",
+        preToolUse: () => Promise.resolve({}),
+      },
+    });
+    assert.deepEqual(options.tools, ["Read", "Glob", "Grep"]);
+    assert.equal(options.permissionMode, "dontAsk");
+    assert.isUndefined(options.allowDangerouslySkipPermissions);
+    assert.deepEqual(options.allowedTools, []);
+    assert.include(options.disallowedTools ?? [], "Read(**/.env*)");
+    assert.lengthOf(options.hooks?.PreToolUse ?? [], 1);
+
+    const signal = new AbortController().signal;
+    const answer = await options.canUseTool?.(
+      "Bash",
+      { command: "ls" },
+      { signal, toolUseID: "tool-1", requestId: "request-1", suggestions: [] },
+    );
+    assert.equal(answer?.behavior, "deny");
+    const elicitation = await options.onElicitation?.(
+      { serverName: "t3-code", message: "Pick one", mode: "form" },
+      { signal, requestId: "request-2" },
+    );
+    assert.equal(elicitation?.action, "decline");
+  });
+
   it.each([
     "-- --thinking-display omitted",
     "--thinking-display summarized -- --thinking-display omitted",

@@ -61,6 +61,17 @@ export const dispatchFailure = (
         })
       : unavailable();
 
+export const teamAgentReadsOutsideProject = (
+  caller: Pick<OrchestrationV2ThreadShell, "teamShare" | "projectId"> | null | undefined,
+  projectId: ProjectId | undefined,
+) => caller?.teamShare?.agent !== undefined && projectId !== caller.projectId;
+
+export const outsideTeamAgentProject = () =>
+  new OrchestratorMcpFailure({
+    code: "capability_denied",
+    message: "An agent conversation can only read threads in its own project.",
+  });
+
 export interface CallerLimits {
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;

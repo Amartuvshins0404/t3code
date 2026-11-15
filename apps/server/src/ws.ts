@@ -127,8 +127,11 @@ import * as GuestShareService from "./guest/GuestShareService.ts";
 import * as TeamPresence from "./team/TeamPresence.ts";
 import * as TeamSharing from "./team/TeamSharing.ts";
 import * as TeamConnectivity from "./team/TeamConnectivity.ts";
+import * as TeamAgent from "./team/TeamAgent.ts";
+import { teamAgentSetting } from "./team/sharedOrganizations.ts";
 import {
   decideTeamMemberCommand,
+  TEAM_AGENT_OFF_DETAIL,
   makeTeamShellFilter,
   sharedWithTeam,
   teamConnectivityStatusRequest,
@@ -1478,6 +1481,7 @@ export const layerWsRpc = (
       const teamSharing = yield* TeamSharing.TeamSharing;
       const teamPresence = yield* TeamPresence.TeamPresence;
       const teamConnectivity = yield* TeamConnectivity.TeamConnectivity;
+      const teamAgent = yield* TeamAgent.TeamAgent;
       const teamMember = currentSession.member;
       const presenceClientId = yield* random.uuidV4();
       yield* teamPresence.join({
@@ -1500,8 +1504,24 @@ export const layerWsRpc = (
             ? threadTeamShare(command.threadId)
             : Effect.undefined
         ).pipe(
-          Effect.flatMap((teamShare) => {
-            const decision = decideTeamMemberCommand({ command, teamShare, member: teamMember });
+          Effect.flatMap((teamShare) =>
+            (teamShare?.agent === undefined
+              ? Effect.succeed(false)
+              : teamSharing.readState.pipe(
+                  Effect.map(
+                    (state) => teamAgentSetting(state, teamShare.organizationId)?.enabled === true,
+                  ),
+                  Effect.orElseSucceed(() => false),
+                )
+            ).pipe(Effect.map((agentEnabled) => ({ teamShare, agentEnabled }))),
+          ),
+          Effect.flatMap(({ teamShare, agentEnabled }) => {
+            const decision = decideTeamMemberCommand({
+              command,
+              teamShare,
+              member: teamMember,
+              agentEnabled,
+            });
             return Result.isSuccess(decision)
               ? Effect.succeed(decision.success)
               : Effect.fail(
@@ -1509,7 +1529,10 @@ export const layerWsRpc = (
                     commandId: command.commandId,
                     commandType: command.type,
                     message: decision.failure.message,
-                    detail: decision.failure.message,
+                    detail:
+                      decision.failure.requiredPermission === TEAM_AGENT_OFF_DETAIL
+                        ? TEAM_AGENT_OFF_DETAIL
+                        : decision.failure.message,
                   }),
                 );
           }),
@@ -2387,6 +2410,9 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.teamGetConnectivity]: (input) =>
           teamConnectivity.status(teamConnectivityStatusRequest(input, teamMember)),
+        [WS_METHODS.teamGetAgents]: (_input) => teamAgent.getAgents(teamMember),
+        [WS_METHODS.teamSetAgent]: (input) => teamAgent.setAgent(input, teamMember),
+        [WS_METHODS.teamAskAgent]: (input) => teamAgent.askAgent(input, teamMember),
         [WS_METHODS.teamReportPresence]: (input) => teamPresence.report(presenceClientId, input),
         [WS_METHODS.teamSubscribePresence]: (_input) =>
           teamPresence.changes.pipe(
