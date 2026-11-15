@@ -524,6 +524,12 @@ export const ProjectEnsureScratchResult = Schema.Struct({
 });
 export type ProjectEnsureScratchResult = typeof ProjectEnsureScratchResult.Type;
 
+export const MasterAgentEnsureResult = Schema.Struct({
+  projectId: ProjectId,
+  threadId: ThreadId,
+});
+export type MasterAgentEnsureResult = typeof MasterAgentEnsureResult.Type;
+
 export const ProjectCreateNewInput = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
 });

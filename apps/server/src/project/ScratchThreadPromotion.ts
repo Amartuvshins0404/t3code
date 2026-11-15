@@ -15,6 +15,7 @@ import * as Schema from "effect/Schema";
 
 import { threadHasUnfinishedWork } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ManagedProjectFolders from "./ManagedProjectFolders.ts";
 import * as ProjectService from "./ProjectService.ts";
@@ -50,6 +51,7 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   const random = yield* SecureRandom.SecureRandom;
+  const masterAgentStore = yield* MasterAgentStore.MasterAgentStore;
   const path = yield* Path.Path;
   const fileSystem = yield* FileSystem.FileSystem;
   const realPath = (folder: string) =>
@@ -68,6 +70,14 @@ const make = Effect.gen(function* () {
         () => new ScratchThreadPromotionError({ reason: "Thread not found." }),
       ),
     );
+    const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
+      Effect.mapError(fail("Could not read the agent thread.")),
+    );
+    if (thread.id === masterThreadId) {
+      return yield* new ScratchThreadPromotionError({
+        reason: "The agent thread has no project and cannot become one.",
+      });
+    }
     const project = yield* projects
       .getById(thread.projectId)
       .pipe(Effect.mapError(fail("Could not read the thread's project.")));
@@ -94,7 +104,10 @@ const make = Effect.gen(function* () {
     const moveSet = new Map<ThreadId, OrchestrationV2ThreadShell>();
     if (isScratch) moveSet.set(thread.id, thread);
     for (const candidate of [...snapshot.threads, ...snapshot.archivedThreads]) {
-      if (yield* managedFolders.isScratchProject(candidate.projectId)) {
+      if (
+        candidate.id !== masterThreadId &&
+        (yield* managedFolders.isScratchProject(candidate.projectId))
+      ) {
         moveSet.set(candidate.id, candidate);
       }
     }

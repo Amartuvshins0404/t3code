@@ -21,6 +21,8 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
+import * as MasterAgent from "../masterAgent/MasterAgent.ts";
+import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
@@ -85,6 +87,7 @@ const layerStores = Layer.mergeAll(
   layerCommandReceiptStoreProvided,
   EffectOutbox.layer,
   TurnItemPositionStore.layer,
+  MasterAgentStore.layer,
 );
 
 export const layerEventSink = EventSink.layerFromStores.pipe(Layer.provide(layerStores));
@@ -103,6 +106,7 @@ export const layerProjectService = ProjectService.layer.pipe(
       layerEventSink,
       IdAllocator.layer,
       layerLegacyV1ThreadImporterProvided,
+      MasterAgentStore.layer,
     ),
   ),
 );
@@ -144,6 +148,7 @@ const layerProviderSessionManagerProvided = ProviderSessionManager.layer.pipe(
       layerProviderEventIngestorProvided,
       ProjectionStore.layer,
       ProviderInstallationGate.layer,
+      MasterAgentStore.layer,
     ),
   ),
 );
@@ -309,12 +314,24 @@ const layerScratchThreadPromotionProvided = ScratchThreadPromotion.layer.pipe(
       layerManagedProjectFoldersProvided,
       layerThreadManagementProvided,
       layerScheduledTaskProvided,
+      MasterAgentStore.layer,
     ),
   ),
 );
 const layerProjectPlantProvided = ProjectPlant.layer.pipe(
   Layer.provide(
     Layer.mergeAll(layerProjectService, layerThreadLaunchProvided, layerThreadManagementProvided),
+  ),
+);
+const layerMasterAgentProvided = MasterAgent.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      MasterAgentStore.layer,
+      layerProjectService,
+      layerManagedProjectFoldersProvided,
+      layerThreadLaunchProvided,
+      layerThreadManagementProvided,
+    ),
   ),
 );
 const layerProviderContinuationWorkerProvided = ProviderContinuationService.layer.pipe(
@@ -398,6 +415,7 @@ export const layerProduction = Layer.mergeAll(
   layerThreadLaunchProvided,
   layerScheduledTaskProvided,
   layerScratchThreadPromotionProvided,
+  layerMasterAgentProvided,
   layerProjectPlantProvided,
   layerSecretRequestsProvided,
   GuestShareService.layer.pipe(

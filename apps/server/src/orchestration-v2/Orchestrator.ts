@@ -199,6 +199,7 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
 
 const isMessageQuestionAnswer = Schema.is(
   Schema.Union([TrimmedNonEmptyString, Schema.NonEmptyArray(TrimmedNonEmptyString)]),
@@ -306,6 +307,19 @@ export class OrchestratorProviderSelectionBusyError extends Schema.TaggedError<O
   }
 }
 
+export class OrchestratorMasterThreadProtectedError extends Schema.TaggedError<OrchestratorMasterThreadProtectedError>()(
+  "OrchestratorMasterThreadProtectedError",
+  {
+    commandId: CommandId,
+    threadId: ThreadId,
+    commandType: Schema.Literals(["thread.archive", "thread.delete"]),
+  },
+) {
+  override get message(): string {
+    return `The agent thread is permanent and cannot be ${this.commandType === "thread.archive" ? "archived" : "deleted"}.`;
+  }
+}
+
 const isOrchestratorDispatchError = Schema.is(OrchestratorDispatchError);
 
 /** The ceiling refusal under however many dispatch errors wrapped it on the way out. */
@@ -372,6 +386,7 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorThreadAboveModeLimitError,
   OrchestratorProviderSelectionBusyError,
   OrchestratorRuntimeModeAboveCeilingError,
+  OrchestratorMasterThreadProtectedError,
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
 
@@ -1300,6 +1315,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const projects = yield* ProjectStore.ProjectStoreV2;
   const projectionStore = yield* ProjectionStoreV2;
+  const masterAgentStore = yield* MasterAgentStore.MasterAgentStore;
   const effectOutbox = yield* EffectOutbox.EffectOutboxV2;
   const nextTurnItemOrdinal = (
     projection: Pick<OrchestrationV2ThreadProjection, "thread"> &
@@ -14101,6 +14117,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       | undefined;
     let updateDelegatedCompletionOnlyRunId: RunId | undefined;
+    if (command.type === "thread.archive" || command.type === "thread.delete") {
+      const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+      if (masterThreadId === command.threadId) {
+        return yield* new OrchestratorMasterThreadProtectedError({
+          commandId: command.commandId,
+          threadId: command.threadId,
+          commandType: command.type,
+        });
+      }
+    }
     switch (command.type) {
       case "thread.create":
         yield* dispatchThreadCreate(command, events);
@@ -15549,6 +15579,7 @@ export const layer: Layer.Layer<
   | ProjectionStoreV2
   | RuntimePolicyV2
   | ServerSettings.ServerSettingsService
+  | MasterAgentStore.MasterAgentStore
   | ThreadForkServiceV2
 > = Layer.effect(OrchestratorV2, makeOrchestrator()).pipe(
   Layer.provide(ThreadCommandExecutor.layer),
