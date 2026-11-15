@@ -326,7 +326,12 @@ const storedWait = Effect.fn("test.storedWait")(function* (initial: number | nul
       ),
     }),
     set: (value: number | null) =>
-      Deferred.await(subscribed).pipe(
+      Deferred.isDone(subscribed).pipe(
+        Effect.andThen((listening) =>
+          Effect.sync(() =>
+            assert.isTrue(listening, "the worker does not listen to settings changes"),
+          ),
+        ),
         Effect.andThen(Ref.set(minutes, value)),
         Effect.andThen(PubSub.publish(changes, settingsOf(value))),
       ),

@@ -735,14 +735,22 @@ const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfter
 const ANSWER_FOR_ME_CHOICES = [0, 5, 10, 30, 60];
 
 const answerForMeLabel = (minutes: number) =>
-  minutes === 0 ? "Off" : minutes === 60 ? "1 hour" : `${minutes} minutes`;
+  minutes <= 0
+    ? "Off"
+    : minutes === 60
+      ? "1 hour"
+      : minutes === 1
+        ? "1 minute"
+        : `${minutes} minutes`;
 
 function AnswerForMeRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const { environment } = useSettingsScope();
   const stored = settings.questionAutoAnswerMinutes;
-  const minutes = stored ?? environment?.serverConfig?.questionAutoAnswerDefaultMinutes ?? 10;
+  const serverDefault = environment?.serverConfig?.questionAutoAnswerDefaultMinutes;
+  if (serverDefault === undefined) return null;
+  const minutes = stored ?? serverDefault;
   return (
     <SettingsRow
       serverScoped
