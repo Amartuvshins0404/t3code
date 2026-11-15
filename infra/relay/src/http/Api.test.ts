@@ -758,7 +758,8 @@ describe("environment team connectivity", () => {
           ),
         ),
         Layer.provide(layerAuth),
-        Layer.provide([NodeCryptoLayer.layerSignature, HttpServer.layerServices]),
+        HttpRouter.provideRequest(NodeCryptoLayer.layerSignature),
+        Layer.provide(HttpServer.layerServices),
       );
       const app = yield* Effect.acquireRelease(
         Effect.sync(() => HttpRouter.toWebHandler(layerRoutes, { disableLogger: true })),
