@@ -286,6 +286,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     });
     assert.deepEqual(options.tools, ["Read", "Glob", "Grep"]);
     assert.equal(options.permissionMode, "dontAsk");
+    assert.equal(options.verbatimPrompts, true);
     assert.deepEqual(options.settingSources, []);
     assert.equal(options.strictMcpConfig, true);
     assert.isUndefined(options.allowDangerouslySkipPermissions);

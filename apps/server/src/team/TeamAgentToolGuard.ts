@@ -34,6 +34,17 @@ export const TEAM_AGENT_SECRET_READ_DENY_RULES = [
 const TEAM_AGENT_GREP_SECRET_EXCLUSION =
   "!{.env*,*.pem,*.key,id_rsa*,id_dsa*,id_ecdsa*,id_ed25519*,.ssh,.netrc}";
 
+const FILE_MENTION = /(?:^|[\s([{<"'`])@(\S+)/g;
+
+export const TEAM_AGENT_FILE_MENTION_MESSAGE =
+  "Agent conversations do not take @ file mentions. Write the path without @ and the agent will read it.";
+
+export const hasTeamAgentFileMention = (text: string) =>
+  [...text.matchAll(FILE_MENTION)].some(([, token = ""]) => {
+    const target = token.replace(/^["'`]/, "");
+    return target.startsWith("~") || target.includes("/") || target.includes(".");
+  });
+
 export const TeamAgentReadableRoots = Schema.Struct({
   type: Schema.Literal("readOnly"),
   access: Schema.Struct({

@@ -22,6 +22,8 @@ import {
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 
+import { hasTeamAgentFileMention, TEAM_AGENT_FILE_MENTION_MESSAGE } from "./TeamAgentToolGuard.ts";
+
 const TEAM_MEMBER_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.serverProbe,
   ORCHESTRATION_V2_WS_METHODS.subscribeShell,
@@ -198,6 +200,9 @@ export function decideTeamMemberCommand(input: {
         AuthOrchestrationOperateScope,
       ),
     );
+  }
+  if (input.teamShare?.agent !== undefined && hasTeamAgentFileMention(command.text)) {
+    return Result.fail(refusal(TEAM_AGENT_FILE_MENTION_MESSAGE, AuthOrchestrationOperateScope));
   }
   if (input.teamShare?.agent !== undefined && input.agentEnabled !== true) {
     return Result.fail(

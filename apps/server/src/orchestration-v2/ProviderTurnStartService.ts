@@ -56,6 +56,7 @@ import {
   makeProviderFailure,
 } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
+import { hasTeamAgentFileMention } from "../team/TeamAgentToolGuard.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import {
@@ -561,16 +562,21 @@ export const layer: Layer.Layer<
           });
         },
       );
-      if (
-        projection.thread.teamShare?.agent !== undefined &&
-        message.text.trimStart().startsWith("/")
-      ) {
+      const agentTextRefusal =
+        projection.thread.teamShare?.agent === undefined
+          ? undefined
+          : message.text.trimStart().startsWith("/")
+            ? ("agent_slash_command" as const)
+            : hasTeamAgentFileMention(message.text)
+              ? ("agent_file_mention" as const)
+              : undefined;
+      if (agentTextRefusal !== undefined) {
         yield* settleStartFailure({
           signal: "team-agent-refused",
           title: "The agent cannot answer",
           error: new RuntimePolicy.RuntimePolicyTeamAgentRefusedError({
             threadId: projection.thread.id,
-            reason: "agent_slash_command",
+            reason: agentTextRefusal,
           }),
         });
         return;

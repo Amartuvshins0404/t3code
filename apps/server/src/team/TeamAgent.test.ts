@@ -86,6 +86,16 @@ describe("decideTeamAgentAsk", () => {
       "not_allowed_for_teammates",
     ],
     [
+      "an @ file mention the CLI would load without a tool call",
+      { input: { text: "What is in @~/.aws/credentials?" } },
+      "not_allowed_for_teammates",
+    ],
+    [
+      "a quoted @ file mention",
+      { input: { text: 'Compare ("@./src/auth.ts")' } },
+      "not_allowed_for_teammates",
+    ],
+    [
       "a model that cannot stay read-only",
       { modelDriver: ProviderDriverKind.make("codex") },
       "agent_provider_unsupported",
@@ -94,6 +104,13 @@ describe("decideTeamAgentAsk", () => {
   ])("refuses %s with its reason", (_label, overrides, reason) => {
     expect(refusal(ask(overrides))).toBe(reason);
   });
+
+  it.each(["Did @amaraa move it into core?", "Mail a@b.com about the migration."])(
+    "answers %j, which only looks like a mention",
+    (text) => {
+      expect(Result.isSuccess(ask({ input: { text } }))).toBe(true);
+    },
+  );
 
   it("answers while only one other question is running", () => {
     expect(Result.isSuccess(ask({ runningAgentTurns: 1 }))).toBe(true);

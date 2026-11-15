@@ -33,6 +33,7 @@ import {
   type TeamSharingState,
   teamAgentSetting,
 } from "./sharedOrganizations.ts";
+import { hasTeamAgentFileMention, TEAM_AGENT_FILE_MENTION_MESSAGE } from "./TeamAgentToolGuard.ts";
 import { teamPerson } from "./TeamMemberAccess.ts";
 import * as TeamSharing from "./TeamSharing.ts";
 
@@ -133,6 +134,9 @@ export function decideTeamAgentAsk(input: {
         "Questions cannot start with a slash command. Start with a word.",
       ),
     );
+  }
+  if (hasTeamAgentFileMention(ask.text)) {
+    return Result.fail(refused("not_allowed_for_teammates", TEAM_AGENT_FILE_MENTION_MESSAGE));
   }
   if (
     setting.modelSelection === undefined ||

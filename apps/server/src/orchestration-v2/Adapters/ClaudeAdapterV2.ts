@@ -2135,6 +2135,7 @@ function makeClaudeTeamAgentQueryOptions(input: {
     settingSources: [],
     strictMcpConfig: true,
     permissionMode: "dontAsk",
+    verbatimPrompts: true,
     includePartialMessages: true,
     promptSuggestions: false,
     ...(compiledSelection.effort === undefined
