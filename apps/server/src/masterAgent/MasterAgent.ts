@@ -22,6 +22,7 @@ import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import { type ProjectBoardSummary, summarizeProjectBoard } from "../project/projectBoard.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -47,6 +48,15 @@ export class MasterAgentEnsureError extends Schema.TaggedError<MasterAgentEnsure
       default:
         return "Could not open the agent thread.";
     }
+  }
+}
+
+export class MasterAgentBoardError extends Schema.TaggedError<MasterAgentBoardError>()(
+  "MasterAgentBoardError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not read the Projects board.";
   }
 }
 
@@ -90,6 +100,8 @@ export class MasterAgent extends Context.Service<
     >;
     /** The master thread's id, reserved before the thread exists so clients can hide it from the start. */
     readonly threadId: Effect.Effect<ThreadId, MasterAgentEnsureError>;
+    /** The Projects page's tiles and Needs you list, without the master thread. */
+    readonly projectBoard: Effect.Effect<ReadonlyArray<ProjectBoardSummary>, MasterAgentBoardError>;
     readonly listMemory: MasterAgentStore.MasterAgentStore["Service"]["listMemory"];
     /** Empty content deletes the key. */
     readonly writeMemory: (input: {
@@ -243,9 +255,28 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const boardFailure = (cause: unknown) => new MasterAgentBoardError({ cause });
+  const projectBoard: MasterAgent["Service"]["projectBoard"] = Effect.gen(function* () {
+    const [snapshot, shells, hiddenThreadId] = yield* Effect.all([
+      threads.getShellSnapshot({ location: "active" }).pipe(Effect.mapError(boardFailure)),
+      projects.listShells().pipe(Effect.mapError(boardFailure)),
+      reservedThreadId.pipe(Effect.orElseSucceed(() => null)),
+    ]);
+    const scratch = yield* Effect.findFirst(shells, (project) =>
+      managedFolders.isScratchProject(project.id),
+    );
+    return summarizeProjectBoard({
+      projects: shells,
+      threads: snapshot.threads,
+      hiddenThreadId,
+      scratchProjectId: Option.getOrNull(scratch)?.id ?? null,
+    });
+  }).pipe(Effect.withSpan("MasterAgent.projectBoard"));
+
   return MasterAgent.of({
     ensure,
     threadId: reservedThreadId,
+    projectBoard,
     listMemory: store.listMemory,
     writeMemory,
   });

@@ -56,6 +56,7 @@ export function summarizeProjectBoard(input: {
   readonly projects: ReadonlyArray<Pick<OrchestrationProjectShell, "id" | "title" | "archivedAt">>;
   readonly threads: ReadonlyArray<OrchestrationV2ThreadShell>;
   readonly hiddenThreadId: ThreadId | null;
+  readonly scratchProjectId: OrchestrationProjectShell["id"] | null;
 }): ReadonlyArray<ProjectBoardSummary> {
   const requests = pendingSubagentRequestsByThread(input.threads);
   const byProject = new Map<string, Array<ReturnType<typeof boardThread>>>();
@@ -67,7 +68,11 @@ export function summarizeProjectBoard(input: {
     else byProject.set(shell.projectId, [thread]);
   }
   return input.projects
-    .filter((project) => project.archivedAt === null)
+    .filter(
+      (project) =>
+        project.archivedAt === null &&
+        (project.id !== input.scratchProjectId || byProject.has(project.id)),
+    )
     .map((project) => {
       const threads = byProject.get(project.id) ?? [];
       const needsYou = buildNeedsYouList(threads, { limit: Number.POSITIVE_INFINITY });

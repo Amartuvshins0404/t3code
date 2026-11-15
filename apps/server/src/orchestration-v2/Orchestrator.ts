@@ -312,11 +312,23 @@ export class OrchestratorMasterThreadProtectedError extends Schema.TaggedError<O
   {
     commandId: CommandId,
     threadId: ThreadId,
-    commandType: Schema.Literals(["thread.archive", "thread.delete"]),
+    commandType: Schema.Literals([
+      "thread.archive",
+      "thread.delete",
+      "thread.team-share.set",
+      "thread.guest-share.open",
+    ]),
   },
 ) {
   override get message(): string {
-    return `The agent thread is permanent and cannot be ${this.commandType === "thread.archive" ? "archived" : "deleted"}.`;
+    switch (this.commandType) {
+      case "thread.archive":
+        return "The agent thread is permanent and cannot be archived.";
+      case "thread.delete":
+        return "The agent thread is permanent and cannot be deleted.";
+      default:
+        return "The agent thread is private to its owner and cannot be shared.";
+    }
   }
 }
 
@@ -14117,7 +14129,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       | undefined;
     let updateDelegatedCompletionOnlyRunId: RunId | undefined;
-    if (command.type === "thread.archive" || command.type === "thread.delete") {
+    if (
+      command.type === "thread.archive" ||
+      command.type === "thread.delete" ||
+      command.type === "thread.team-share.set" ||
+      command.type === "thread.guest-share.open"
+    ) {
       const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
         Effect.mapError(
           (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),

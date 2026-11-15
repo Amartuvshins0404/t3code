@@ -213,6 +213,25 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
+  it.effect("adds the agent tables to a database already at the latest migration", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* sql`DROP TABLE master_agent`;
+      yield* sql`DROP TABLE master_agent_memory`;
+      assert.isTrue(yield* hasPendingMigrations());
+
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      yield* sql`INSERT INTO master_agent (id, thread_id) VALUES (1, 'agent')`;
+      yield* sql`
+        INSERT INTO master_agent_memory (key, content, updated_at)
+        VALUES ('rule', 'short replies', '2026-11-15T00:00:00.000Z')
+      `;
+      assert.isFalse(yield* hasPendingMigrations());
+      assert.deepStrictEqual(yield* history, migrationManifest);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("still starts on a database that recorded the old team member migration", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

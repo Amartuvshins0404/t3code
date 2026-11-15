@@ -48,7 +48,9 @@ it("counts each thread in the Projects page column its state puts it in", () => 
         title: "Old",
         archivedAt: "2026-11-15T10:00:00.000Z",
       },
+      { id: ProjectId.make("project:scratch"), title: "No project", archivedAt: null },
     ],
+    scratchProjectId: ProjectId.make("project:scratch"),
     threads: [
       shell("done"),
       shell("working", { latestRunId: running, activeRunId: running, status: "running" }),

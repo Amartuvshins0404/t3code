@@ -727,6 +727,16 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
           .pipe(Effect.flip);
         assert.strictEqual(error._tag, "OrchestratorMasterThreadProtectedError");
       }
+      const share = yield* orchestrator
+        .dispatch({
+          type: "thread.team-share.set",
+          commandId: CommandId.make("agent-protect:team-share"),
+          threadId,
+          organizationId: "org-1",
+          access: "steer",
+        })
+        .pipe(Effect.flip);
+      assert.strictEqual(share._tag, "OrchestratorMasterThreadProtectedError");
       const deletion = yield* projects
         .delete({ commandId: CommandId.make("agent-protect:project"), projectId, force: true })
         .pipe(Effect.flip);

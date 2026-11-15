@@ -13,7 +13,7 @@ import { toastManager } from "../components/ui/toast";
 import { getThemeSnapshot, setAppearanceMode } from "../hooks/useTheme";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { primaryMasterAgentThreadIdAtom } from "../state/masterAgent";
+import { primaryMasterAgentAvailableAtom } from "../state/masterAgent";
 import { type CommandHandler, type CommandScopeOptions, registerCommands } from "./dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { resolveThreadRouteTarget } from "../threadRoutes";
@@ -96,7 +96,7 @@ export function installCommandPaletteCommands(
         void router.navigate({ to: "/usage" });
       },
       "agent.open": (event) => {
-        if (appAtomRegistry.get(primaryMasterAgentThreadIdAtom) === null) return false;
+        if (!appAtomRegistry.get(primaryMasterAgentAvailableAtom)) return false;
         consume(event);
         dispatchCommandPalette({ _tag: "SetOpen", open: false });
         void router.navigate({ to: "/agent" });

@@ -85,7 +85,6 @@ import Migration0079 from "./Migrations/079_DelegatedRecoveryIndexes.ts";
 import Migration0080 from "./Migrations/080_ScheduledTaskThreadMode.ts";
 import Migration0081 from "./Migrations/081_ProjectionMessageSearchText.ts";
 import Migration0082 from "./Migrations/082_TurnItemConversationIndex.ts";
-import Migration0083 from "./Migrations/083_MasterAgent.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -171,7 +170,6 @@ const migrationEntries = [
   [80, "ScheduledTaskThreadMode", Migration0080],
   [81, "ProjectionMessageSearchText", Migration0081],
   [82, "TurnItemConversationIndex", Migration0082],
-  [83, "MasterAgent", Migration0083],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -245,6 +243,34 @@ const ensureTeamMemberColumns = Effect.fn("ensureTeamMemberColumns")(function* (
   }
 });
 
+const MASTER_AGENT_TABLES = ["master_agent", "master_agent_memory"] as const;
+
+const masterAgentTablesMissing = Effect.fn("masterAgentTablesMissing")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql<{ readonly name: string }>`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ${sql.in(MASTER_AGENT_TABLES)}
+  `;
+  return tables.length < MASTER_AGENT_TABLES.length;
+});
+
+// Upstream owns the migration ids, so fork-only tables are created here and not by a numbered migration.
+const ensureMasterAgentTables = Effect.fn("ensureMasterAgentTables")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS master_agent (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      thread_id TEXT NOT NULL
+    )
+  `;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS master_agent_memory (
+      key TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) WITHOUT ROWID
+  `;
+});
+
 // Mirrors the Migrator, which runs only ids above the highest recorded, plus the V2-preview reconciliation.
 export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -253,6 +279,7 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
   `;
   if (tables.length === 0) return true;
   if ((yield* tablesMissingTeamMemberColumn()).length > 0) return true;
+  if (yield* masterAgentTablesMissing()) return true;
   const rows = yield* sql<{ readonly latestId: number | null; readonly previewRows: number }>`
     SELECT
       MAX(migration_id) AS latestId,
@@ -283,6 +310,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
   ];
   yield* ensureTeamMemberColumns();
+  yield* ensureMasterAgentTables();
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")
