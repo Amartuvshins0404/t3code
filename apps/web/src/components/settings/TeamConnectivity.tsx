@@ -203,7 +203,7 @@ function ConnectProxyDialog({
         <DialogHeader>
           <DialogTitle>{replacing ? "Replace team connection" : "Connect a CLI Proxy"}</DialogTitle>
           <DialogDescription>
-            The key goes to {team.name}'s relay and is never shown again.
+            The key is kept on the relay for {team.name} and is never shown again.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
