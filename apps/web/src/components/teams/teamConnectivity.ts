@@ -7,6 +7,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, ScopedThreadRef, TeamConnectivityStatus } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import {
@@ -18,7 +19,7 @@ import { teammateConnectionAtom } from "~/cloud/teamWorkspace";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { readConnectedEnvironmentIds, useEnvironment } from "~/state/environments";
 import { serverEnvironment } from "~/state/server";
-import { environmentThreadShells } from "~/state/threads";
+import { environmentThreadDetails, environmentThreadShells } from "~/state/threads";
 
 export const TEAM_CONNECTIVITY_SECTION_ID = "team-connectivity";
 
@@ -120,11 +121,20 @@ export function useThreadConnectivity(
   const providers = useAtomValue(
     serverEnvironment.configValueAtom(threadRef.environmentId),
   )?.providers;
+  const activeDriver = useAtomValue(environmentThreadDetails.stateAtom(threadRef), (state) => {
+    const projection = Option.getOrNull(state.data);
+    return (
+      projection?.providerThreads.find(
+        (providerThread) => providerThread.id === projection.thread.activeProviderThreadId,
+      )?.driver ?? null
+    );
+  });
   const machine = useMachineConnectivity(threadRef.environmentId);
   const driver =
     instanceId === null
       ? null
       : (providers?.find((provider) => provider.instanceId === instanceId)?.driver ??
+        activeDriver ??
         (instanceId === "claudeAgent" || instanceId === "codex" ? instanceId : null));
   return TeamWorkspace.threadConnectivity({
     machineSupportsTeamConnectivity: machine.kind !== "outdated",

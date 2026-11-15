@@ -17,6 +17,24 @@ export const codexAppServerArgs = (launchArgs?: string) => [
   ...codexLaunchArgv(launchArgs),
 ];
 
+export const codexLaunchArgModelProvider = (launchArgs?: string): string | undefined => {
+  const args = codexLaunchArgv(launchArgs);
+  let provider: string | undefined;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index] ?? "";
+    const inline = ["--config=", "-c="].find((prefix) => arg.startsWith(prefix));
+    const override =
+      inline !== undefined
+        ? arg.slice(inline.length)
+        : arg === "-c" || arg === "--config"
+          ? args[++index]
+          : undefined;
+    const match = override?.match(/^model_provider\s*=\s*["']?([^"']+)["']?\s*$/);
+    if (match?.[1] !== undefined) provider = match[1];
+  }
+  return provider;
+};
+
 interface LaunchArgFilter {
   readonly switches: ReadonlySet<string>;
   readonly valueFlags: ReadonlySet<string>;

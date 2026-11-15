@@ -217,8 +217,9 @@ const codexTeamLaunchArgs = (url: string) =>
     "model_providers.t3team.name=Team CLI Proxy",
     `model_providers.t3team.base_url=${new URL("v1", `${url.replace(/\/+$/, "")}/`).toString()}`,
     `model_providers.t3team.env_key=${CODEX_TEAM_KEY_VARIABLE}`,
+    "features.shell_snapshot=false",
   ]
-    .map((override) => `-c ${override}`)
+    .map((override) => `-c "${override.replace(/["\\$`]/g, "\\$&")}"`)
     .join(" ");
 
 export const teamProviderEnvironment = (
@@ -264,7 +265,7 @@ export class TeamConnectivityUnavailableError extends Schema.TaggedError<TeamCon
   { organizationId: Schema.String },
 ) {
   override get message(): string {
-    return `This thread is shared with team ${this.organizationId}, and that team's provider connection can't be reached from this machine right now. The turn did not run on the owner's account. Try again when the machine can reach T3 Connect.`;
+    return `This thread is shared with a team, and the team's provider connection can't be reached from this machine right now. The turn did not run on the owner's account. Try again when the machine can reach T3 Connect.`;
   }
 }
 
