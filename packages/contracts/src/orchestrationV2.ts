@@ -44,7 +44,7 @@ import {
 import { AuthMcpClientAccess } from "./auth.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import { ThreadGuestShare } from "./guestShare.ts";
-import { TeamAgentConversation, TeamThreadAccess, ThreadTeamShare } from "./team.ts";
+import { TeamAgentConversation, TeamPerson, TeamThreadAccess, ThreadTeamShare } from "./team.ts";
 import { StoredThreadTags, ThreadTag } from "./threadTags.ts";
 import {
   OrchestrationSearchThreadsInput,
@@ -2988,6 +2988,14 @@ export const OrchestrationV2Command = Schema.Union([
     linkOrigin: Schema.optional(OrchestrationV2LinkOrigin),
     /** Only the server sets this, with `linkOrigin`, for a linked environment's delegated task. */
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
+    teamShare: Schema.optional(
+      Schema.Struct({
+        organizationId: TrimmedNonEmptyString,
+        access: TeamThreadAccess,
+        agent: Schema.optional(TeamAgentConversation),
+        startedBy: Schema.optional(TeamPerson),
+      }),
+    ),
     importedNativeThread: Schema.optional(
       Schema.Struct({
         ref: Schema.Struct({

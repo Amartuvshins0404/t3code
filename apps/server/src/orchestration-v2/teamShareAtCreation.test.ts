@@ -1,0 +1,151 @@
+import { assert, it } from "@effect/vitest";
+import {
+  CommandId,
+  EventId,
+  type OrchestrationV2Command,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
+import * as Orchestrator from "./Orchestrator.ts";
+import * as ProjectStore from "./ProjectStore.ts";
+import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
+import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
+import { withCreationProvenance } from "./ThreadManagementService.ts";
+
+const instanceId = ProviderInstanceId.make("codex");
+const modelSelection = { instanceId, model: "gpt-5.1-codex" };
+const adapter = {
+  instanceId,
+  driver: ProviderDriverKind.make("codex"),
+  getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
+  planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
+  openSession: () => Effect.die("No provider process needed"),
+} as ProviderAdapter.ProviderAdapterV2["Service"];
+const layerDatabase = SqlitePersistence.layerMemory;
+const layerTest = Layer.mergeAll(
+  layerDatabase,
+  ProjectStore.layer.pipe(Layer.provide(layerDatabase)),
+  ProviderReplayHarness.layerWithRegistry(
+    { name: "team-projects" },
+    ProviderAdapterRegistry.layerFromAdapters([adapter]),
+    { databaseLayer: layerDatabase, runEffectWorker: false },
+  ),
+);
+
+const teamProject = ProjectId.make("project:team");
+const at = "2026-11-15T00:00:00.000Z";
+const projectEvent = {
+  aggregateKind: "project" as const,
+  aggregateId: teamProject,
+  occurredAt: at,
+  commandId: null,
+  causationEventId: null,
+  correlationId: null,
+  metadata: {},
+  sequence: 1,
+};
+
+const create = (
+  threadId: ThreadId,
+  extra: Partial<Extract<OrchestrationV2Command, { readonly type: "thread.create" }>> = {},
+): Extract<OrchestrationV2Command, { readonly type: "thread.create" }> => ({
+  type: "thread.create",
+  commandId: CommandId.make(`create:${threadId}`),
+  threadId,
+  projectId: teamProject,
+  title: threadId,
+  modelSelection,
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  branch: null,
+  worktreePath: null,
+  createdBy: "user",
+  creationSource: "web",
+  ...extra,
+});
+
+const shareTeamProject = Effect.gen(function* () {
+  const projects = yield* ProjectStore.ProjectStoreV2;
+  yield* projects.apply({
+    ...projectEvent,
+    eventId: EventId.make("event:project-created"),
+    type: "project.created",
+    payload: {
+      projectId: teamProject,
+      title: "Team",
+      workspaceRoot: "/repo",
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: at,
+      updatedAt: at,
+    },
+  });
+  yield* projects.apply({
+    ...projectEvent,
+    sequence: 2,
+    eventId: EventId.make("event:project-shared"),
+    type: "project.meta-updated",
+    payload: {
+      projectId: teamProject,
+      teamShare: {
+        organizationId: "org-a",
+        sharedAt: at,
+        modelSelection,
+        runtimeMode: "full-access",
+      },
+      updatedAt: at,
+    },
+  });
+});
+
+const createdShare = (result: Orchestrator.OrchestratorV2DispatchResult) => {
+  const created = result.storedEvents.find((stored) => stored.event.type === "thread.created");
+  assert.isDefined(created);
+  return created.event.type === "thread.created" ? created.event.payload.teamShare : undefined;
+};
+
+it.layer(layerTest)("threads created in a team project", (it) => {
+  it.effect("a thread the host launches the normal way is shared from its first event", () =>
+    Effect.gen(function* () {
+      yield* shareTeamProject;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const fromClient = withCreationProvenance(
+        create(ThreadId.make("thread:host"), {
+          teamShare: { organizationId: "org-evil", access: "steer" },
+        }),
+        { createdBy: "user", creationSource: "web" },
+      );
+      const result = yield* orchestrator.dispatch(fromClient);
+      assert.deepEqual(createdShare(result), {
+        organizationId: "org-a",
+        access: "steer",
+        sharedAt: createdShare(result)?.sharedAt ?? "",
+      });
+    }),
+  );
+
+  it.effect("an agent conversation keeps its agent mark", () =>
+    Effect.gen(function* () {
+      yield* shareTeamProject;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const agent = { startedBy: { userId: "user-bo", name: "Bo" } };
+      const result = yield* orchestrator.dispatch(
+        create(ThreadId.make("thread:agent"), {
+          runtimeMode: "approval-required",
+          teamShare: { organizationId: "org-b", access: "steer", agent },
+        }),
+      );
+      const share = createdShare(result);
+      assert.equal(share?.organizationId, "org-b");
+      assert.deepEqual(share?.agent, agent);
+    }),
+  );
+});
