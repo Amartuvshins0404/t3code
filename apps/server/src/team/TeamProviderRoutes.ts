@@ -265,7 +265,7 @@ export class TeamConnectivityUnavailableError extends Schema.TaggedError<TeamCon
   { organizationId: Schema.String },
 ) {
   override get message(): string {
-    return `This thread is shared with team ${this.organizationId}, and that team's provider connection can't be reached from this machine right now. The turn did not run on the owner's account. Try again when the machine can reach T3 Connect.`;
+    return `This thread is shared with a team, and the team's provider connection can't be reached from this machine right now. The turn did not run on the owner's account. Try again when the machine can reach T3 Connect.`;
   }
 }
 
