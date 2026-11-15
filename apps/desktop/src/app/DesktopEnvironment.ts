@@ -6,6 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import { formatAppBaseName } from "@t3tools/contracts/appName";
 import { ServerSettings } from "@t3tools/contracts/settings";
+import { setAppBaseName } from "@t3tools/shared/appName";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -217,6 +218,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     appVersion: input.appVersion,
     ownerName: owner.ownerName,
   });
+  setAppBaseName(branding.baseName);
   const displayName = branding.displayName;
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),

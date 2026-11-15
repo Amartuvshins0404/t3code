@@ -1,4 +1,5 @@
 import * as Dialog from "../../components/ui/Dialog";
+import { getConnectName } from "@t3tools/client-runtime/app-name";
 import {
   AuthRelayWriteScope,
   managedCapabilityDenial,
@@ -42,6 +43,7 @@ import { getCloudAuth, useCloudAuth } from "../cloud/cloudAuth";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import { BUILD_APP_BASE_NAME } from "../../lib/mobileBranding";
+import { useAppBranding } from "../../state/appBranding";
 import { runtime } from "../../lib/runtime";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -112,6 +114,7 @@ function useDeviceRegistered(): boolean {
 }
 
 export function SettingsNotificationsRouteScreen() {
+  const { connectName } = useAppBranding();
   if (!hasCloudPublicConfig()) {
     return (
       <SettingsScreen title="Notifications">
@@ -120,7 +123,7 @@ export function SettingsNotificationsRouteScreen() {
           contentContainerClassName="px-5 pt-4"
         >
           <Text className="text-base text-foreground-muted">
-            Notifications require T3 Connect in this app build.
+            {`Notifications require ${connectName} in this app build.`}
           </Text>
         </ScrollView>
       </SettingsScreen>
@@ -200,7 +203,7 @@ function ConfiguredSettingsNotificationsRouteScreen() {
       } else {
         Dialog.alert(
           "Couldn't finish enabling notifications",
-          "Notification access was granted, but this device could not be registered with T3 Connect. Notifications will start once registration succeeds.",
+          `Notification access was granted, but this device could not be registered with ${getConnectName()}. Notifications will start once registration succeeds.`,
         );
       }
       return;
@@ -230,8 +233,8 @@ function ConfiguredSettingsNotificationsRouteScreen() {
 
   const promptSignIn = () => {
     Dialog.alert(
-      "Sign in to T3 Connect",
-      "Live Activity updates require T3 Connect so relay can deliver updates to this device.",
+      `Sign in to ${getConnectName()}`,
+      `Live Activity updates require ${getConnectName()} so relay can deliver updates to this device.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -331,7 +334,7 @@ function ConfiguredSettingsNotificationsRouteScreen() {
     } else {
       Dialog.alert(
         "Couldn't finish enabling activity updates",
-        "This device could not be registered with T3 Connect, so activity updates won't appear yet. They'll start once registration succeeds.",
+        `This device could not be registered with ${getConnectName()}, so activity updates won't appear yet. They'll start once registration succeeds.`,
       );
     }
   };

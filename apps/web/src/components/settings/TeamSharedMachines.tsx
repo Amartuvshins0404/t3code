@@ -14,6 +14,7 @@ import {
 } from "~/cloud/managedRelayState";
 import { readEnvironment, useEnvironment } from "~/state/environments";
 import { serverEnvironment } from "~/state/server";
+import { useConnectName } from "~/state/appBranding";
 import {
   machineShareFailureMessage,
   shareMachineWithTeam,
@@ -111,6 +112,7 @@ async function setMachineShared(input: {
 export function TeamSharedMachinesSection({ team }: { readonly team: CloudTeamSummary }) {
   const mine = useManagedRelayEnvironments();
   const teamMachines = useManagedRelayTeamEnvironments(team.id);
+  const connectName = useConnectName();
   const shared = teamMachines.data ?? [];
   const teammates = shared.filter((machine) => !machine.isOwner);
   return (
@@ -130,7 +132,7 @@ export function TeamSharedMachinesSection({ team }: { readonly team: CloudTeamSu
       ))}
       {mine.data !== null && mine.data.length === 0 ? (
         <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-          None of your machines use T3 Connect yet. Turn it on in Settings → Connections.
+          None of your machines use {connectName} yet. Turn it on in Settings → Connections.
         </p>
       ) : null}
       {teamMachines.error ? (

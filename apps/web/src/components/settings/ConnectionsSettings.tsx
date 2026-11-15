@@ -44,7 +44,7 @@ import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { usePeerLinkHosts } from "~/state/peerLinks";
-import { useAppBaseName } from "~/state/appBranding";
+import { useAppBaseName, useConnectName } from "~/state/appBranding";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
 import { Input } from "../ui/input";
@@ -246,6 +246,7 @@ function ConnectionsSettingsContent({
 }) {
   const desktopBridge = window.desktopBridge;
   const appBaseName = useAppBaseName();
+  const connectName = useConnectName();
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const peerLinkHosts = usePeerLinkHosts();
@@ -1323,7 +1324,7 @@ function ConnectionsSettingsContent({
                 <AlertDialogDescription>
                   {pendingDesktopServerExposureMode === "network-accessible"
                     ? `Let your other devices connect to ${appBaseName} over the network. Pair devices to give them access. ${appBaseName} will restart.`
-                    : `Devices connected over your local network will disconnect. Existing tunnels, such as T3 Connect or Tailscale HTTPS, keep working. ${appBaseName} will restart.`}
+                    : `Devices connected over your local network will disconnect. Existing tunnels, such as ${connectName} or Tailscale HTTPS, keep working. ${appBaseName} will restart.`}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

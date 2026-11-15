@@ -1,5 +1,5 @@
 import { resolveAppIdentity } from "@t3tools/contracts/appName";
-import { getAppBaseName } from "@t3tools/shared/appName";
+import { getAppBaseName, getConnectName } from "@t3tools/shared/appName";
 import {
   type AuthEnvironmentScope,
   AuthStandardClientScopes,
@@ -78,7 +78,7 @@ export class NoRunningServerError extends Schema.TaggedError<NoRunningServerErro
       ...(this.inLinkedWorktree
         ? ["In a linked worktree, pass --base-dir to pair with a server outside it."]
         : []),
-      `Start one with \`${this.serveCommand}\`, or connect this machine with T3 Connect: \`${this.connectCommand}\`.`,
+      `Start one with \`${this.serveCommand}\`, or connect this machine with ${getConnectName()}:\`${this.connectCommand}\`.`,
     ].join("\n");
   }
 }
@@ -537,7 +537,7 @@ export const pairCommand = Command.make("pair", {
           );
         } else if (target.state.privateNetworkOnly) {
           notes.push(
-            "This URL works only from this machine's local network. From elsewhere, re-run with --tailscale or use T3 Connect.",
+            `This URL works only from this machine's local network. From elsewhere, re-run with --tailscale or use ${getConnectName()}.`,
           );
         }
         if (target.variant === "dev" && target.state.devUrl === undefined) {

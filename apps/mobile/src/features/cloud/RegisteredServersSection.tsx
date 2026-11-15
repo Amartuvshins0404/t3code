@@ -1,3 +1,4 @@
+import { getConnectName } from "@t3tools/client-runtime/app-name";
 import { findErrorTraceId } from "@t3tools/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
@@ -17,6 +18,7 @@ import { ListRowLayout } from "../../components/ui/ListRowLayout";
 import { ListSection } from "../../components/ui/ListSection";
 import { Menu } from "../../components/ui/Menu";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
+import { useAppBranding } from "../../state/appBranding";
 import { relayEnvironmentDiscovery } from "../../state/relay";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
@@ -41,11 +43,12 @@ function endpointLabel(environment: RelayClientEnvironmentRecord): string {
 
 function confirmDeregister(environment: RelayClientEnvironmentRecord, onConfirm: () => void) {
   const title = "Deregister server?";
-  const message = `“${environment.label}” will be removed from this account. T3 Connect access will be revoked, any managed tunnel will be removed, and a host space will become available. Local connections on your devices are not changed.`;
+  const message = `“${environment.label}” will be removed from this account. ${getConnectName()} access will be revoked, any managed tunnel will be removed, and a host space will become available. Local connections on your devices are not changed.`;
   Dialog.confirm({ title, message, confirmText: "Deregister", destructive: true, onConfirm });
 }
 
 export function RegisteredServersSection() {
+  const { connectName } = useAppBranding();
   const environmentsState = useManagedRelayEnvironments();
   const deregisterEnvironment = useAtomCommand(deregisterManagedRelayEnvironmentCommand, {
     reportFailure: false,
@@ -131,7 +134,7 @@ export function RegisteredServersSection() {
       {environmentsState.error ? (
         <>
           <ListRowLayout
-            label="Could not load T3 Connect environments"
+            label={`Could not load ${connectName} environments`}
             description={environmentsState.error}
           />
           {errorTraceId ? (
@@ -188,7 +191,7 @@ export function RegisteredServersSection() {
       ) : (
         <ListRowLayout
           label="No servers registered"
-          description="Link a server from its local Settings to reach it through T3 Connect."
+          description={`Link a server from its local Settings to reach it through ${connectName}.`}
         />
       )}
     </ListSection>

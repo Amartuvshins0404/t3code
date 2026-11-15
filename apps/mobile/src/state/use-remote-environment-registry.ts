@@ -1,6 +1,7 @@
 import * as Dialog from "../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
+import { getAppBaseName, getConnectName } from "@t3tools/client-runtime/app-name";
 import { Discovery } from "@t3tools/client-runtime/relay";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -21,13 +22,18 @@ import { serverEnvironment } from "./server";
 import { relayEnvironmentDiscovery } from "./relay";
 import { connectPairingUrl as connectPairingUrlCommand } from "../connection/onboarding";
 
-const RELAY_REMOVAL_ACCOUNT_NOTE: Record<Discovery.RelayEnvironmentRegistration, string> = {
-  registered:
-    "It stays on your T3 Connect account and keeps its host space. Deregister it under T3 Account → T3 Connect to free it.",
-  unregistered: "It's no longer on your T3 Connect account.",
-  unknown:
-    "This doesn't change your T3 Connect account. To deregister it there, use T3 Account → T3 Connect.",
-};
+function relayRemovalAccountNote(registration: Discovery.RelayEnvironmentRegistration): string {
+  const connect = getConnectName();
+  const account = `${getAppBaseName()} account`;
+  switch (registration) {
+    case "registered":
+      return `It stays on your ${connect} account and keeps its host space. Deregister it under ${account} → ${connect} to free it.`;
+    case "unregistered":
+      return `It's no longer on your ${connect} account.`;
+    case "unknown":
+      return `This doesn't change your ${connect} account. To deregister it there, use ${account} → ${connect}.`;
+  }
+}
 
 const connectionPairingUrlAtom = Atom.make("").pipe(
   Atom.keepAlive,
@@ -195,12 +201,12 @@ export function useRemoteConnections() {
         environmentId,
       );
       const openAccount = {
-        text: "Open T3 Account",
+        text: `Open ${getAppBaseName()} account`,
         onPress: () => navigation.navigate("SettingsAuth"),
       };
       Dialog.alert(
         "Remove from this device?",
-        `Forget ${environment.environmentLabel} and its cached threads on this device.\n\n${RELAY_REMOVAL_ACCOUNT_NOTE[registration]}`,
+        `Forget ${environment.environmentLabel} and its cached threads on this device.\n\n${relayRemovalAccountNote(registration)}`,
         registration === "unregistered" || !hasCloudPublicConfig()
           ? [{ text: "Cancel", style: "cancel" }, remove]
           : [{ text: "Cancel", style: "cancel" }, openAccount, remove],

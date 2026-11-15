@@ -1,4 +1,4 @@
-import { getAppBaseName } from "@t3tools/shared/appName";
+import { getAppBaseName, getConnectName } from "@t3tools/shared/appName";
 import { doctorCommand } from "./cli/doctor.ts";
 import { policyCommand } from "./cli/policy.ts";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -44,25 +44,29 @@ import { connectCommand, statusCommand, upCommand } from "./cli/up.ts";
 
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer);
 
-const connectPublicConfigMissingMessage =
-  "T3 Connect commands are unavailable: this build is missing T3 Connect public configuration.";
+const connectPublicConfigMissingMessage = () =>
+  `${getConnectName()} commands are unavailable: this build is missing ${getConnectName()} public configuration.`;
 
 class ConnectPublicConfigMissingError extends CliError.UserError {
   override get message() {
-    return connectPublicConfigMissingMessage;
+    return connectPublicConfigMissingMessage();
   }
 }
 
 const connectUnavailableCommand = Command.make("connect", {
   command: Argument.String("command").pipe(Argument.variadic),
 }).pipe(
-  Command.withDescription("T3 Connect is unavailable in builds without public configuration."),
+  Command.withDescription(
+    `${getConnectName()} is unavailable in builds without public configuration.`,
+  ),
   Command.unlisted,
   Command.withHandler(() =>
     Effect.fail(
       new CliError.ShowHelp({
         commandPath: ["t3", "connect"],
-        errors: [new ConnectPublicConfigMissingError({ cause: connectPublicConfigMissingMessage })],
+        errors: [
+          new ConnectPublicConfigMissingError({ cause: connectPublicConfigMissingMessage() }),
+        ],
       }),
     ),
   ),

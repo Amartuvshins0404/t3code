@@ -1,3 +1,4 @@
+import { getConnectName } from "@t3tools/client-runtime/app-name";
 import {
   type ConnectionTarget,
   connectionRouteId,
@@ -37,7 +38,7 @@ export function environmentTransportLabel(
       ? connectionRouteLabel(routes[0]!)
       : `via ${connectionRouteLabel(active)}`;
   }
-  if (environment.relayManaged) return "T3 Connect";
+  if (environment.relayManaged) return getConnectName();
   if (isDesktopLocalConnectionTarget(entry.target)) return "WSL";
   if (
     entry.target._tag === "SshConnectionTarget" &&

@@ -24,6 +24,7 @@ import {
   usePrimaryEnvironmentId,
 } from "~/state/environments";
 import { usePrimaryManagedPolicy } from "~/state/managedPolicy";
+import { useConnectName } from "~/state/appBranding";
 import { environmentSession, readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { type T3ConnectAccountPageUrl, useT3ConnectAccountPage } from "./T3ConnectAccountDialog";
 import { CloudEnvironmentConnectRows } from "./CloudEnvironmentConnectList";
@@ -74,6 +75,7 @@ function ConfiguredConnectOnboardingDialog() {
 
   const controller = useCloudLinkController(primaryEnvironmentId);
   const accountPage = useT3ConnectAccountPage();
+  const connectName = useConnectName();
   const showPublishStep = canManageRelay && controller.linkState.target !== null;
   const steps: ReadonlyArray<OnboardingStep> = showPublishStep
     ? ["publish", "devices"]
@@ -183,9 +185,9 @@ function ConfiguredConnectOnboardingDialog() {
     if (!ok) return;
     toastManager.add({
       type: "success",
-      title: "T3 Connect enabled",
+      title: `${connectName} enabled`,
       description: exposeEnvironment
-        ? "This environment is available to your other devices through T3 Connect."
+        ? `This environment is available to your other devices through ${connectName}.`
         : "This environment publishes agent activity to your mobile clients.",
     });
     setStep("devices");
@@ -209,7 +211,7 @@ function ConfiguredConnectOnboardingDialog() {
     >
       <WizardPopup>
         <WizardHeader
-          title="Set up T3 Connect"
+          title={`Set up ${connectName}`}
           description={
             <>
               Mesh your devices together. Publish this environment and connect the rest, all in one
@@ -324,12 +326,13 @@ function PublishStep({
   readonly onExposeEnvironmentChange: (enabled: boolean) => void;
   readonly onPublishAgentActivityChange: (enabled: boolean) => void;
 }) {
+  const connectName = useConnectName();
   return (
     <div className="space-y-3">
       <div className="rounded-lg border">
         <OnboardingToggleRow
           title="Publish this environment"
-          description="Make this environment available to your other devices through T3 Connect."
+          description={`Make this environment available to your other devices through ${connectName}.`}
           checked={exposeEnvironment}
           disabled={disabled}
           onCheckedChange={onExposeEnvironmentChange}

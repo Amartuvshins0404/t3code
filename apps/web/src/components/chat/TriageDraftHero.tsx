@@ -1,5 +1,6 @@
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { TRIAGE_CLI_COMMAND } from "~/hooks/useStartTriage";
+import { useAppBaseName } from "~/state/appBranding";
 
 import { InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -13,6 +14,7 @@ export function TriageDraftHero(props: {
   readonly serverVersion: string | null;
 }) {
   const { copyToClipboard, isCopied } = useCopyToClipboard({ timeout: 1500, target: "command" });
+  const appBaseName = useAppBaseName();
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
       <h1 className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
@@ -31,8 +33,8 @@ export function TriageDraftHero(props: {
             )}
           </TooltipTrigger>
           <TooltipPopup side="bottom">
-            The agent reads T3 Code's logs and source here, and asks before it applies a fix or
-            posts anything.
+            The agent reads {appBaseName}'s logs and source here, and asks before it applies a fix
+            or posts anything.
           </TooltipPopup>
         </Tooltip>
         <span aria-hidden className="text-muted-foreground">

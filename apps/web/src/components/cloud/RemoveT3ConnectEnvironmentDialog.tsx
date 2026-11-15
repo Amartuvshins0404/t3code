@@ -2,6 +2,7 @@ import { Discovery } from "@t3tools/client-runtime/relay";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useState } from "react";
 
+import { useConnectName } from "../../state/appBranding";
 import { useRelayEnvironmentDiscovery } from "../../state/environments";
 import {
   AlertDialog,
@@ -28,6 +29,7 @@ export function RemoveT3ConnectEnvironmentDialog({
 }) {
   const accountPage = useT3ConnectAccountPage();
   const discovery = useRelayEnvironmentDiscovery();
+  const connectName = useConnectName();
   const registration = environmentId
     ? Discovery.relayEnvironmentRegistration(discovery, environmentId)
     : "unknown";
@@ -46,10 +48,10 @@ export function RemoveT3ConnectEnvironmentDialog({
         openAccountPage();
       }}
     >
-      T3 Connect settings
+      {connectName} settings
     </InlineButton>
   ) : (
-    "T3 Connect settings"
+    `${connectName} settings`
   );
 
   return (
@@ -69,14 +71,14 @@ export function RemoveT3ConnectEnvironmentDialog({
             <AlertDialogDescription>
               {shown.registration === "registered" ? (
                 <>
-                  It stays on your T3 Connect account and keeps its host space. Deregister it in{" "}
+                  It stays on your {connectName} account and keeps its host space. Deregister it in{" "}
                   {accountPageLink} to free it.
                 </>
               ) : shown.registration === "unregistered" ? (
-                "It's no longer on your T3 Connect account."
+                `It's no longer on your ${connectName} account.`
               ) : (
                 <>
-                  This doesn't change your T3 Connect account. To deregister it there, use{" "}
+                  This doesn't change your {connectName} account. To deregister it there, use{" "}
                   {accountPageLink}.
                 </>
               )}

@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { setAppBaseName } from "@t3tools/client-runtime/app-name";
-import { formatAppBaseName, resolveAppMonogram } from "@t3tools/contracts";
+import { formatAppBaseName, formatConnectName, resolveAppMonogram } from "@t3tools/contracts";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import { BUILD_OWNER_NAME } from "../lib/mobileBranding";
@@ -39,14 +39,17 @@ const appBaseNameAtom = Atom.make((get): string =>
 
 interface AppBranding {
   readonly baseName: string;
+  readonly connectName: string;
   readonly monogram: string;
   readonly logo: string | null;
 }
 
 const appBrandingAtom = Atom.make((get): AppBranding => {
   const branding = get(ownerBrandingAtom);
+  const baseName = get(appBaseNameAtom);
   return {
-    baseName: get(appBaseNameAtom),
+    baseName,
+    connectName: formatConnectName(baseName),
     monogram: resolveAppMonogram(branding.name),
     logo: branding.logo,
   };

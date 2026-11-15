@@ -410,7 +410,11 @@ export const make = Effect.gen(function* () {
     if (!(yield* folderOnPath(installed.value)) && !(yield* hasLine(setup))) {
       yield* fs.makeDirectory(path.dirname(setup.path), { recursive: true }).pipe(
         Effect.andThen(
-          fs.writeFileString(setup.path, `\n# Added by T3 Code\n${setup.line}\n`, { flag: "a" }),
+          fs.writeFileString(
+            setup.path,
+            `\n# Added by ${environment.branding.baseName}\n${setup.line}\n`,
+            { flag: "a" },
+          ),
         ),
         Effect.mapError(() => fail(`Could not add t3 to ${setup.file}.`)),
       );

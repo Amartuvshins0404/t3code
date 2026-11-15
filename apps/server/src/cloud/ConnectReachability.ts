@@ -1,4 +1,4 @@
-import { getAppBaseName } from "@t3tools/shared/appName";
+import { getAppBaseName, getConnectName } from "@t3tools/shared/appName";
 import * as NodeNet from "node:net";
 
 import {
@@ -81,7 +81,7 @@ export function classifyReachability(
     // A running server reads the link `t3 connect` stores only at startup.
     return fail(
       "not_linked",
-      "The server has not set up a T3 Connect tunnel.",
+      `The server has not set up a ${getConnectName()} tunnel.`,
       `Run \`t3 connect\`, then restart ${getAppBaseName()} so it applies the link.`,
     );
   }
@@ -121,7 +121,7 @@ export function classifyReachability(
   if (status === 502) {
     return fail(
       "origin_unreachable",
-      "The tunnel is up, but it cannot reach the T3 server on this machine.",
+      `The tunnel is up, but it cannot reach the ${getAppBaseName()} server on this machine.`,
       `Restart ${getAppBaseName()} so the tunnel uses the port the server listens on.`,
     );
   }
@@ -146,20 +146,20 @@ export function classifyReachability(
     const code = cloudflareError === undefined ? "" : ` (Cloudflare error ${cloudflareError})`;
     return fail(
       "unexpected_response",
-      `The T3 Connect address answered with HTTP ${status}${code}.`,
+      `The ${getConnectName()} address answered with HTTP ${status}${code}.`,
       restart,
     );
   }
   return endpoint.kind === "dns_failed"
     ? fail(
         "dns_failed",
-        "The T3 Connect address does not resolve from this machine.",
+        `The ${getConnectName()} address does not resolve from this machine.`,
         "Check the DNS settings on this machine or its VPN.",
         exitNodeHint(exitNode),
       )
     : fail(
         "timeout",
-        "The T3 Connect address did not answer from this machine.",
+        `The ${getConnectName()} address did not answer from this machine.`,
         "Check the network, VPN, or proxy on this machine.",
         exitNodeHint(exitNode),
       );
@@ -168,7 +168,7 @@ export function classifyReachability(
 /** The loud diagnosis the CLI prints and the server logs. */
 export function formatReachabilityFailure(result: Unreachable): string {
   return [
-    "✕ T3 Connect is NOT reachable from other devices",
+    `✕ ${getConnectName()} is NOT reachable from other devices`,
     `  ${result.reason}`,
     ...(result.hint ? [`  ${result.hint}`] : []),
     `  Fix: ${result.fix}`,

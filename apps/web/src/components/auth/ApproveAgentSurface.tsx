@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { runConnectMcpApproval } from "../../state/connectMcpApproval";
+import { useConnectName } from "../../state/appBranding";
 import { openCloudSignInDialog } from "../../cloud/cloudSignInPrompt";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
@@ -84,6 +85,7 @@ export function ApproveAgentSurface() {
     environmentId === null ? null : connectTransport(environmentId, setEnvironment),
   );
   const { isLoaded, isSignedIn } = useCloudAuth();
+  const connectName = useConnectName();
   const session = useAtomValue(managedRelaySessionAtom);
   const signInOpened = useRef(false);
 
@@ -117,7 +119,7 @@ export function ApproveAgentSurface() {
       <StandalonePage>
         <StandalonePageHeader
           context="Agent sign-in"
-          title="Connecting to T3 Connect"
+          title={`Connecting to ${connectName}`}
           description="One moment while your account loads."
         />
         <Spinner className="mt-6" size="lg" tone="muted" />
@@ -129,7 +131,7 @@ export function ApproveAgentSurface() {
     return (
       <Message
         title="Sign in to approve"
-        description="Sign in to T3 Connect with the account this environment is linked to."
+        description={`Sign in to ${connectName} with the account this environment is linked to.`}
       >
         <div className="mt-6">
           <Button type="button" onClick={openCloudSignInDialog}>

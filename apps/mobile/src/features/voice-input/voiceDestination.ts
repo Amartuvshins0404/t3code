@@ -17,6 +17,7 @@ import {
   VoiceTranscriptionError,
 } from "@t3tools/client-runtime/voice-input";
 import { FetchHttpClient, type HttpClient } from "effect/http";
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import type { PreparedConnection } from "@t3tools/client-runtime/connection";
 import { effectiveSpeechLanguage } from "@t3tools/shared/speech";
 import * as Effect from "effect/Effect";
@@ -172,7 +173,7 @@ function environmentTranscriber(
       if (!native?.decodeRecording)
         throw new VoiceTranscriptionError({
           code: "unavailable",
-          message: "Update T3 Code to transcribe on an environment.",
+          message: `Update ${getAppBaseName()} to transcribe on an environment.`,
         });
       return native.decodeRecording(uri);
     },

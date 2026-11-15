@@ -5,7 +5,7 @@ import {
 import type { RelayEnvironmentStatusResponse } from "@t3tools/contracts/relay";
 import * as DateTime from "effect/DateTime";
 
-import { getAppBaseName } from "../appName.ts";
+import { getAppBaseName, getConnectName } from "../appName.ts";
 import type {
   ConnectionAttemptError,
   ConnectionFailureCause,
@@ -98,23 +98,24 @@ function locate(input: ConnectionDiagnosisInput): Located | null {
 
 function headline(host: string, located: Located, failure: ConnectionAttemptError | null): string {
   const app = getAppBaseName();
+  const connect = getConnectName();
   switch (located.cause) {
     case "offline":
       return "This device is offline";
     case "session_pending":
-      return "This device is still loading its T3 Connect sign-in";
+      return `This device is still loading its ${connect} sign-in`;
     case "outdated":
-      return `${host} runs an older T3 Code`;
+      return `${host} runs an older ${app}`;
     case "clock_skew":
       return "This device's clock is off";
     case "not_linked":
-      return `${host} is not linked to your T3 Connect account`;
+      return `${host} is not linked to your ${connect} account`;
     case "relay_error":
-      return "T3 Connect returned an error";
+      return `${connect} returned an error`;
     case "tunnel_pending":
       return `${host}'s tunnel is still being set up`;
     case "tunnel_not_enabled":
-      return `T3 Connect is not turned on for ${host}`;
+      return `${connect} is not turned on for ${host}`;
     case "released":
     case "tunnel_down":
       return `${host}'s tunnel is offline`;
@@ -139,15 +140,15 @@ function headline(host: string, located: Located, failure: ConnectionAttemptErro
       return "This device could not prepare the connection";
     case "relay":
       return failure?.reason === "authentication"
-        ? "T3 Connect did not accept this device's sign-in"
-        : "This device can't reach T3 Connect";
+        ? `${connect} did not accept this device's sign-in`
+        : `This device can't reach ${connect}`;
     case "tunnel":
       // The relay already reached the host when this device fails on its own.
       return failure?.reason === "network" ||
         failure?.reason === "transport" ||
         failure?.reason === "timeout"
         ? `This device can't reach ${host}'s tunnel`
-        : `T3 Connect could not reach ${host}'s tunnel`;
+        : `${connect} could not reach ${host}'s tunnel`;
     case "server":
       return failure?.reason === "authentication" || failure?.reason === "permission"
         ? `${app} on ${host} did not accept this device`
@@ -157,6 +158,7 @@ function headline(host: string, located: Located, failure: ConnectionAttemptErro
 
 function steps(host: string, located: Located, failure: ConnectionAttemptError | null): string[] {
   const app = getAppBaseName();
+  const connect = getConnectName();
   const checkHost = `On ${host}, check Settings > Sharing & access or run \`t3 connect status\`.`;
   switch (located.cause) {
     case "offline":
@@ -167,13 +169,13 @@ function steps(host: string, located: Located, failure: ConnectionAttemptError |
         `If it keeps waiting, reload or restart ${app} on this device.`,
       ];
     case "outdated":
-      return [`Update T3 Code on ${host}.`];
+      return [`Update ${app} on ${host}.`];
     case "clock_skew":
       return [`Turn on automatic date and time on this device and on ${host}, then retry.`];
     case "not_linked":
       return [
-        "Check that this device is signed in to the same T3 Connect account as the host.",
-        `On ${host}, open Settings > Sharing & access and turn T3 Connect on.`,
+        `Check that this device is signed in to the same ${connect} account as the host.`,
+        `On ${host}, open Settings > Sharing & access and turn ${connect} on.`,
       ];
     case "tunnel_pending":
       return [`Wait a minute. ${app} retries on its own.`, checkHost];
@@ -183,7 +185,7 @@ function steps(host: string, located: Located, failure: ConnectionAttemptError |
         "If it keeps failing, copy the diagnostics and report it.",
       ];
     case "tunnel_not_enabled":
-      return [`On ${host}, open Settings > Sharing & access and turn T3 Connect on.`];
+      return [`On ${host}, open Settings > Sharing & access and turn ${connect} on.`];
     case "released":
     case "tunnel_down":
       return [
@@ -212,10 +214,10 @@ function steps(host: string, located: Located, failure: ConnectionAttemptError |
       ];
     case "relay":
       return failure?.reason === "authentication"
-        ? ["Sign out of T3 Connect and sign in again."]
+        ? [`Sign out of ${connect} and sign in again.`]
         : [
             "Check this device's internet connection.",
-            "A VPN, firewall, or ad blocker on this device can block T3 Connect.",
+            `A VPN, firewall, or ad blocker on this device can block ${connect}.`,
           ];
     case "tunnel":
       return failure?.reason === "network" ||
@@ -297,7 +299,7 @@ function hopLabel(hop: ConnectionHop, host: string): string {
     case "device":
       return "This device";
     case "relay":
-      return "T3 Connect";
+      return getConnectName();
     case "tunnel":
       return `${host} tunnel`;
     case "server":
@@ -349,7 +351,7 @@ export function presentConnectionDiagnosis(
       ? null
       : DateTime.formatIso(DateTime.makeUnsafe(input.state.retryAt)),
   );
-  add("Route", relayPath ? "T3 Connect" : "Direct");
+  add("Route", relayPath ? getConnectName() : "Direct");
   add("App version", input.clientVersion);
   add("Host version", input.serverVersion);
   add("Error", failure?.detail);

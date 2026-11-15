@@ -36,6 +36,9 @@ vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../cloud/cloudAuth", () => ({
   useCloudAuth: () => ({ isLoaded: false, isSignedIn: false }),
 }));
+vi.mock("../../state/appBranding", () => ({
+  useAppBranding: () => ({ baseName: "Mode", connectName: "Mode Connect" }),
+}));
 vi.mock("expo-camera", () => ({
   CameraView: () => null,
   useCameraPermissions: () => [null, vi.fn()],

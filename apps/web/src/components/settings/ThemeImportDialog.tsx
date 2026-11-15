@@ -3,6 +3,7 @@ import type { ChangeEvent, DragEvent, UIEvent } from "react";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { useRef, useState } from "react";
 import { cn } from "../../lib/utils";
+import { useAppBaseName } from "../../state/appBranding";
 import {
   getCustomThemes,
   installCustomTheme,
@@ -202,6 +203,7 @@ function ThemeImportBody({
 }) {
   const { signal } = session;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const appBaseName = useAppBaseName();
   const [json, setJson] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -513,7 +515,7 @@ function ThemeImportBody({
               <div className="min-w-0">
                 <p className="text-sm font-medium">Theme file</p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {fileName ?? "Drop T3 Code or VS Code .json files"}
+                  {fileName ?? `Drop ${appBaseName} or VS Code .json files`}
                 </p>
               </div>
               {chooseButton()}

@@ -235,7 +235,7 @@ const bootstrap = Effect.gen(function* () {
       owner: Option.getOrNull(owner),
     });
     yield* (yield* ElectronDialog.ElectronDialog).showErrorBox(
-      "This T3 home is unavailable",
+      `This ${environment.branding.baseName} home is unavailable`,
       DesktopHomeOwner.homeOwnedMessage(owner, environment.branding.baseName),
     );
     return yield* (yield* ElectronApp.ElectronApp).quit;

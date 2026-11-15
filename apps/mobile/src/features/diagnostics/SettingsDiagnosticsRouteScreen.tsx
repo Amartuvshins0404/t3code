@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
+import { useAppBranding } from "../../state/appBranding";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { crashReportingAvailable, setCrashReportsEnabled } from "../observability/observe";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
@@ -149,6 +150,7 @@ export function SettingsDiagnosticsRouteScreen() {
 }
 
 function CrashReportsSetting() {
+  const { baseName } = useAppBranding();
   const preferences = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom, { mode: "promiseExit" });
   // One change at a time, so a slow save never turns sending back on after a later opt-out.
@@ -188,9 +190,7 @@ function CrashReportsSetting() {
         />
       </SettingsSection>
       <Text className="px-2 text-sm leading-normal text-foreground-muted">
-        When the app crashes or hits an error, it sends the error message, the stack trace, the app
-        version, and the device model and OS version to the T3 Code team. Each launch also sends
-        startup timings. Reports carry a random ID for this install.
+        {`When the app crashes or hits an error, it sends the error message, the stack trace, the app version, and the device model and OS version to the ${baseName} team. Each launch also sends startup timings. Reports carry a random ID for this install.`}
       </Text>
     </View>
   );

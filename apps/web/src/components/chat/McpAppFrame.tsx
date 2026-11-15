@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import type { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
 import {
   makeMcpAppHost,
@@ -260,7 +261,9 @@ export function McpAppFrame(props: {
       flushSync(() => setDisplayMode("inline"));
       const approved = await requestConfirmDialog(message);
       if (approved === undefined) {
-        throw new McpAppHostRefusal({ message: "T3 could not ask for approval here." });
+        throw new McpAppHostRefusal({
+          message: `${getAppBaseName()} could not ask for approval here.`,
+        });
       }
       return approved;
     };

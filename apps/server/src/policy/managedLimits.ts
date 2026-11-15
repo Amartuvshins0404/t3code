@@ -9,6 +9,7 @@ import type {
   ManagedPolicyDocument,
   ServerAuthPolicy,
 } from "@t3tools/contracts";
+import { getConnectName } from "@t3tools/shared/appName";
 import {
   disableTailscaleServe,
   disableTailscaleServeTcp,
@@ -83,7 +84,7 @@ const refuse = (policy: PolicyDocument, action: string, detail?: string) =>
     ...(detail === undefined ? {} : { detail }),
   });
 
-export const refuseConnect = (policy: PolicyDocument) => refuse(policy, "T3 Connect");
+export const refuseConnect = (policy: PolicyDocument) => refuse(policy, getConnectName());
 
 // Node throws ENOTDIR, outside the spawner's error mapping, when PATH ends in a file.
 const isMissingCli = (cause: unknown) =>

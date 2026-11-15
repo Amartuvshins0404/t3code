@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { NETWORK_BLOCKING_HINT } from "./network.ts";
+import { NETWORK_BLOCKING_HINT_PARTS, networkBlockingHint } from "./network.ts";
 import { isTransportConnectionErrorMessage, sanitizeThreadErrorMessage } from "./transport.ts";
 
 describe("isTransportConnectionErrorMessage", () => {
@@ -18,7 +18,12 @@ describe("isTransportConnectionErrorMessage", () => {
       "Relay environment stopped responding.",
       "Relay environment could not establish a WebSocket connection.",
     ]) {
-      expect(isTransportConnectionErrorMessage(`${sentence} ${NETWORK_BLOCKING_HINT}`)).toBe(true);
+      expect(isTransportConnectionErrorMessage(`${sentence} ${networkBlockingHint()}`)).toBe(true);
+      expect(
+        isTransportConnectionErrorMessage(
+          `${sentence} ${NETWORK_BLOCKING_HINT_PARTS.join("T3 Connect")}`,
+        ),
+      ).toBe(true);
     }
     expect(
       isTransportConnectionErrorMessage(

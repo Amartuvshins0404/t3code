@@ -5,6 +5,7 @@ import * as Base64Url from "effect/encoding/Base64Url";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { getConnectName } from "../appName.ts";
 import { type CloudTeams, createCloudTeams } from "./cloudTeams.ts";
 
 export const DEFAULT_CLOUD_AUTH_URL = "https://auth.amartuvshin.com";
@@ -334,7 +335,7 @@ export function createCloudAuth(input: {
     if (!token || Option.isNone(claims)) {
       throw new CloudAuthError({
         reason: "failed",
-        detail: "Could not get a T3 Connect identity token.",
+        detail: `Could not get a ${getConnectName()} identity token.`,
         cause: result.error,
       });
     }

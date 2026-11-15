@@ -11,6 +11,7 @@ import {
 import * as AcpRegistryRuntimeCoordinator from "@t3tools/provider-acp-registry/server/AcpRegistryRuntimeCoordinator";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
+import { getAppBaseName } from "@t3tools/shared/appName";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -206,7 +207,7 @@ const make = Effect.gen(function* () {
       if (racedImport !== null) return { threadId, imported: false } as const;
       return yield* new AcpRegistryOperationError({
         reason: "session_import_failed",
-        message: "Could not create a T3 thread for the ACP session.",
+        message: `Could not create a ${getAppBaseName()} thread for the ACP session.`,
         cause: launched.failure,
       });
     }

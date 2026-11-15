@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { formatAppBaseName, resolveAppMonogram } from "@t3tools/contracts";
+import { formatAppBaseName, formatConnectName, resolveAppMonogram } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { APP_BASE_NAME, APP_OWNER_NAME_DEFAULT, APP_STAGE_LABEL } from "../branding";
@@ -16,6 +16,10 @@ export const appBaseNameAtom = Atom.make((get): string => {
   const ownerName = get(appOwnerNameAtom);
   return ownerName === null ? APP_BASE_NAME : formatAppBaseName(ownerName);
 }).pipe(Atom.withLabel("web-app-base-name"));
+
+const connectNameAtom = Atom.make((get): string => formatConnectName(get(appBaseNameAtom))).pipe(
+  Atom.withLabel("web-connect-name"),
+);
 
 export const appDisplayNameAtom = Atom.make((get): string =>
   formatAppDisplayName({
@@ -37,6 +41,10 @@ const appOwnerLogoAtom = Atom.make(
 
 export function useAppBaseName(): string {
   return useAtomValue(appBaseNameAtom);
+}
+
+export function useConnectName(): string {
+  return useAtomValue(connectNameAtom);
 }
 
 export function useAppDisplayName(): string {

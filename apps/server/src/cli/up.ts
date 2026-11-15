@@ -1,4 +1,4 @@
-import { getAppBaseName } from "@t3tools/shared/appName";
+import { getAppBaseName, getConnectName } from "@t3tools/shared/appName";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Config from "effect/Config";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -121,17 +121,18 @@ export const planRoutes = (
 const needsRestart = (before: Routes, after: Routes) =>
   after.lan !== before.lan || (after.connect && !before.connect);
 
-const CHOICES = {
-  connect: { title: "T3 Connect", description: "Creates a tunnel to control your PC." },
-  lan: { title: "Local network", description: "LAN and tailnet. Pairing code required." },
-} satisfies Record<Route, { readonly title: string; readonly description: string }>;
+const choices = () =>
+  ({
+    connect: { title: getConnectName(), description: "Creates a tunnel to control your PC." },
+    lan: { title: "Local network", description: "LAN and tailnet. Pairing code required." },
+  }) satisfies Record<Route, { readonly title: string; readonly description: string }>;
 
 const formatSetup = (setup: Setup) => {
   const { service } = setup;
   // This home's access settings reach no service, so only the service is shown.
   if (service.otherBaseDir !== undefined) {
     return [
-      `  ${"Service".padEnd(15)}installed for another T3 home · ${service.otherBaseDir}`,
+      `  ${"Service".padEnd(15)}installed for another ${getAppBaseName()} home ·${service.otherBaseDir}`,
       "",
       `Pass \`${BootService.formatBootServiceBaseDirOption(service.otherBaseDir)}\` to manage it.`,
     ].join("\n");
@@ -149,9 +150,9 @@ const formatSetup = (setup: Setup) => {
       ? []
       : [
           [
-            "T3 Connect",
+            getConnectName(),
             setup.connect
-              ? "on · your T3 account"
+              ? `on · your ${getAppBaseName()} account`
               : setup.connectRevoked
                 ? "off · link revoked. Run `t3 connect`."
                 : "off",
@@ -185,7 +186,7 @@ const formatSetup = (setup: Setup) => {
 const formatNextSteps = (routes: Routes, serviceInstalled: boolean, pairCommand: string) =>
   [
     ...(routes.connect
-      ? ["On your other device, sign in to T3 Connect with the same account."]
+      ? [`On your other device, sign in to ${getConnectName()} with the same account.`]
       : []),
     ...(routes.lan ? [`Run \`${pairCommand}\`. Use the code on your other device.`] : []),
     ...(routes.connect || routes.lan
@@ -224,7 +225,7 @@ const setUp = Effect.fn("cli.up")(function* (flags: {
   if (before.connect === null && Option.getOrElse(flags.connect, () => false)) {
     return yield* new CliError.UserError({
       cause: "connect",
-      userMessage: "T3 Connect is unavailable in this build.",
+      userMessage: `${getConnectName()} is unavailable in this build.`,
     });
   }
 
@@ -246,7 +247,7 @@ const setUp = Effect.fn("cli.up")(function* (flags: {
         selectNone: "Clear all",
         inverseSelection: "Invert selection",
         choices: plan.ask.map((route) => ({
-          ...CHOICES[route],
+          ...choices()[route],
           value: route,
           selected: plan.routes[route],
         })),
@@ -311,7 +312,7 @@ const setUp = Effect.fn("cli.up")(function* (flags: {
     });
     if (linked === null) return;
     yield* Console.log(
-      `✓ Signed in to T3 Connect${linked.identity ? ` as ${linked.identity}` : ""}`,
+      `✓ Signed in to ${getConnectName()}${linked.identity ? ` as ${linked.identity}` : ""}`,
     );
   }
   // A running server unlinks live; when that fails, only a restart stops its tunnel.
@@ -400,14 +401,13 @@ const setUp = Effect.fn("cli.up")(function* (flags: {
         !interactive ||
         (yield* Prompt.run(
           Prompt.Confirm({
-            message:
-              "The running service still has T3 Connect on. Restart it? Running agent turns will stop.",
+            message: `The running service still has ${getConnectName()} on. Restart it? Running agent turns will stop.`,
             initial: true,
           }),
         ).pipe(Effect.catchTags({ QuitError: () => Effect.succeed(false) })));
       if (!confirmed) {
         const { command } = yield* resolveHostCliCommand("service restart", baseDirArgs);
-        yield* Console.log(`Run \`${command}\` to turn T3 Connect off.`);
+        yield* Console.log(`Run \`${command}\` to turn ${getConnectName()} off.`);
       } else {
         if (!interactive && !stopped) {
           yield* Console.log(`Restarting ${getAppBaseName()}. Running agent turns will stop.`);
@@ -442,7 +442,7 @@ export const upCommand = Command.make("up", {
   ...projectLocationFlags,
   connect: Flag.Boolean("connect").pipe(
     Flag.withDescription(
-      "Allow access through T3 Connect with your T3 account. Turn off with --no-connect.",
+      `Allow access through ${getConnectName()} with your ${getAppBaseName()} account. Turn off with --no-connect.`,
     ),
     Flag.optional,
   ),
@@ -454,7 +454,7 @@ export const upCommand = Command.make("up", {
   ),
   yes: Flag.Boolean("yes").pipe(
     Flag.withDescription(
-      "Ask nothing. Keep the access settings; a new machine gets T3 Connect. A restart stops running agent turns.",
+      `Ask nothing. Keep the access settings; a new machine gets ${getConnectName()}. A restart stops running agent turns.`,
     ),
     Flag.withDefault(false),
   ),
@@ -468,7 +468,10 @@ export const upCommand = Command.make("up", {
   ),
   Command.withExamples([
     { command: "t3 up", description: "Choose remote access." },
-    { command: "t3 up --connect", description: "Turn on T3 Connect. Keep other settings." },
+    {
+      command: "t3 up --connect",
+      description: `Turn on ${getConnectName()}. Keep other settings.`,
+    },
     { command: "t3 up --lan", description: "Allow LAN access with pairing codes." },
     { command: "t3 up --no-lan", description: "Stop LAN access." },
     { command: "t3 up --yes", description: "Take the defaults with no questions." },
@@ -481,7 +484,9 @@ export const connectCommand = Command.make("connect", {
   ...projectLocationFlags,
   headless: headlessFlag,
 }).pipe(
-  Command.withDescription("Set up T3 Connect for this machine. Same as `t3 up --connect`."),
+  Command.withDescription(
+    `Set up ${getConnectName()} for this machine. Same as \`t3 up --connect\`.`,
+  ),
   Command.withHandler((flags) =>
     runCloudCommand(
       flags,

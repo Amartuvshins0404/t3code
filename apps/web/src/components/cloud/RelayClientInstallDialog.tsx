@@ -8,7 +8,7 @@ import {
   respondToRelayClientInstallConfirmation,
   subscribeRelayClientInstallDialog,
 } from "../../cloud/relayClientInstallDialog";
-import { useAppBaseName } from "../../state/appBranding";
+import { useAppBaseName, useConnectName } from "../../state/appBranding";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -35,6 +35,7 @@ const installSteps: ReadonlyArray<{
 
 export function RelayClientInstallDialog() {
   const appBaseName = useAppBaseName();
+  const connectName = useConnectName();
   const state = useSyncExternalStore(
     subscribeRelayClientInstallDialog,
     readRelayClientInstallDialogState,
@@ -72,8 +73,8 @@ export function RelayClientInstallDialog() {
           </DialogTitle>
           <DialogDescription>
             {isInstalling
-              ? `${appBaseName} is preparing this environment for secure access through T3 Connect.`
-              : `${appBaseName} needs the relay client to make this environment available through T3 Connect.`}
+              ? `${appBaseName} is preparing this environment for secure access through ${connectName}.`
+              : `${appBaseName} needs the relay client to make this environment available through ${connectName}.`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel scrollFade={false}>

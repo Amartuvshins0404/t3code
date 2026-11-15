@@ -52,7 +52,7 @@ import { Dialog } from "../ui/dialog";
 import { RadioGroup } from "../ui/radio-group";
 import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
-import { useAppBaseName } from "../../state/appBranding";
+import { useAppBaseName, useConnectName } from "../../state/appBranding";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardSteps } from "../ui/wizard";
 import { afterFailedCheck, resolveMcpGate } from "./mcpGate";
 import { MCP_APPS, type McpApp, mcpHandoffAction, OTHER_MCP_APP_STEPS } from "./mcpApps";
@@ -78,6 +78,7 @@ export function UseInAnotherAppDialogHost() {
 function UseInAnotherAppDialog({ requested }: { readonly requested: EnvironmentId | null }) {
   const { environment, label } = useAccessEnvironment(requested);
   const appBaseName = useAppBaseName();
+  const connectName = useConnectName();
   const title = `Use ${appBaseName} in another app (MCP) · ${label ?? appBaseName}`;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : close())}>
@@ -92,7 +93,7 @@ function UseInAnotherAppDialog({ requested }: { readonly requested: EnvironmentI
                 title={
                   environment === null
                     ? "Connect to an environment first."
-                    : "T3 Connect is not available in this build."
+                    : `${connectName} is not available in this build.`
                 }
               />
             </WizardPanel>
@@ -363,6 +364,7 @@ function GateScreen({
 }) {
   const name = environment.label;
   const appBaseName = useAppBaseName();
+  const connectName = useConnectName();
   const turnOnHere = useT3ConnectTurnOn(environment.environmentId);
   const retry = (onClick: () => void) => (
     <Button variant="outline" onClick={onClick}>
@@ -375,16 +377,16 @@ function GateScreen({
       return (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner size="sm" tone="muted" />
-          Checking T3 Connect…
+          Checking {connectName}…
         </p>
       );
     case "sign-in":
       return (
         <GateMessage
-          title="Sign in to T3 Connect"
+          title={`Sign in to ${connectName}`}
           lines={[
             `Apps like Poke and Claude run in the cloud. They need a public address to reach ${name}.`,
-            `T3 Connect gives ${name} that address. Each app still needs your approval.`,
+            `${connectName} gives ${name} that address. Each app still needs your approval.`,
           ]}
         >
           {/* Sign-in is its own dialog, so this one closes first. */}
@@ -394,7 +396,7 @@ function GateScreen({
               openCloudSignInDialog();
             }}
           >
-            Sign in to T3 Connect
+            Sign in to {connectName}
           </Button>
         </GateMessage>
       );
@@ -405,8 +407,8 @@ function GateScreen({
         <GateMessage
           title={
             gate.relay === "offline"
-              ? `${name}'s T3 Connect is offline`
-              : `Can't check T3 Connect on ${name}`
+              ? `${name}'s ${connectName} is offline`
+              : `Can't check ${connectName} on ${name}`
           }
         >
           {retry(refreshList)}
@@ -417,13 +419,13 @@ function GateScreen({
     case "no-relay-read":
       return (
         <GateMessage
-          title={`Can't check T3 Connect on ${name}`}
+          title={`Can't check ${connectName} on ${name}`}
           lines={[`This device needs the View relay permission on ${name}.`]}
         />
       );
     case "error":
       return (
-        <GateMessage title={`Can't check T3 Connect on ${name}`} lines={[gate.message]}>
+        <GateMessage title={`Can't check ${connectName} on ${name}`} lines={[gate.message]}>
           {checkAgain}
         </GateMessage>
       );
@@ -434,7 +436,9 @@ function GateScreen({
         return (
           <GateMessage
             title={
-              reachability ? `${name}'s T3 Connect is offline` : `Can't check T3 Connect on ${name}`
+              reachability
+                ? `${name}'s ${connectName} is offline`
+                : `Can't check ${connectName} on ${name}`
             }
             lines={reachability ? [reachability.reason, `Fix: ${reachability.fix}`] : []}
           >
@@ -444,7 +448,7 @@ function GateScreen({
       }
       return (
         <GateMessage
-          title={`Turn on T3 Connect for ${name}`}
+          title={`Turn on ${connectName} for ${name}`}
           lines={[
             `${name} gets a public https address, with no router setup.`,
             "Only apps you approve can use it. You can turn it off in Settings.",
@@ -461,7 +465,7 @@ function GateScreen({
               {tunnelLimit !== null ? (
                 <>
                   <p className="text-sm text-destructive-foreground">
-                    Your T3 Connect account is out of tunnels.
+                    Your {connectName} account is out of tunnels.
                   </p>
                   <ManageAccessButton environment={environment} label="Manage tunnels" />
                 </>
@@ -565,12 +569,13 @@ function ConnectStep({
   readonly access: AuthMcpClientAccess | null;
 }) {
   const [anotherWay, setAnotherWay] = useState(choice === "other");
+  const connectName = useConnectName();
   const app = choice === "other" ? null : choice;
   const code =
     access === null ? (
       <p className="text-sm text-muted-foreground">
         When {app?.name ?? "the app"} opens the sign-in page, choose what it may do and approve with
-        your T3 Connect account.
+        your {connectName} account.
       </p>
     ) : (
       <ApprovalCode

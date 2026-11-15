@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { AppText as Text } from "../../components/ui/AppText";
+import { useAppBranding } from "../../state/appBranding";
 import { useEnvironments } from "../../state/environments";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { serverEnvironment } from "../../state/server";
@@ -33,6 +34,7 @@ import {
 
 export function SettingsLabsRouteScreen() {
   const insets = useSafeAreaInsets();
+  const { baseName } = useAppBranding();
 
   return (
     <SettingsScreen title="Labs">
@@ -55,7 +57,7 @@ export function SettingsLabsRouteScreen() {
           icon="bolt.circle"
           capability="fastWorktreeCheckout"
           setting="fastWorktreeCheckout"
-          description="On a Mac, clone new worktrees from a checkout cached in the T3 home folder instead of writing every file. Uses Git’s normal checkout when it can’t. Turning it off deletes the cache."
+          description={`On a Mac, clone new worktrees from a checkout cached in the ${baseName} home folder instead of writing every file. Uses Git’s normal checkout when it can’t. Turning it off deletes the cache.`}
         />
       </ScrollView>
     </SettingsScreen>

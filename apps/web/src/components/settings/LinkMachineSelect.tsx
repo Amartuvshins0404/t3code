@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/link-request";
 import { useId } from "react";
 
+import { useConnectName } from "~/state/appBranding";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Badge } from "../ui/badge";
@@ -29,6 +30,7 @@ export function LinkAddressWarning({ address }: { readonly address: string }) {
 
 /** Whether a machine is linked already, or how this app knows it when not connected to it. */
 export function LinkMachineBadge({ machine }: { readonly machine: LinkableMachine }) {
+  const connectName = useConnectName();
   if (machine.linked) {
     return (
       <Badge variant="success" size="sm">
@@ -39,7 +41,7 @@ export function LinkMachineBadge({ machine }: { readonly machine: LinkableMachin
   if (machine.connected) return null;
   return (
     <Badge variant="outline" size="sm">
-      {machine.connectOnly ? "T3 Connect" : "Not connected"}
+      {machine.connectOnly ? connectName : "Not connected"}
     </Badge>
   );
 }

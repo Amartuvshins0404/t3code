@@ -1,5 +1,6 @@
 import { pipe } from "effect/Function";
 import { useAtomValue } from "@effect/atom-react";
+import { getConnectName } from "@t3tools/client-runtime/app-name";
 import {
   ANOTHER_ADDRESS,
   type LinkableMachine,
@@ -454,7 +455,7 @@ function MachineRow(props: {
     : machine.connected
       ? null
       : machine.connectOnly
-        ? "T3 Connect"
+        ? getConnectName()
         : "Not connected";
   return (
     <Pressable

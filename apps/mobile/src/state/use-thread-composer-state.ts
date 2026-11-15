@@ -1,5 +1,6 @@
 import { useComposerAttachmentActions } from "./use-composer-attachment-actions";
 import * as Dialog from "../components/ui/Dialog";
+import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { readEnvironmentScope } from "./session";
 import { useAtomValue } from "@effect/atom-react";
@@ -838,7 +839,7 @@ export function useThreadComposerState(input: {
       return "Side chats are not ready yet. Try again in a moment.";
     }
     if (serverConfig.environment.capabilities.sideChats !== true) {
-      return "Update this environment's T3 Code server to use side chats.";
+      return `Update this environment's ${getAppBaseName()} server to use side chats.`;
     }
     if (selectedThreadCreation !== null) return "Side chats start after the first message.";
     if (

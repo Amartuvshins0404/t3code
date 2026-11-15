@@ -14,14 +14,17 @@ const NOTIFICATION_PREFERENCES = [
   readonly [keyof RelayClientDeviceRecord["notifications"], string]
 >;
 
-export function mobileClientPlatformLabel(device: RelayClientDeviceRecord): string {
+export function mobileClientPlatformLabel(
+  device: RelayClientDeviceRecord,
+  appBaseName: string,
+): string {
   const platform =
     device.platform === "android"
       ? "Android"
       : device.iosMajorVersion === null
         ? "iOS"
         : `iOS ${device.iosMajorVersion}`;
-  return `${platform}${device.appVersion ? ` · T3 Code ${device.appVersion}` : ""}`;
+  return `${platform}${device.appVersion ? ` · ${appBaseName} ${device.appVersion}` : ""}`;
 }
 
 export function mobileClientNotificationDetail(device: RelayClientDeviceRecord): string {

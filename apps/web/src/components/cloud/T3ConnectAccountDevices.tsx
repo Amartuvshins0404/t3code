@@ -2,6 +2,7 @@ import type { RelayClientDeviceRecord } from "@t3tools/contracts/relay";
 import { SmartphoneIcon } from "lucide-react";
 
 import { useManagedRelayDevices } from "../../cloud/managedRelayState";
+import { useAppBaseName, useConnectName } from "../../state/appBranding";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
@@ -30,6 +31,7 @@ function MobileClientStatusBadge({
 }
 
 function MobileClientRow({ device }: { readonly device: RelayClientDeviceRecord }) {
+  const appBaseName = useAppBaseName();
   return (
     <AccountPageRow icon={<SmartphoneIcon className="size-4" />}>
       <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
@@ -38,7 +40,7 @@ function MobileClientRow({ device }: { readonly device: RelayClientDeviceRecord 
             {device.label}
           </h3>
           <p className="text-xs leading-4.5 text-muted-foreground">
-            {mobileClientPlatformLabel(device)}
+            {mobileClientPlatformLabel(device, appBaseName)}
           </p>
         </div>
         <p className="shrink-0 text-2xs leading-4 text-muted-foreground/75">
@@ -82,6 +84,8 @@ function MobileClientsSkeleton() {
 }
 
 function EmptyMobileClients() {
+  const appBaseName = useAppBaseName();
+  const connectName = useConnectName();
   return (
     <Empty size="compact">
       <EmptyMedia variant="icon">
@@ -90,8 +94,8 @@ function EmptyMobileClients() {
       <EmptyHeader>
         <EmptyTitle>No mobile clients</EmptyTitle>
         <EmptyDescription>
-          Install T3 Code on your phone and sign in to T3 Connect to get push notifications and Live
-          Activities.
+          Install {appBaseName} on your phone and sign in to {connectName} to get push notifications
+          and Live Activities.
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

@@ -2,6 +2,7 @@ import type { CloudAuth } from "@t3tools/client-runtime/cloud-auth";
 import { useState, useSyncExternalStore } from "react";
 
 import { useCloudAuth } from "../../cloud/cloudAuth";
+import { useConnectName } from "../../state/appBranding";
 import { Button } from "../ui/button";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -37,6 +38,7 @@ export function useT3ConnectAccountPage(): {
 export function T3ConnectAccountDialog({ auth }: { readonly auth: CloudAuth }) {
   const page = useSyncExternalStore(subscribe, () => openPage);
   const { user } = useCloudAuth();
+  const connectName = useConnectName();
   const [signingOut, setSigningOut] = useState(false);
   const open = page !== null && user !== null;
 
@@ -52,7 +54,7 @@ export function T3ConnectAccountDialog({ auth }: { readonly auth: CloudAuth }) {
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : setOpenPage(null))}>
       <DialogPopup className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>T3 Connect account</DialogTitle>
+          <DialogTitle>{connectName} account</DialogTitle>
           <div className="flex items-center justify-between gap-3">
             <p className="min-w-0 truncate text-sm text-muted-foreground">
               {user?.name ? `${user.name} · ${user.email}` : user?.email}

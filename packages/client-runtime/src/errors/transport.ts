@@ -1,6 +1,9 @@
-import { NETWORK_BLOCKING_HINT, UNRESPONSIVE_HOST_HINT } from "./network.ts";
+import { NETWORK_BLOCKING_HINT_PARTS, UNRESPONSIVE_HOST_HINT } from "./network.ts";
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// The service name in the hint follows the owner name, so a stored message can carry an older one.
+const NETWORK_BLOCKING_HINT_PATTERN = NETWORK_BLOCKING_HINT_PARTS.map(escapeRegExp).join(".+?");
 
 const TRANSPORT_ERROR_PATTERNS = [
   /\bSocketCloseError\b/i,
@@ -10,7 +13,7 @@ const TRANSPORT_ERROR_PATTERNS = [
   // The RPC session appends the network hint for relay connections. Any other
   // trailing text means a different error that the user should still see.
   new RegExp(
-    `\\b(?:is not connected|disconnected|stopped responding|could not establish a WebSocket connection)\\.(?: ${escapeRegExp(NETWORK_BLOCKING_HINT)})?$`,
+    `\\b(?:is not connected|disconnected|stopped responding|could not establish a WebSocket connection)\\.(?: ${NETWORK_BLOCKING_HINT_PATTERN})?$`,
     "i",
   ),
   new RegExp(`\\bstopped responding for \\d+s\\. ${escapeRegExp(UNRESPONSIVE_HOST_HINT)}$`, "i"),

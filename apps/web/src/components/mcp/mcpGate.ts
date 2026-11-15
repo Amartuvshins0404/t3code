@@ -2,6 +2,7 @@ import type {
   EnvironmentCloudLinkStateResult,
   EnvironmentConnectReachability,
 } from "@t3tools/contracts";
+import { getConnectName } from "@t3tools/client-runtime/app-name";
 import type { Discovery } from "@t3tools/client-runtime/relay";
 import type { RelayManagedEndpoint } from "@t3tools/contracts/relay";
 
@@ -78,7 +79,9 @@ export function resolveMcpGate(input: {
   if (!isManagedTunnelActive(linkState, endpoint?.providerKind)) return { kind: "turn-on" };
   if (!input.thisMachine) {
     if (relay.status === "loading") return { kind: "checking" };
-    if (relay.status === "failed") return { kind: "error", message: "Could not reach T3 Connect." };
+    if (relay.status === "failed") {
+      return { kind: "error", message: `Could not reach ${getConnectName()}.` };
+    }
     if (endpoint === undefined) return { kind: "turn-on" };
   }
   const { reachability } = input;

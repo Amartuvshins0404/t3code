@@ -12,6 +12,7 @@ import {
   subscribeCloudSignInPrompt,
 } from "../../cloud/cloudSignInPrompt";
 import { isElectron } from "../../env";
+import { useConnectName } from "../../state/appBranding";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -29,6 +30,7 @@ export function CloudSignInDialog({ auth }: { readonly auth: CloudAuth }) {
   const [pending, setPending] = useState<CloudSignInMethod | null>(null);
   const [error, setError] = useState<string | null>(null);
   const attempt = useRef<AbortController | null>(null);
+  const connectName = useConnectName();
 
   const close = () => {
     attempt.current?.abort();
@@ -67,7 +69,7 @@ export function CloudSignInDialog({ auth }: { readonly auth: CloudAuth }) {
     <Dialog open={open} onOpenChange={(next) => (next ? setPromptOpen(true) : close())}>
       <DialogPopup className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Sign in to T3 Connect</DialogTitle>
+          <DialogTitle>Sign in to {connectName}</DialogTitle>
           <DialogDescription>
             {pending
               ? `Finish signing in in ${where}.`

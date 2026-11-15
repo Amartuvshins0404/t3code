@@ -1,4 +1,4 @@
-import { formatAppBaseName } from "@t3tools/contracts";
+import { formatAppBaseName, formatConnectName } from "@t3tools/contracts";
 
 let appBaseName = formatAppBaseName(null);
 
@@ -8,4 +8,8 @@ export function setAppBaseName(next: string): void {
 
 export function getAppBaseName(): string {
   return appBaseName;
+}
+
+export function getConnectName(): string {
+  return formatConnectName(appBaseName);
 }
