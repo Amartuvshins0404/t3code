@@ -14,7 +14,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import { readTeamSharingState, teamAgentSetting } from "../team/sharedOrganizations.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectStore from "./ProjectStore.ts";
@@ -53,9 +55,36 @@ export class RuntimePolicyAboveCeilingError extends Schema.TaggedError<RuntimePo
 
 export const isRuntimePolicyAboveCeilingError = Schema.is(RuntimePolicyAboveCeilingError);
 
+export class RuntimePolicyTeamAgentRefusedError extends Schema.TaggedError<RuntimePolicyTeamAgentRefusedError>()(
+  "RuntimePolicyTeamAgentRefusedError",
+  {
+    threadId: ThreadId,
+    reason: Schema.Literals([
+      "agent_off",
+      "agent_project_not_allowed",
+      "agent_provider_unsupported",
+      "agent_slash_command",
+    ]),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "agent_slash_command":
+        return "Agent conversations do not take slash commands. Start the message with a word.";
+      case "agent_off":
+        return "This agent is off. Its owner can turn it on in Settings, Team.";
+      case "agent_project_not_allowed":
+        return "This agent no longer answers about this project.";
+      case "agent_provider_unsupported":
+        return "Agent conversations run only on a Claude model.";
+    }
+  }
+}
+
 export const RuntimePolicyV2Error = Schema.Union([
   RuntimePolicyResolveError,
   RuntimePolicyAboveCeilingError,
+  RuntimePolicyTeamAgentRefusedError,
 ]);
 export type RuntimePolicyV2Error = typeof RuntimePolicyV2Error.Type;
 
@@ -148,11 +177,62 @@ export const layerFromProjectStore: Layer.Layer<
   Effect.gen(function* () {
     const projects = yield* ProjectStore.ProjectStoreV2;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const secrets = yield* Effect.serviceOption(ServerSecretStore.ServerSecretStore);
     // The same ceiling the orchestrator enforces, fixed for the server's life.
     const { managedPolicy } = yield* ServerSettings.ServerSettingsService;
     const maxRuntimeMode = managedPolicy?.limits?.maxRuntimeMode;
+    const resolveTeamAgent = Effect.fn("RuntimePolicyV2.resolveTeamAgent")(function* (input: {
+      readonly thread: OrchestrationV2AppThread;
+      readonly modelSelection: ModelSelection;
+      readonly organizationId: string;
+    }) {
+      const refuse = (reason: RuntimePolicyTeamAgentRefusedError["reason"]) =>
+        new RuntimePolicyTeamAgentRefusedError({ threadId: input.thread.id, reason });
+      const resolveError = (cause: unknown) =>
+        new RuntimePolicyResolveError({
+          projectId: input.thread.projectId,
+          providerInstanceId: input.modelSelection.instanceId,
+          cause,
+        });
+      const instance = yield* providerInstances.getInstance(input.modelSelection.instanceId);
+      if (instance?.driverKind !== "claudeAgent") {
+        return yield* refuse("agent_provider_unsupported");
+      }
+      if (Option.isNone(secrets)) return yield* refuse("agent_off");
+      const state = yield* readTeamSharingState(secrets.value).pipe(Effect.mapError(resolveError));
+      const setting = teamAgentSetting(state, input.organizationId);
+      if (setting?.enabled !== true) return yield* refuse("agent_off");
+      if (!setting.projectIds.includes(input.thread.projectId)) {
+        return yield* refuse("agent_project_not_allowed");
+      }
+      const allowed = yield* projects
+        .list({ projectIds: setting.projectIds })
+        .pipe(Effect.mapError(resolveError));
+      const home = allowed.find((project) => project.projectId === input.thread.projectId);
+      if (home === undefined) return yield* refuse("agent_project_not_allowed");
+      return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        cwd: home.workspaceRoot,
+        approvalPolicy: "never",
+        sandboxPolicy: {
+          type: "readOnly",
+          access: {
+            type: "restricted",
+            readableRoots: allowed.map((project) => project.workspaceRoot),
+          },
+        },
+      });
+    });
     return RuntimePolicyV2.of({
       resolve: Effect.fn("RuntimePolicyV2.resolve")(function* (input) {
+        const agentOrganizationId =
+          input.thread.teamShare?.agent === undefined
+            ? undefined
+            : input.thread.teamShare.organizationId;
+        if (agentOrganizationId !== undefined) {
+          return yield* resolveTeamAgent({ ...input, organizationId: agentOrganizationId });
+        }
         yield* refuseAboveCeiling(managedPolicy, input.thread);
         const instance = yield* providerInstances.getInstance(input.modelSelection.instanceId);
         const supportedRuntimeModes =

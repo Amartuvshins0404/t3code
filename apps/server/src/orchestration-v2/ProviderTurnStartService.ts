@@ -561,6 +561,20 @@ export const layer: Layer.Layer<
           });
         },
       );
+      if (
+        projection.thread.teamShare?.agent !== undefined &&
+        message.text.trimStart().startsWith("/")
+      ) {
+        yield* settleStartFailure({
+          signal: "team-agent-refused",
+          title: "The agent cannot answer",
+          error: new RuntimePolicy.RuntimePolicyTeamAgentRefusedError({
+            threadId: projection.thread.id,
+            reason: "agent_slash_command",
+          }),
+        });
+        return;
+      }
       if (message.attachments.length === 0 && message.text.trimStart().startsWith("/")) {
         const isEmptyCompaction =
           message.text.trim().toLowerCase() === "/compact" && !projection.hasConversation;
@@ -756,6 +770,15 @@ export const layer: Layer.Layer<
         .pipe(Effect.result);
       if (resolvedPolicy._tag === "Failure") {
         const error = resolvedPolicy.failure;
+        if (error._tag === "RuntimePolicyTeamAgentRefusedError") {
+          yield* settleStartFailure({
+            signal: "team-agent-refused",
+            title: "The agent cannot answer",
+            error,
+            message: error.message,
+          });
+          return;
+        }
         if (error._tag !== "RuntimePolicyAboveCeilingError") return yield* error;
         yield* settleStartFailure({
           signal: "runtime-mode-above-ceiling",
