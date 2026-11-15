@@ -127,6 +127,26 @@ describe("decideTeamMemberCommand", () => {
     expect(Result.isFailure(decision)).toBe(refused);
   });
 
+  it.each([
+    ["off", false, true],
+    ["on", true, false],
+  ])("decides a follow-up on an agent conversation while the agent is %s", (_s, on, refused) => {
+    const agentShare = {
+      ...share("org-a", "steer"),
+      agent: { startedBy: { userId: "user-ana", name: "Ana" } },
+    };
+    const decision = decideTeamMemberCommand({
+      command: { ...message, text: "And the tests?" },
+      teamShare: agentShare,
+      member,
+      agentEnabled: on,
+    });
+    expect(Result.isFailure(decision)).toBe(refused);
+    if (Result.isFailure(decision)) {
+      expect(decision.failure.requiredPermission).toBe("agent_off");
+    }
+  });
+
   it.each<OrchestrationV2Command>([
     {
       type: "thread.runtime-mode.set",
