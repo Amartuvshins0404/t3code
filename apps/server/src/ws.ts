@@ -128,10 +128,9 @@ import * as TeamPresence from "./team/TeamPresence.ts";
 import * as TeamSharing from "./team/TeamSharing.ts";
 import * as TeamConnectivity from "./team/TeamConnectivity.ts";
 import * as TeamAgent from "./team/TeamAgent.ts";
-import { teamAgentSetting } from "./team/sharedOrganizations.ts";
 import {
   decideTeamMemberCommand,
-  TEAM_AGENT_OFF_DETAIL,
+  TEAM_AGENT_REFUSAL_DETAILS,
   makeTeamShellFilter,
   sharedWithTeam,
   teamConnectivityStatusRequest,
@@ -1506,21 +1505,18 @@ export const layerWsRpc = (
         ).pipe(
           Effect.flatMap((teamShare) =>
             (teamShare?.agent === undefined
-              ? Effect.succeed(false)
-              : teamSharing.readState.pipe(
-                  Effect.map(
-                    (state) => teamAgentSetting(state, teamShare.organizationId)?.enabled === true,
-                  ),
-                  Effect.orElseSucceed(() => false),
-                )
-            ).pipe(Effect.map((agentEnabled) => ({ teamShare, agentEnabled }))),
+              ? Effect.undefined
+              : teamAgent
+                  .followUpState(command.threadId, teamShare.organizationId)
+                  .pipe(Effect.orElseSucceed(() => ({ enabled: false, runningTurnsElsewhere: 0 })))
+            ).pipe(Effect.map((agent) => ({ teamShare, agent }))),
           ),
-          Effect.flatMap(({ teamShare, agentEnabled }) => {
+          Effect.flatMap(({ teamShare, agent }) => {
             const decision = decideTeamMemberCommand({
               command,
               teamShare,
               member: teamMember,
-              agentEnabled,
+              ...(agent === undefined ? {} : { agent }),
             });
             return Result.isSuccess(decision)
               ? Effect.succeed(decision.success)
@@ -1530,8 +1526,9 @@ export const layerWsRpc = (
                     commandType: command.type,
                     message: decision.failure.message,
                     detail:
-                      decision.failure.requiredPermission === TEAM_AGENT_OFF_DETAIL
-                        ? TEAM_AGENT_OFF_DETAIL
+                      decision.failure.requiredPermission !== undefined &&
+                      TEAM_AGENT_REFUSAL_DETAILS.has(decision.failure.requiredPermission)
+                        ? decision.failure.requiredPermission
                         : decision.failure.message,
                   }),
                 );

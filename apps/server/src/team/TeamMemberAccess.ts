@@ -148,13 +148,18 @@ const STEER_DISPATCH_MODES: ReadonlySet<string> = new Set([
   "steer_active",
 ]);
 
-export const TEAM_AGENT_OFF_DETAIL = "agent_off";
+export const TEAM_AGENT_MAX_RUNNING_TURNS = 2;
+
+export const TEAM_AGENT_BUSY_MESSAGE =
+  "This agent is answering other questions. Try again in a moment.";
+
+export const TEAM_AGENT_REFUSAL_DETAILS: ReadonlySet<string> = new Set(["agent_off", "agent_busy"]);
 
 export function decideTeamMemberCommand(input: {
   readonly command: OrchestrationV2Command;
   readonly teamShare: ThreadTeamShare | null | undefined;
   readonly member: TeamMemberIdentity;
-  readonly agentEnabled?: boolean;
+  readonly agent?: { readonly enabled: boolean; readonly runningTurnsElsewhere: number };
 }): Result.Result<OrchestrationV2Command, EnvironmentAuthorizationError> {
   const { command, member } = input;
   if (command.type !== "message.dispatch" && command.type !== "run.interrupt") {
@@ -204,12 +209,25 @@ export function decideTeamMemberCommand(input: {
   if (input.teamShare?.agent !== undefined && hasTeamAgentFileMention(command.text)) {
     return Result.fail(refusal(TEAM_AGENT_FILE_MENTION_MESSAGE, AuthOrchestrationOperateScope));
   }
-  if (input.teamShare?.agent !== undefined && input.agentEnabled !== true) {
+  if (input.teamShare?.agent !== undefined && input.agent?.enabled !== true) {
     return Result.fail(
       new EnvironmentAuthorizationError({
         message: "This agent is off, so it does not take new messages.",
         requiredScope: AuthOrchestrationOperateScope,
-        requiredPermission: TEAM_AGENT_OFF_DETAIL,
+        requiredPermission: "agent_off",
+      }),
+    );
+  }
+  if (
+    input.teamShare?.agent !== undefined &&
+    input.agent !== undefined &&
+    input.agent.runningTurnsElsewhere >= TEAM_AGENT_MAX_RUNNING_TURNS
+  ) {
+    return Result.fail(
+      new EnvironmentAuthorizationError({
+        message: TEAM_AGENT_BUSY_MESSAGE,
+        requiredScope: AuthOrchestrationOperateScope,
+        requiredPermission: "agent_busy",
       }),
     );
   }

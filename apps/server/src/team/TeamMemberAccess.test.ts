@@ -138,30 +138,34 @@ describe("decideTeamMemberCommand", () => {
         agent: { startedBy: { userId: "user-ana", name: "Ana" } },
       },
       member,
-      agentEnabled: true,
+      agent: { enabled: true, runningTurnsElsewhere: 0 },
     });
     expect(Result.isFailure(decision)).toBe(refused);
   });
 
   it.each([
-    ["off", false, true],
-    ["on", true, false],
-  ])("decides a follow-up on an agent conversation while the agent is %s", (_s, on, refused) => {
-    const agentShare = {
-      ...share("org-a", "steer"),
-      agent: { startedBy: { userId: "user-ana", name: "Ana" } },
-    };
-    const decision = decideTeamMemberCommand({
-      command: { ...message, text: "And the tests?" },
-      teamShare: agentShare,
-      member,
-      agentEnabled: on,
-    });
-    expect(Result.isFailure(decision)).toBe(refused);
-    if (Result.isFailure(decision)) {
-      expect(decision.failure.requiredPermission).toBe("agent_off");
-    }
-  });
+    ["off", false, 0, "agent_off"],
+    ["on", true, 0, undefined],
+    ["on with one other answer running", true, 1, undefined],
+    ["on with two other answers running", true, 2, "agent_busy"],
+  ])(
+    "decides a follow-up on an agent conversation while the agent is %s",
+    (_s, on, running, reason) => {
+      const agentShare = {
+        ...share("org-a", "steer"),
+        agent: { startedBy: { userId: "user-ana", name: "Ana" } },
+      };
+      const decision = decideTeamMemberCommand({
+        command: { ...message, text: "And the tests?" },
+        teamShare: agentShare,
+        member,
+        agent: { enabled: on, runningTurnsElsewhere: running },
+      });
+      expect(Result.isFailure(decision) ? decision.failure.requiredPermission : undefined).toBe(
+        reason,
+      );
+    },
+  );
 
   it.each<OrchestrationV2Command>([
     {
