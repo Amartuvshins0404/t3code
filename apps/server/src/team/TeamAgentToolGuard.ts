@@ -54,8 +54,14 @@ const SECRET_NAMES = [
 
 const SECRET_NAME_PATTERNS = SECRET_NAMES.map(
   (name) =>
-    new RegExp(`^${name.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*")}$`, "i"),
+    new RegExp(`^${name.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*")}$`, "iu"),
 );
+
+const foldFileName = (segment: string) =>
+  segment
+    .normalize("NFKC")
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
+    .toLowerCase();
 
 export const TEAM_AGENT_SECRET_READ_DENY_RULES = SECRET_NAMES.flatMap((name) => [
   `Read(**/${name})`,
@@ -112,6 +118,7 @@ const stringField = (input: Record<string, unknown>, key: string) => {
 const isTeamAgentSecretPath = (filePath: string) =>
   filePath
     .split(/[\\/]+/)
+    .map(foldFileName)
     .some((segment) => SECRET_NAME_PATTERNS.some((pattern) => pattern.test(segment)));
 
 export interface TeamAgentAppData {

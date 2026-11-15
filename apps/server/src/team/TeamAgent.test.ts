@@ -278,6 +278,26 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
     ),
   );
 
+  it.effect("refuses secret names spelled with look-alike or hidden characters", () =>
+    withProject(({ project }) =>
+      Effect.gen(function* () {
+        const refused = [
+          yield* decide("Read", { file_path: ".Kube/config" }, project),
+          yield* decide("Read", { file_path: ".ſsh/config" }, project),
+          yield* decide("Read", { file_path: "certs/master.Key" }, project),
+          yield* decide("Read", { file_path: "kubeconﬁg" }, project),
+          yield* decide("Read", { file_path: ".e​nv.local" }, project),
+          yield* decide("Read", { file_path: ".ｅnv.local" }, project),
+          yield* decide("Grep", { pattern: "token", path: ".ſsh" }, project),
+          yield* decide("Glob", { pattern: "*", path: ".Kube" }, project),
+        ];
+        expect(refused.map((decision) => (decision.allow ? "allowed" : decision.reason))).toEqual(
+          refused.map(() => expect.stringContaining("Secret files")),
+        );
+      }),
+    ),
+  );
+
   it.effect("keeps secret files out of every Grep, whatever their letter case", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
