@@ -193,8 +193,16 @@ export function usePersonalProjects(): ReadonlyArray<EnvironmentProject> {
 export function usePersonalQuietThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   const threads = useQuietThreadShells();
   const teamOnly = useTeamOnlyEnvironmentIds();
-  if (teamOnly.size === 0) return threads;
-  return threads.filter((thread) => !teamOnly.has(thread.environmentId));
+  const scope: TeamWorkspace.WorkspaceScope = {
+    kind: "personal",
+    teamOnlyEnvironmentIds: teamOnly,
+  };
+  const listed = (thread: EnvironmentThreadShell) =>
+    TeamWorkspace.workspaceListsThread(scope, {
+      environmentId: thread.environmentId,
+      teamShare: thread.source.teamShare,
+    });
+  return threads.every(listed) ? threads : threads.filter(listed);
 }
 
 export function refreshTeamMachines(teamId: string) {
