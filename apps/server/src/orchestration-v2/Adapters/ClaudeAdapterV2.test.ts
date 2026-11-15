@@ -1495,6 +1495,7 @@ describe("ClaudeAdapterV2 MCP elicitation acceptance", () => {
 const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(function* (
   binaryPath: string,
   environment: ResolvedProviderInstanceEnvironment = [],
+  hooks: { readonly pinProxyEnvironment?: boolean } = {},
 ) {
   const executablePaths: Array<string | undefined> = [];
   const taskToolEnvironment: Array<string | undefined> = [];
@@ -1507,7 +1508,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       enabled: true,
       config: { ...DEFAULT_CLAUDE_SETTINGS, binaryPath },
     },
-    {},
+    hooks,
   ).pipe(
     Effect.provide(
       ServerConfig.layerTest(process.cwd(), {
@@ -1609,6 +1610,7 @@ describe("ClaudeAdapterV2 team proxy", () => {
             [{ name: "ANTHROPIC_API_KEY", value: "fake-owner-key-for-tests", sensitive: true }],
             { url: "https://team-proxy.test", clientKey: teamKey },
           ),
+          { pinProxyEnvironment: true },
         );
         assert.deepInclude(flagEnvironments[0], {
           ANTHROPIC_BASE_URL: "https://team-proxy.test",

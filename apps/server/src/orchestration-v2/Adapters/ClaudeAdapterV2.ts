@@ -13293,7 +13293,9 @@ const claudePinnedEnvironment = (
 export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
   function* (
     input: ProviderAdapterDriverCreateInput<ClaudeSettings>,
-    hooks: Pick<ClaudeAdapterV2Options, "scopedLimitNames" | "onUsageLimits" | "modelCatalog"> = {},
+    hooks: Pick<ClaudeAdapterV2Options, "scopedLimitNames" | "onUsageLimits" | "modelCatalog"> & {
+      readonly pinProxyEnvironment?: boolean;
+    } = {},
   ) {
     const { instanceId, environment, enabled, config } = input;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -13319,7 +13321,9 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       instanceId,
       settings: { ...config, enabled, binaryPath },
       environment: claudeEnvironment,
-      pinnedEnvironment: claudePinnedEnvironment(environment),
+      ...(hooks.pinProxyEnvironment === true
+        ? { pinnedEnvironment: claudePinnedEnvironment(environment) }
+        : {}),
       attachmentsDir: serverConfig.attachmentsDir,
       fileSystem,
       path,
