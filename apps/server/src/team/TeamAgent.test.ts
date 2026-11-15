@@ -261,8 +261,9 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
         "Credentials.JSON",
         "server.KEY",
         "src/ID_RSA",
+        "config/.Git-Credentials",
+        "deploy/Service-Account-prod.json",
       ];
-      yield* fs.makeDirectory(path.join(project, "src"), { recursive: true });
       for (const file of [...secretFiles, "src/auth.ts"]) {
         yield* fs.makeDirectory(path.dirname(path.join(project, file)), { recursive: true });
         yield* fs.writeFileString(path.join(project, file), `password=fake-${file}\n`);
