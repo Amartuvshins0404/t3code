@@ -1,6 +1,7 @@
 import type { RelayTeamEnvironmentRecord } from "@t3tools/contracts/relay";
 import {
   type EnvironmentId,
+  type ProjectTeamShare,
   type TeamAgentStatus,
   TeamConnectivityDriver,
   type TeamConnectivityOrganizationStatus,
@@ -63,6 +64,108 @@ export function workspaceListsThread(
   if (!workspaceListsEnvironment(scope, thread.environmentId)) return false;
   if (scope.kind === "personal") return thread.teamShare?.agent === undefined;
   return thread.teamShare?.organizationId === scope.teamId;
+}
+
+interface TeamPanelProject {
+  readonly environmentId: string;
+  readonly id: string;
+  readonly title: string;
+  readonly archivedAt?: string | null | undefined;
+  readonly teamShare?: Pick<ProjectTeamShare, "organizationId"> | null | undefined;
+}
+
+interface TeamPanelThread {
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly archivedAt: string | null;
+  readonly updatedAt: string;
+  readonly source: {
+    readonly teamShare?: Pick<ThreadTeamShare, "organizationId" | "agent"> | null | undefined;
+  };
+}
+
+export interface TeamPanelProjectEntry<P, T> {
+  readonly project: P;
+  readonly threads: ReadonlyArray<T>;
+}
+
+export interface TeamPanel<P, T> {
+  readonly projects: ReadonlyArray<TeamPanelProjectEntry<P, T>>;
+  readonly threadsByPerson: ReadonlyMap<string, ReadonlyArray<T>>;
+}
+
+export function isTeamProject(
+  project: Pick<TeamPanelProject, "archivedAt" | "teamShare">,
+  teamId: string,
+): boolean {
+  return (project.archivedAt ?? null) === null && project.teamShare?.organizationId === teamId;
+}
+
+export function teamPanel<P extends TeamPanelProject, T extends TeamPanelThread>(input: {
+  readonly teamId: string;
+  readonly machines: ReadonlyArray<{
+    readonly environmentId: string;
+    readonly ownerUserId: string;
+  }>;
+  readonly projects: ReadonlyArray<P>;
+  readonly threads: ReadonlyArray<T>;
+}): TeamPanel<P, T> {
+  const ownerByEnvironment = new Map(
+    input.machines.map((machine) => [machine.environmentId, machine.ownerUserId]),
+  );
+  const scope: WorkspaceScope = {
+    kind: "team",
+    teamId: input.teamId,
+    environmentIds: new Set(ownerByEnvironment.keys()),
+  };
+  const projectKey = (environmentId: string, projectId: string) => `${environmentId}\n${projectId}`;
+  const projectThreads = new Map<string, T[]>();
+  const teamProjects = input.projects
+    .filter(
+      (project) =>
+        ownerByEnvironment.has(project.environmentId) && isTeamProject(project, input.teamId),
+    )
+    .sort(
+      (left, right) =>
+        left.title.localeCompare(right.title) ||
+        left.environmentId.localeCompare(right.environmentId),
+    );
+  for (const project of teamProjects) {
+    projectThreads.set(projectKey(project.environmentId, project.id), []);
+  }
+  const threadsByPerson = new Map<string, T[]>();
+  const newestFirst = input.threads
+    .filter(
+      (thread) =>
+        thread.archivedAt === null &&
+        workspaceListsThread(scope, {
+          environmentId: thread.environmentId,
+          teamShare: thread.source.teamShare,
+        }),
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  for (const thread of newestFirst) {
+    const inProject =
+      thread.source.teamShare?.agent === undefined
+        ? projectThreads.get(projectKey(thread.environmentId, thread.projectId))
+        : undefined;
+    if (inProject) {
+      inProject.push(thread);
+      continue;
+    }
+    const owner = ownerByEnvironment.get(thread.environmentId);
+    if (owner === undefined) continue;
+    const list = threadsByPerson.get(owner);
+    if (list) list.push(thread);
+    else threadsByPerson.set(owner, [thread]);
+  }
+  return {
+    projects: teamProjects.map((project) => ({
+      project,
+      threads: projectThreads.get(projectKey(project.environmentId, project.id)) ?? [],
+    })),
+    threadsByPerson,
+  };
 }
 
 export type AgentMachineState =

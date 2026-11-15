@@ -1301,6 +1301,26 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:team:ask-agent",
       tag: WS_METHODS.teamAskAgent,
     }),
+    setTeamProjectShare: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:set-project-share",
+      tag: WS_METHODS.teamSetProjectShare,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => `${environmentId}:${input.projectId}`,
+      },
+    }),
+    clearTeamProjectShare: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:clear-project-share",
+      tag: WS_METHODS.teamClearProjectShare,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => `${environmentId}:${input.projectId}`,
+      },
+    }),
+    startTeamProjectThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:start-project-thread",
+      tag: WS_METHODS.teamStartProjectThread,
+    }),
     addTeamSharedOrganization: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:team:add-shared-organization",
       tag: WS_METHODS.teamAddSharedOrganization,

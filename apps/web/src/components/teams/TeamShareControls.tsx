@@ -45,6 +45,7 @@ import {
   useThreadConnectivity,
 } from "./teamConnectivity";
 import { TeamMark, teamAccessMessage } from "./teamPresentation";
+import { useThreadTeamProject } from "./teamProjects";
 import { useCanShareWithTeam, useThreadTeamShare } from "./teamShareAvailability";
 import {
   closeTeamDialog,
@@ -68,6 +69,7 @@ export function TeamShareIndicator({ threadRef }: { readonly threadRef: ScopedTh
   const share = useThreadTeamShare(threadRef);
   const canShare = useCanShareWithTeam(threadRef.environmentId);
   const teamsState = useCloudTeamsState();
+  const project = useThreadTeamProject(threadRef);
   if (share === null || !canShare) return null;
   const teams = teamsState.status === "signedOut" ? [] : teamsState.teams;
   const team = teams.find((candidate) => candidate.id === share.organizationId) ?? null;
@@ -77,6 +79,7 @@ export function TeamShareIndicator({ threadRef }: { readonly threadRef: ScopedTh
       organizationId={share.organizationId}
       access={share.access}
       team={team}
+      projectTitle={project?.title ?? null}
     />
   );
 }
@@ -86,21 +89,30 @@ function SharedThreadBadge({
   organizationId,
   access,
   team,
+  projectTitle,
 }: {
   readonly threadRef: ScopedThreadRef;
   readonly organizationId: string;
   readonly access: TeamThreadAccess;
   readonly team: CloudTeamSummary | null;
+  readonly projectTitle: string | null;
 }) {
-  const line = ownerConnectivityLine(
+  const teamName = team?.name ?? "the team";
+  const connectivityLine = ownerConnectivityLine(
     useThreadConnectivity(threadRef, organizationId),
-    team?.name ?? "the team",
+    teamName,
   );
+  const throughLine =
+    projectTitle === null ? null : `Shared with ${teamName} through ${projectTitle}.`;
+  const line =
+    throughLine !== null && connectivityLine !== null
+      ? `${throughLine} ${connectivityLine}`
+      : (throughLine ?? connectivityLine);
   const badge = (
     <Button
       size="xs"
       variant="ghost-muted"
-      aria-label={`Shared with ${team?.name ?? "a team"}, ${TEAM_ACCESS_LABELS[access]}. Change sharing`}
+      aria-label={`Shared with ${team?.name ?? "a team"}${projectTitle === null ? "" : ` through ${projectTitle}`}, ${TEAM_ACCESS_LABELS[access]}. Change sharing`}
       onClick={() => openTeamShareThreadDialog(threadRef)}
     >
       {team ? <TeamMark team={team} /> : <UsersIcon aria-hidden />}
@@ -170,6 +182,7 @@ function TeamShareThreadDialog({ threadRef }: { readonly threadRef: ScopedThread
   const navigate = useNavigate();
   const connectName = useConnectName();
   const current = useThreadTeamShare(threadRef);
+  const teamProject = useThreadTeamProject(threadRef);
   const teamsState = useCloudTeamsState();
   const teams = teamsState.status === "signedOut" ? [] : teamsState.teams;
   const workspace = useActiveWorkspace();
@@ -281,7 +294,9 @@ function TeamShareThreadDialog({ threadRef }: { readonly threadRef: ScopedThread
         <DialogHeader>
           <DialogTitle>Share with team</DialogTitle>
           <DialogDescription>
-            Teammates see this thread live. They do not see your other threads.
+            {teamProject && current
+              ? `Shared with ${teams.find((candidate) => candidate.id === current.organizationId)?.name ?? "the team"} through ${teamProject.title}. New threads there are shared too. Stop sharing makes only this thread private.`
+              : "Teammates see this thread live. They do not see your other threads."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

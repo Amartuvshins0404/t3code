@@ -68,6 +68,7 @@ import {
   ListFilterIcon,
   PlusIcon,
   SettingsIcon,
+  UsersIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -159,7 +160,12 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import { readCanShareWithTeam, readThreadTeamShare } from "./teams/teamShareAvailability";
-import { openTeamShareThreadDialog } from "./teams/teamUiStore";
+import { readCanShareTeamProject } from "./teams/teamProjects";
+import {
+  openStopTeamProjectDialog,
+  openTeamProjectDialog,
+  openTeamShareThreadDialog,
+} from "./teams/teamUiStore";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
@@ -1274,12 +1280,25 @@ function PersonalSidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
     (group: SidebarProjectSnapshot, position: { x: number; y: number }) => {
       const api = readLocalApi();
       if (!api) return;
+      const teamShared = group.memberProjects.find((member) => member.teamShare);
+      const teamShare = teamShared?.teamShare ?? null;
+      const canShareWithTeam = readCanShareTeamProject(
+        teamShared?.environmentId ?? group.environmentId,
+      );
       void (async () => {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             [
               { id: "new-thread", label: "New thread" },
               { id: "copy-path", label: "Copy path" },
+              ...(!canShareWithTeam
+                ? []
+                : teamShare
+                  ? [
+                      { id: "team-sharing", label: "Team sharing" },
+                      { id: "team-stop", label: "Stop sharing with team" },
+                    ]
+                  : [{ id: "team-share", label: "Share with team" }]),
               ...(canPinProject(group)
                 ? [
                     group.pinned
@@ -1299,6 +1318,21 @@ function PersonalSidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
             return;
           case "copy-path":
             copyPathToClipboard(group.workspaceRoot, { path: group.workspaceRoot });
+            return;
+          case "team-share":
+            openTeamProjectDialog({ environmentId: group.environmentId, projectId: group.id });
+            return;
+          case "team-sharing":
+            if (teamShared) {
+              openTeamProjectDialog({
+                teamId: teamShared.teamShare?.organizationId ?? null,
+                environmentId: teamShared.environmentId,
+                projectId: teamShared.id,
+              });
+            }
+            return;
+          case "team-stop":
+            if (teamShared) openStopTeamProjectDialog(teamShared.environmentId, teamShared.id);
             return;
           case "pin":
           case "unpin":
@@ -3144,6 +3178,13 @@ function PersonalSidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
                               )}
                             </ProjectScopeRowIcon>
                             <span className="min-w-0 truncate text-sm">{item.label}</span>
+                            {project?.memberProjects.some((member) => member.teamShare) ? (
+                              <UsersIcon
+                                aria-label="Shared with a team"
+                                role="img"
+                                className="size-3 shrink-0 text-muted-foreground"
+                              />
+                            ) : null}
                             {project && showProjectEnvironments ? (
                               <ProjectEnvironmentBadge
                                 group={project}
