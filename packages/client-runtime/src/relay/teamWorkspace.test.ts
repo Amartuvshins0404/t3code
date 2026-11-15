@@ -5,6 +5,7 @@ import {
   shareMachineWithTeam,
   stopSharingMachine,
   threadComposerMode,
+  threadConnectivity,
   workspaceListsThread,
   type WorkspaceScope,
 } from "./teamWorkspace.ts";
@@ -122,5 +123,58 @@ describe("machine sharing", () => {
     });
     expect(result).toMatchObject({ ok: false, failed: "machine", undone: true });
     expect(calls).toEqual(["relay:unshare", "machine:remove", "relay:share"]);
+  });
+});
+
+describe("what a shared thread runs on", () => {
+  const status = (
+    state: "ready" | "not_configured" | "unavailable",
+    drivers: ReadonlyArray<"claudeAgent" | "codex"> = ["claudeAgent", "codex"],
+  ) => [{ organizationId: "team-a", state, drivers, checkedAt: "2026-11-15T00:00:00.000Z" }];
+  const decide = (input: Partial<Parameters<typeof threadConnectivity>[0]>) =>
+    threadConnectivity({
+      machineSupportsTeamConnectivity: true,
+      organizationId: "team-a",
+      status: status("ready"),
+      driver: "claudeAgent",
+      ...input,
+    });
+
+  it("spends the team's accounts only when the machine is ready and the provider is Claude or Codex", () => {
+    expect(decide({ driver: "claudeAgent" })).toEqual({ kind: "team" });
+    expect(decide({ driver: "codex" })).toEqual({ kind: "team" });
+  });
+
+  it("stays on the owner's accounts in every other case, with the reason", () => {
+    expect(decide({ driver: "cursor" })).toEqual({ kind: "owner", reason: "provider" });
+    expect(decide({ status: status("ready", ["claudeAgent"]), driver: "codex" })).toEqual({
+      kind: "owner",
+      reason: "provider",
+    });
+    expect(decide({ status: status("not_configured") })).toEqual({
+      kind: "owner",
+      reason: "no_connection",
+    });
+    expect(decide({ organizationId: "team-b" })).toEqual({
+      kind: "owner",
+      reason: "no_connection",
+    });
+    expect(decide({ machineSupportsTeamConnectivity: false })).toEqual({
+      kind: "owner",
+      reason: "machine_outdated",
+    });
+  });
+
+  it("warns when the team has a connection the machine cannot use right now", () => {
+    expect(decide({ status: status("unavailable", []) })).toEqual({ kind: "unavailable" });
+    expect(decide({ status: status("unavailable", []), driver: "opencode" })).toEqual({
+      kind: "owner",
+      reason: "provider",
+    });
+  });
+
+  it("claims nothing before the machine answers", () => {
+    expect(decide({ status: null })).toEqual({ kind: "unknown" });
+    expect(decide({ driver: null })).toEqual({ kind: "unknown" });
   });
 });

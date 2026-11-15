@@ -1,5 +1,41 @@
 import type { RelayTeamEnvironmentRecord } from "@t3tools/contracts/relay";
-import type { ThreadTeamShare } from "@t3tools/contracts";
+import {
+  TeamConnectivityDriver,
+  type TeamConnectivityOrganizationStatus,
+  type ThreadTeamShare,
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+
+export type ThreadConnectivity =
+  | { readonly kind: "team" }
+  | {
+      readonly kind: "owner";
+      readonly reason: "no_connection" | "provider" | "machine_outdated";
+    }
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "unknown" };
+
+const isTeamConnectivityDriver = Schema.is(TeamConnectivityDriver);
+
+export function threadConnectivity(input: {
+  readonly machineSupportsTeamConnectivity: boolean;
+  readonly organizationId: string;
+  readonly status: ReadonlyArray<TeamConnectivityOrganizationStatus> | null;
+  readonly driver: string | null;
+}): ThreadConnectivity {
+  if (!input.machineSupportsTeamConnectivity) {
+    return { kind: "owner", reason: "machine_outdated" };
+  }
+  if (input.status === null || input.driver === null) return { kind: "unknown" };
+  const team = input.status.find((entry) => entry.organizationId === input.organizationId);
+  if (team === undefined || team.state === "not_configured") {
+    return { kind: "owner", reason: "no_connection" };
+  }
+  const driver = input.driver;
+  if (!isTeamConnectivityDriver(driver)) return { kind: "owner", reason: "provider" };
+  if (team.state === "unavailable") return { kind: "unavailable" };
+  return team.drivers.includes(driver) ? { kind: "team" } : { kind: "owner", reason: "provider" };
+}
 
 export type WorkspaceScope =
   | { readonly kind: "personal"; readonly teamOnlyEnvironmentIds: ReadonlySet<string> }
