@@ -6,6 +6,7 @@ import {
   StoredProjectIcon,
   ProjectId,
   ProjectScript,
+  ProjectTeamShare,
   ThreadEnvMode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -41,6 +42,7 @@ export const ProjectRow = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   pinnedAt: Schema.NullOr(IsoDateTime),
   archivedAt: Schema.NullOr(IsoDateTime),
+  teamShare: Schema.NullOr(ProjectTeamShare),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -53,6 +55,7 @@ const ProjectDbRow = Schema.Struct({
   autoPull: Schema.BooleanFromBit,
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
   scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+  teamShare: Schema.NullOr(Schema.fromJsonString(ProjectTeamShare)),
 });
 
 function toShell(row: ProjectRow): OrchestrationProjectShell {
@@ -69,6 +72,7 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     scripts: row.scripts,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
+    teamShare: row.teamShare,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -126,6 +130,7 @@ export const make = Effect.gen(function* () {
         scripts_json AS "scripts",
         pinned_at AS "pinnedAt",
         archived_at AS "archivedAt",
+        team_share_json AS "teamShare",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
         deleted_at AS "deletedAt"
@@ -158,6 +163,7 @@ export const make = Effect.gen(function* () {
             scripts_json,
             pinned_at,
             archived_at,
+            team_share_json,
             created_at,
             updated_at,
             deleted_at
@@ -174,6 +180,7 @@ export const make = Effect.gen(function* () {
             ${encoded.scripts},
             ${encoded.pinnedAt},
             ${encoded.archivedAt},
+            ${encoded.teamShare},
             ${encoded.createdAt},
             ${encoded.updatedAt},
             ${encoded.deletedAt}
@@ -190,6 +197,7 @@ export const make = Effect.gen(function* () {
             scripts_json = excluded.scripts_json,
             pinned_at = excluded.pinned_at,
             archived_at = excluded.archived_at,
+            team_share_json = excluded.team_share_json,
             created_at = excluded.created_at,
             updated_at = excluded.updated_at,
             deleted_at = excluded.deleted_at
@@ -240,6 +248,7 @@ export const make = Effect.gen(function* () {
           scripts: payload.scripts,
           pinnedAt: null,
           archivedAt: null,
+          teamShare: null,
           createdAt: payload.createdAt,
           updatedAt: payload.updatedAt,
           deletedAt: null,
@@ -252,6 +261,7 @@ export const make = Effect.gen(function* () {
         return yield* upsertRow({
           ...row,
           deletedAt: event.payload.deletedAt,
+          teamShare: null,
           updatedAt: event.payload.deletedAt,
         }).pipe(mapError("apply"));
       }
@@ -272,6 +282,7 @@ export const make = Effect.gen(function* () {
         ...(payload.scripts === undefined ? {} : { scripts: payload.scripts }),
         ...(payload.pinnedAt === undefined ? {} : { pinnedAt: payload.pinnedAt }),
         ...(payload.archivedAt === undefined ? {} : { archivedAt: payload.archivedAt }),
+        ...(payload.teamShare === undefined ? {} : { teamShare: payload.teamShare }),
         updatedAt: payload.updatedAt,
       }).pipe(mapError("apply"));
     },
