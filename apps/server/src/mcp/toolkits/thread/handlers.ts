@@ -15,8 +15,11 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
   dispatchFailure,
   newCommandId,
+  outsideTeamAgentProject,
   readCaller,
   readThread,
+  teamAgentReadsAnotherTeam,
+  teamAgentReadsOutsideProject,
   unavailable,
 } from "../../threadAccess.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
@@ -125,14 +128,28 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   ),
   t3_thread_search: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
-      const { caller } = yield* readCaller();
+      const { caller, threads } = yield* readCaller();
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
+      if (teamAgentReadsOutsideProject(caller, input.projectId ?? caller?.projectId)) {
+        return yield* outsideTeamAgentProject();
+      }
       const { matches } = yield* threadSearch
         .searchThreads({ ...input, projectId: input.projectId ?? caller?.projectId })
         .pipe(Effect.mapError(unavailable));
+      const readable =
+        caller?.teamShare?.agent === undefined
+          ? matches
+          : yield* Effect.filter(matches, (match) =>
+              threads.getThreadShell(match.threadId).pipe(
+                Effect.map(
+                  (target) => target != null && !teamAgentReadsAnotherTeam(caller, target),
+                ),
+                Effect.orElseSucceed(() => false),
+              ),
+            );
       return {
-        matches: matches.map((match) => ({
+        matches: readable.map((match) => ({
           ...match,
           link: McpInvocationContext.threadLinkFor(scope, match.threadId, match.title),
         })),

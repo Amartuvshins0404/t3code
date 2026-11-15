@@ -6,14 +6,18 @@ import {
 import type { ProviderInteractionMode, RuntimeMode, ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 
+import { useCloudTeamsState } from "~/cloud/cloudTeams";
 import { useTeamMachine } from "~/cloud/teamWorkspace";
-import { newMessageId } from "~/lib/utils";
+import { cn, newMessageId } from "~/lib/utils";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
+import { agentAnswersOff, useAgentConversation, useMachineAgentState } from "./teamAgents";
 import { teamAccessMessage } from "./teamPresentation";
+import { teammateConnectivityLine, useThreadConnectivity } from "./teamConnectivity";
+import { useThreadTeamShare } from "./teamShareAvailability";
 import { setTeammateTyping } from "./TeamThreadPresence";
 
 export function TeammateComposer({
@@ -32,6 +36,12 @@ export function TeammateComposer({
   readonly interactionMode: ProviderInteractionMode;
 }) {
   const ownerName = useTeamMachine(threadRef.environmentId)?.owner.name ?? "the owner";
+  const conversation = useAgentConversation(threadRef);
+  const agentState = useMachineAgentState(
+    threadRef.environmentId,
+    conversation?.organizationId ?? null,
+  );
+  const agentOff = conversation !== null && agentAnswersOff(agentState);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -54,11 +64,26 @@ export function TeammateComposer({
       <p className="px-4 py-3 text-sm text-muted-foreground">This thread is no longer shared.</p>
     );
   }
+  if (agentOff) {
+    return (
+      <div className="flex flex-col gap-1 px-4 py-3">
+        <p className="text-sm text-muted-foreground">
+          {agentState.kind === "answered" && agentState.agent?.claudeOutdated === true
+            ? `${ownerName} needs to update Claude Code for their agent.`
+            : `${ownerName}'s agent is off.`}
+        </p>
+        <TeammateConnectivityLine threadRef={threadRef} ownerName={ownerName} />
+      </div>
+    );
+  }
   if (mode === "view") {
     return (
-      <p className="px-4 py-3 text-sm text-muted-foreground">
-        View only. Ask {ownerName} for Steer to send messages.
-      </p>
+      <div className="flex flex-col gap-1 px-4 py-3">
+        <p className="text-sm text-muted-foreground">
+          View only. Ask {ownerName} for Steer to send messages.
+        </p>
+        <TeammateConnectivityLine threadRef={threadRef} ownerName={ownerName} />
+      </div>
     );
   }
 
@@ -115,7 +140,13 @@ export function TeammateComposer({
       <Textarea
         unstyled
         aria-label="Message"
-        placeholder={running ? "Steer the agent while it works" : "Send a message"}
+        placeholder={
+          conversation !== null
+            ? "Ask a follow-up"
+            : running
+              ? "Steer the agent while it works"
+              : "Send a message"
+        }
         value={text}
         readOnly={sending}
         onChange={(event) => updateText(event.target.value)}
@@ -126,6 +157,7 @@ export function TeammateComposer({
         }}
       />
       <div className="flex items-center justify-end gap-2">
+        <TeammateConnectivityLine threadRef={threadRef} ownerName={ownerName} />
         {running && canInterrupt ? (
           <Button
             type="button"
@@ -153,5 +185,33 @@ export function TeammateComposer({
         </Button>
       </div>
     </form>
+  );
+}
+
+function TeammateConnectivityLine({
+  threadRef,
+  ownerName,
+}: {
+  readonly threadRef: ScopedThreadRef;
+  readonly ownerName: string;
+}) {
+  const organizationId = useThreadTeamShare(threadRef)?.organizationId ?? "";
+  const teamsState = useCloudTeamsState();
+  const teamName =
+    (teamsState.status === "signedOut" ? [] : teamsState.teams).find(
+      (team) => team.id === organizationId,
+    )?.name ?? "the team";
+  const connectivity = useThreadConnectivity(threadRef, organizationId);
+  const line = teammateConnectivityLine(connectivity, teamName, ownerName);
+  if (line === null) return null;
+  return (
+    <p
+      className={cn(
+        "me-auto text-xs",
+        connectivity.kind === "unavailable" ? "text-destructive" : "text-muted-foreground",
+      )}
+    >
+      {line}
+    </p>
   );
 }

@@ -20,6 +20,11 @@ const TEAM_ACCESS_MESSAGES: Readonly<Record<TeamAccessError["reason"], string>> 
   thread_not_shared: "This thread is no longer shared with you.",
   thread_view_only: "You can view this thread. Ask the owner for Steer to send messages.",
   thread_unavailable: "This thread is not available anymore.",
+  agent_off: "This agent is off.",
+  agent_project_not_allowed: "This agent does not answer about that project.",
+  agent_provider_unsupported: "Pick a Claude model.",
+  agent_claude_outdated: "This agent needs Claude Code 2.1.248 or newer.",
+  agent_busy: "This agent is answering two questions. Try again in a moment.",
   internal: "The machine could not do that. Try again.",
 };
 

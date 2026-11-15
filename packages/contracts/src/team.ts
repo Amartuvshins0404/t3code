@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
-import { IsoDateTime, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { IsoDateTime, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ModelSelection } from "./modelSelection.ts";
 
 export const TeamRole = Schema.Literals(["owner", "admin", "member"]);
 export type TeamRole = typeof TeamRole.Type;
@@ -24,10 +25,16 @@ export const TeamMemberIdentity = Schema.Struct({
 });
 export type TeamMemberIdentity = typeof TeamMemberIdentity.Type;
 
+export const TeamAgentConversation = Schema.Struct({
+  startedBy: TeamPerson,
+});
+export type TeamAgentConversation = typeof TeamAgentConversation.Type;
+
 export const ThreadTeamShare = Schema.Struct({
   organizationId: TrimmedNonEmptyString,
   access: TeamThreadAccess,
   sharedAt: IsoDateTime,
+  agent: Schema.optional(TeamAgentConversation),
 });
 export type ThreadTeamShare = typeof ThreadTeamShare.Type;
 
@@ -79,6 +86,72 @@ export const TeamPresenceSnapshot = Schema.Struct({
 });
 export type TeamPresenceSnapshot = typeof TeamPresenceSnapshot.Type;
 
+export const TeamConnectivityDriver = Schema.Literals(["claudeAgent", "codex"]);
+export type TeamConnectivityDriver = typeof TeamConnectivityDriver.Type;
+
+export const TeamConnectivityState = Schema.Literals(["ready", "not_configured", "unavailable"]);
+export type TeamConnectivityState = typeof TeamConnectivityState.Type;
+
+export const TeamConnectivityOrganizationStatus = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  state: TeamConnectivityState,
+  drivers: Schema.Array(TeamConnectivityDriver),
+  checkedAt: IsoDateTime,
+});
+export type TeamConnectivityOrganizationStatus = typeof TeamConnectivityOrganizationStatus.Type;
+
+export const TeamConnectivityStatus = Schema.Struct({
+  organizations: Schema.Array(TeamConnectivityOrganizationStatus),
+});
+export type TeamConnectivityStatus = typeof TeamConnectivityStatus.Type;
+
+export const TeamConnectivityStatusInput = Schema.Struct({
+  refresh: Schema.optional(Schema.Boolean),
+});
+export type TeamConnectivityStatusInput = typeof TeamConnectivityStatusInput.Type;
+
+export const TeamAgentProject = Schema.Struct({
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+});
+export type TeamAgentProject = typeof TeamAgentProject.Type;
+
+export const TeamAgentStatus = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+  projects: Schema.Array(TeamAgentProject),
+  modelSelection: Schema.optional(ModelSelection),
+  claudeOutdated: Schema.optional(Schema.Boolean),
+});
+export type TeamAgentStatus = typeof TeamAgentStatus.Type;
+
+export const TeamAgentStatuses = Schema.Struct({
+  agents: Schema.Array(TeamAgentStatus),
+});
+export type TeamAgentStatuses = typeof TeamAgentStatuses.Type;
+
+export const TeamAgentSetInput = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+  projectIds: Schema.Array(ProjectId),
+  modelSelection: Schema.optional(ModelSelection),
+});
+export type TeamAgentSetInput = typeof TeamAgentSetInput.Type;
+
+export const TEAM_AGENT_QUESTION_MAX_LENGTH = 8000;
+
+export const TeamAgentAskInput = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  projectId: Schema.optional(ProjectId),
+  text: TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_AGENT_QUESTION_MAX_LENGTH)),
+});
+export type TeamAgentAskInput = typeof TeamAgentAskInput.Type;
+
+export const TeamAgentAskResult = Schema.Struct({
+  threadId: ThreadId,
+});
+export type TeamAgentAskResult = typeof TeamAgentAskResult.Type;
+
 export class TeamAccessError extends Schema.TaggedError<TeamAccessError>()("TeamAccessError", {
   reason: Schema.Literals([
     "not_allowed_for_teammates",
@@ -86,6 +159,11 @@ export class TeamAccessError extends Schema.TaggedError<TeamAccessError>()("Team
     "thread_not_shared",
     "thread_view_only",
     "thread_unavailable",
+    "agent_off",
+    "agent_project_not_allowed",
+    "agent_provider_unsupported",
+    "agent_claude_outdated",
+    "agent_busy",
     "internal",
   ]),
   message: Schema.String,

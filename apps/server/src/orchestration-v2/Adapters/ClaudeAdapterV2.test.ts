@@ -82,6 +82,7 @@ import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 
 import * as PortScanner from "../../preview/PortScanner.ts";
+import { teamProviderEnvironment } from "../../team/TeamProviderRoutes.ts";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { WorkflowAgentTranscriptReadObserver } from "../workflowAgentTranscript.ts";
 import * as ServerConfig from "../../config.ts";
@@ -267,6 +268,46 @@ function makeClaudeTestTurnInput(input: {
 }
 
 describe("ClaudeAdapterV2 runtime query policy", () => {
+  it("keeps an agent conversation read-only and declines every prompt without anyone answering", async () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "team-agent-thread",
+      resume: false,
+      cwd: "/workspace",
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      allowedTools: ["Bash", "Write"],
+      settings: { ...DEFAULT_CLAUDE_SETTINGS, launchArgs: "--dangerously-skip-permissions" },
+      teamAgent: {
+        readableRoots: ["/workspace"],
+        ownerName: "Sam",
+        preToolUse: () => Promise.resolve({}),
+      },
+    });
+    assert.deepEqual(options.tools, ["Read", "Glob", "Grep"]);
+    assert.equal(options.permissionMode, "dontAsk");
+    assert.equal(options.verbatimPrompts, true);
+    assert.deepEqual(options.settingSources, []);
+    assert.equal(options.strictMcpConfig, true);
+    assert.isUndefined(options.allowDangerouslySkipPermissions);
+    assert.deepEqual(options.allowedTools, []);
+    assert.include(options.disallowedTools ?? [], "Read(**/.env*)");
+    assert.lengthOf(options.hooks?.PreToolUse ?? [], 1);
+
+    const signal = new AbortController().signal;
+    const answer = await options.canUseTool?.(
+      "Bash",
+      { command: "ls" },
+      { signal, toolUseID: "tool-1", requestId: "request-1", suggestions: [] },
+    );
+    assert.equal(answer?.behavior, "deny");
+    const elicitation = await options.onElicitation?.(
+      { serverName: "t3-code", message: "Pick one", mode: "form" },
+      { signal, requestId: "request-2" },
+    );
+    assert.equal(elicitation?.action, "decline");
+  });
+
   it.each([
     "-- --thinking-display omitted",
     "--thinking-display summarized -- --thinking-display omitted",
@@ -1494,9 +1535,11 @@ describe("ClaudeAdapterV2 MCP elicitation acceptance", () => {
 const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(function* (
   binaryPath: string,
   environment: ResolvedProviderInstanceEnvironment = [],
+  hooks: { readonly pinProxyEnvironment?: boolean } = {},
 ) {
   const executablePaths: Array<string | undefined> = [];
   const taskToolEnvironment: Array<string | undefined> = [];
+  const flagEnvironments: Array<Readonly<Record<string, string>> | undefined> = [];
   const adapter = yield* ClaudeAdapterV2.createClaudeAdapterV2(
     {
       instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
@@ -1505,7 +1548,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       enabled: true,
       config: { ...DEFAULT_CLAUDE_SETTINGS, binaryPath },
     },
-    {},
+    hooks,
   ).pipe(
     Effect.provide(
       ServerConfig.layerTest(process.cwd(), {
@@ -1518,6 +1561,9 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
         Effect.sync(() => {
           executablePaths.push(input.options.pathToClaudeCodeExecutable);
           taskToolEnvironment.push(input.options.env?.CLAUDE_CODE_ENABLE_TODO_TOOLS);
+          flagEnvironments.push(
+            typeof input.options.settings === "object" ? input.options.settings.env : undefined,
+          );
           return {
             messages: Stream.never,
             offer: () => Effect.void,
@@ -1561,7 +1607,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       attachments: [],
     }),
   );
-  return { executablePaths, taskToolEnvironment };
+  return { executablePaths, taskToolEnvironment, flagEnvironments };
 });
 
 describe("ClaudeAdapterV2 executable path", () => {
@@ -1577,6 +1623,40 @@ describe("ClaudeAdapterV2 executable path", () => {
         );
 
         assert.deepEqual(executablePaths, [packageExe]);
+      }),
+    ).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          ProviderInstallationGate.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+});
+
+describe("ClaudeAdapterV2 team proxy", () => {
+  it.effect("pins the team proxy over the user's own Claude settings env", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const teamKey = "fake-team-proxy-key-for-tests";
+        const { flagEnvironments } = yield* captureSdkExecutablePaths(
+          "/opt/claude/bin/claude",
+          teamProviderEnvironment(
+            "claudeAgent",
+            [{ name: "ANTHROPIC_API_KEY", value: "fake-owner-key-for-tests", sensitive: true }],
+            { url: "https://team-proxy.test", clientKey: teamKey },
+          ),
+          { pinProxyEnvironment: true },
+        );
+        assert.deepInclude(flagEnvironments[0], {
+          ANTHROPIC_BASE_URL: "https://team-proxy.test",
+          ANTHROPIC_AUTH_TOKEN: teamKey,
+          ANTHROPIC_API_KEY: "",
+        });
       }),
     ).pipe(
       Effect.provide(
@@ -4185,6 +4265,80 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           disableBypassPermissionsMode: "disable",
           disableAutoMode: "disable",
         });
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
+    it.effect("opens an agent conversation's turn read-only, ignoring the owner's settings", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-claude-team-agent-" });
+        vi.mocked(ClaudeSdk.resolveSettings).mockResolvedValue({
+          effective: {},
+          provenance: {},
+          sources: [],
+        });
+        const harness = yield* makeWakeHarnessWithOptions({
+          settings: { ...DEFAULT_CLAUDE_SETTINGS, launchArgs: "--dangerously-skip-permissions" },
+        });
+        const turnInput = makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("attempt-team-agent"),
+          text: "Where is auth handled?",
+          attachments: [],
+          runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            cwd,
+            approvalPolicy: "never",
+            sandboxPolicy: {
+              type: "readOnly",
+              access: { type: "restricted", readableRoots: [cwd] },
+            },
+          }),
+        });
+        yield* harness.runtime.startTurn({
+          ...turnInput,
+          appThread: {
+            ...turnInput.appThread,
+            teamShare: {
+              organizationId: "org-a",
+              access: "steer",
+              sharedAt: "2026-11-15T00:00:00.000Z",
+              agent: { startedBy: { userId: "user-ana", name: "Ana" } },
+            },
+          },
+        });
+        const options = harness.getOpenedOptions()!;
+        assert.deepEqual(
+          {
+            tools: options.tools,
+            permissionMode: options.permissionMode,
+            settingSources: options.settingSources,
+            verbatimPrompts: options.verbatimPrompts,
+            skipsPermissions: options.allowDangerouslySkipPermissions,
+            readableRoots: options.additionalDirectories,
+          },
+          {
+            tools: ["Read", "Glob", "Grep"],
+            permissionMode: "dontAsk",
+            settingSources: [],
+            verbatimPrompts: true,
+            skipsPermissions: undefined,
+            readableRoots: [cwd],
+          },
+        );
+        assert.include(options.disallowedTools ?? [], "Read(**/.npmrc)");
       }).pipe(
         Effect.provide(
           Layer.mergeAll(

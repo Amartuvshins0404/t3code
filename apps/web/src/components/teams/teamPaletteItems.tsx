@@ -1,6 +1,14 @@
 import { canManageTeam } from "@t3tools/client-runtime/cloud-auth";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeftRightIcon, PlusIcon, SettingsIcon, UserPlusIcon } from "lucide-react";
+import {
+  ArrowLeftRightIcon,
+  BotIcon,
+  MessageCircleIcon,
+  PlugIcon,
+  PlusIcon,
+  SettingsIcon,
+  UserPlusIcon,
+} from "lucide-react";
 
 import { getCloudAuth, useCloudAuth } from "../../cloud/cloudAuth";
 import {
@@ -16,8 +24,10 @@ import {
   type CommandPaletteActionItem,
   type CommandPaletteSubmenuItem,
 } from "../CommandPalette.logic";
+import { TEAM_CONNECTIVITY_SECTION_ID } from "./teamConnectivity";
 import { TeamMark, TEAM_ROLE_LABELS } from "./teamPresentation";
-import { openCreateTeamDialog, openInviteTeamDialog } from "./teamUiStore";
+import { TEAM_AGENT_SECTION_ID, useTeamAgentStatuses, useTeamPeople } from "./teamAgents";
+import { openAskAgentDialog, openCreateTeamDialog, openInviteTeamDialog } from "./teamUiStore";
 
 export function useTeamPaletteItems(): ReadonlyArray<
   CommandPaletteActionItem | CommandPaletteSubmenuItem
@@ -26,6 +36,13 @@ export function useTeamPaletteItems(): ReadonlyArray<
   const auth = useCloudAuth();
   const teamsState = useCloudTeamsState();
   const workspace = useActiveWorkspace();
+  const teamPeople = useTeamPeople();
+  const people = teamPeople.status === "personal" ? [] : teamPeople.people;
+  const agentStatuses = useTeamAgentStatuses(
+    teamPeople.status === "personal" ? "" : teamPeople.teamId,
+    people.map((entry) => entry.person.userId),
+    teamPeople.status === "personal" ? [] : teamPeople.machines,
+  );
   if (getCloudAuth() === null || !auth.isSignedIn) return [];
   const teams = teamsState.status === "signedOut" ? [] : teamsState.teams;
   const activeTeam = workspace.kind === "team" ? workspace.team : null;
@@ -87,7 +104,31 @@ export function useTeamPaletteItems(): ReadonlyArray<
       run: async () => openInviteTeamDialog(activeTeam.id),
     });
   }
+  if (activeTeam) {
+    for (const { person, self } of people) {
+      if (agentStatuses.get(person.userId)?.kind !== "ready") continue;
+      items.push({
+        kind: "action",
+        value: `action:ask-agent:${person.userId}`,
+        searchTerms: ["ask", "agent", "teammate", "question", person.name],
+        title: self ? "Ask your agent" : `Ask ${person.name}'s agent`,
+        description: activeTeam.name,
+        icon: <MessageCircleIcon className={ITEM_ICON_CLASS} />,
+        run: async () => openAskAgentDialog(activeTeam.id, person),
+      });
+    }
+  }
   if (teams.length > 0) {
+    items.push({
+      kind: "action",
+      value: "action:team-agent",
+      searchTerms: ["my agent", "agent", "ask", "teammate", "team", "read only"],
+      title: "My agent",
+      icon: <BotIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({ to: "/settings/team", hash: TEAM_AGENT_SECTION_ID });
+      },
+    });
     items.push({
       kind: "action",
       value: "action:team-settings",
@@ -96,6 +137,16 @@ export function useTeamPaletteItems(): ReadonlyArray<
       icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({ to: "/settings/team" });
+      },
+    });
+    items.push({
+      kind: "action",
+      value: "action:team-connectivity",
+      searchTerms: ["team", "connectivity", "connection", "proxy", "cli proxy", "team key"],
+      title: "Team connection",
+      icon: <PlugIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({ to: "/settings/team", hash: TEAM_CONNECTIVITY_SECTION_ID });
       },
     });
   }

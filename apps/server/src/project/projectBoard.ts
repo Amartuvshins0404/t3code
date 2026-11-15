@@ -44,6 +44,7 @@ const boardThread = (
   archivedAt: shell.archivedAt === null ? null : DateTime.formatIso(shell.archivedAt),
   deletedAt: shell.deletedAt === null ? null : DateTime.formatIso(shell.deletedAt),
   lineage: shell.lineage,
+  source: shell,
   pullRequests: threadPullRequestsOf(shell),
   pendingGuestMessageCount: shell.pendingGuestMessageCount ?? 0,
   pendingSubagentRequest,

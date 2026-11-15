@@ -685,6 +685,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification toast popup completion input approval failure"],
   },
   {
+    id: "answer-for-me",
+    title: "Answer for me",
+    to: "/settings/general",
+    searchTerms: ["question recommended auto answer decide wait minutes needs you"],
+  },
+  {
     id: "language",
     title: msg("Language"),
     to: "/settings/general",
@@ -1313,6 +1319,24 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Share a machine with a team",
     to: "/settings/team",
     searchTerms: ["team share machine computer teammates stop sharing multiplayer"],
+    cloudOnly: true,
+  },
+  {
+    id: "team-agent",
+    title: "My agent",
+    to: "/settings/team",
+    searchTerms: [
+      "team agent my agent ask teammate question read only projects model turn on off people",
+    ],
+    cloudOnly: true,
+  },
+  {
+    id: "team-connectivity",
+    title: "Team connection",
+    to: "/settings/team",
+    searchTerms: [
+      "team connectivity connection cli proxy cliproxy team key access key shared threads accounts",
+    ],
     cloudOnly: true,
   },
   {

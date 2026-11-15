@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as DueHint from "../scheduling/DueHint.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import { forkParked } from "../serverActivation.ts";
 import { normalizeThreadPullRequestKey } from "../sourceControl/threadPullRequests.ts";
@@ -24,7 +25,9 @@ const LABEL_READ_TIMEOUT = "20 seconds";
 const MAX_SEND_ATTEMPTS = 3;
 const RECOMMENDED = /\(recommended\)$/i;
 
-const waitMinutes = Config.Int("T3CODE_QUESTION_AUTO_ANSWER_MINUTES").pipe(Config.withDefault(10));
+export const defaultWaitMinutes = Config.Int("T3CODE_QUESTION_AUTO_ANSWER_MINUTES").pipe(
+  Config.withDefault(10),
+);
 
 const isRecommended = (option: OrchestrationV2UserInputQuestion["options"][number]) =>
   RECOMMENDED.test(option.label.trimEnd());
@@ -57,20 +60,21 @@ const affectsDueQuestions = (event: OrchestrationV2DomainEvent) =>
   (event.type === "turn-item.updated" && event.payload.type === "user_input_request");
 
 const makeSweep = Effect.gen(function* () {
-  const minutes = yield* waitMinutes.pipe(Effect.orDie);
+  const envMinutes = yield* defaultWaitMinutes.pipe(Effect.orDie);
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const pullRequests = yield* PullRequestService.PullRequestService;
+  const settings = yield* ServerSettings.ServerSettingsService;
   const findDue = projections.getDueQuestionRequests;
-  const waitMs = findDue === undefined ? 0 : minutes * MINUTE_MS;
   const due = DueHint.make();
   const failedSends = new Map<string, { readonly attempts: number; readonly retryAtMs: number }>();
-  if (waitMs > 0) {
+  if (findDue !== undefined) {
     yield* forkParked(
       Stream.runForEach(orchestrator.streamDomainEvents, (event) =>
         affectsDueQuestions(event) ? due.invalidate : Effect.void,
       ),
     );
+    yield* forkParked(Stream.runForEach(settings.streamChanges, () => due.invalidate));
   }
 
   const laneHold = Effect.fn("QuestionAutoAnswerWorker.laneHold")(function* (
@@ -103,11 +107,14 @@ const makeSweep = Effect.gen(function* () {
   });
 
   return Effect.fn("QuestionAutoAnswerWorker.sweep")(function* () {
-    if (findDue === undefined || waitMs <= 0) return;
+    if (findDue === undefined) return;
     const now = yield* DateTime.now;
     const nowMs = DateTime.toEpochMillis(now);
     if (yield* due.isIdle(nowMs)) return;
     const readVersion = yield* due.version;
+    const stored = (yield* settings.getSettings).questionAutoAnswerMinutes;
+    const waitMs = (stored ?? envMinutes) * MINUTE_MS;
+    if (waitMs <= 0) return yield* due.record(readVersion, Infinity, nowMs);
     const { due: requests, nextCreatedAt } = yield* findDue({
       createdAtOrBefore: DateTime.makeUnsafe(nowMs - waitMs),
       limit: DUE_BATCH,

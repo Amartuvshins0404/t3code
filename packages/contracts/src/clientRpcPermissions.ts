@@ -94,6 +94,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.teamRevokeMemberAccess]: AuthAccessWriteScope,
   [WS_METHODS.teamSetThreadShare]: AuthAccessWriteScope,
   [WS_METHODS.teamClearThreadShare]: AuthAccessWriteScope,
+  [WS_METHODS.teamSetAgent]: AuthAccessWriteScope,
   [WS_METHODS.peerLinksLink]: AuthAccessWriteScope,
   [WS_METHODS.peerLinksUnlink]: AuthAccessWriteScope,
   // A link lets every agent here reach the other environment: Settings' bar.

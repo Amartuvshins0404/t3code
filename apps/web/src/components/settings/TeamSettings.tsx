@@ -51,6 +51,8 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Skeleton } from "../ui/skeleton";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import { TeamAgentSection } from "./TeamAgent";
+import { TeamConnectivitySection } from "./TeamConnectivity";
 import { TeamSharedMachinesSection } from "./TeamSharedMachines";
 
 export function TeamSettingsPanel() {
@@ -377,6 +379,10 @@ function TeamDetail({
       ) : null}
 
       <TeamSharedMachinesSection team={team} />
+
+      <TeamAgentSection team={team} />
+
+      <TeamConnectivitySection team={team} />
 
       <SettingsSection id="team-leave" title="Leave or delete">
         <SettingsRow

@@ -182,6 +182,16 @@ import * as ServerConfig from "../../config.ts";
 import * as PortScanner from "../../preview/PortScanner.ts";
 import * as ProcessRunner from "../../processRunner.ts";
 import * as ServerSettings from "../../serverSettings.ts";
+import {
+  decideTeamAgentToolUse,
+  decodeTeamAgentReadableRoots,
+  TEAM_AGENT_FILE_TOOLS,
+  TEAM_AGENT_SECRET_READ_DENY_RULES,
+  TEAM_AGENT_THREAD_TOOLS,
+  type TeamAgentAppData,
+  type TeamAgentToolDecision,
+} from "../../team/TeamAgentToolGuard.ts";
+import { teamAgentInstructions } from "../../team/teamAgentInstructions.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
@@ -1933,7 +1943,12 @@ export function makeClaudeQueryOptions(input: {
   readonly appendSystemPromptFileText?: string;
   // Flag settings, because a user's settings.json env beats the process env in Claude Code.
   readonly toolSearchOverride?: "true";
+  readonly pinnedEnvironment?: Readonly<Record<string, string>>;
+  readonly teamAgent?: ClaudeTeamAgentGuard;
 }): ClaudeAgentSdkQueryOptions {
+  if (input.teamAgent !== undefined) {
+    return makeClaudeTeamAgentQueryOptions({ ...input, teamAgent: input.teamAgent });
+  }
   const compiledSelection = compileClaudeModelSelection(input.modelSelection, input.modelCatalog);
   const {
     // claudeLaunchArgDirectories reads every --add-dir into additionalDirectories.
@@ -1980,13 +1995,19 @@ export function makeClaudeQueryOptions(input: {
           ...(typeof querySettings === "object" && querySettings !== null ? querySettings : {}),
           autoCompactWindow: Number(input.settings.autoCompactWindow),
         } as ClaudeSdkSettings);
+  const flagEnvironment = {
+    ...(input.toolSearchOverride === undefined
+      ? {}
+      : { ENABLE_TOOL_SEARCH: input.toolSearchOverride }),
+    ...input.pinnedEnvironment,
+  };
   // A settings file path cannot take extra keys, so it goes through unchanged.
   const effectiveQuerySettings =
-    input.toolSearchOverride === undefined || typeof compactQuerySettings === "string"
+    Object.keys(flagEnvironment).length === 0 || typeof compactQuerySettings === "string"
       ? compactQuerySettings
       : ({
           ...compactQuerySettings,
-          env: { ...compactQuerySettings?.env, ENABLE_TOOL_SEARCH: input.toolSearchOverride },
+          env: { ...compactQuerySettings?.env, ...flagEnvironment },
         } as ClaudeSdkSettings);
   const deviceInstructions = input.mcpServers !== undefined && input.deviceToolsAvailable === true;
   const options: ClaudeAgentSdkQueryOptions = {
@@ -2073,6 +2094,122 @@ export function makeClaudeQueryOptions(input: {
     additionalDirectories.length === 0 ? options : { ...options, additionalDirectories };
   return input.cwd === null ? withDirectories : { ...withDirectories, cwd: input.cwd };
 }
+
+export interface ClaudeTeamAgentGuard {
+  readonly readableRoots: ReadonlyArray<string>;
+  readonly ownerName: string | undefined;
+  readonly preToolUse: HookCallback;
+}
+
+const denyEveryClaudePrompt: CanUseTool = (_toolName, _toolInput, callbackOptions) =>
+  Promise.resolve({
+    behavior: "deny",
+    message: "Nobody answers prompts in an agent conversation. Continue without this tool.",
+    toolUseID: callbackOptions.toolUseID,
+  });
+
+const declineEveryClaudeElicitation: NonNullable<ClaudeQueryOptions["onElicitation"]> = () =>
+  Promise.resolve({ action: "decline" });
+
+function makeClaudeTeamAgentQueryOptions(input: {
+  readonly modelSelection: ModelSelection;
+  readonly modelCatalog?: ClaudeModelCatalog;
+  readonly nativeThreadId: string;
+  readonly title?: string;
+  readonly resume: boolean;
+  readonly resumeSessionAt?: string;
+  readonly cwd: string | null;
+  readonly settings?: ClaudeSettings;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
+  readonly pinnedEnvironment?: Readonly<Record<string, string>>;
+  readonly teamAgent: ClaudeTeamAgentGuard;
+}): ClaudeAgentSdkQueryOptions {
+  const compiledSelection = compileClaudeModelSelection(input.modelSelection, input.modelCatalog);
+  const settings = {
+    ...(compiledSelection.settings as ClaudeSdkSettings),
+    ...(compiledSelection.settings.alwaysThinkingEnabled === false
+      ? {}
+      : { showThinkingSummaries: true }),
+    env: { ENABLE_TOOL_SEARCH: "false", ...input.pinnedEnvironment },
+  } as ClaudeSdkSettings;
+  const options: ClaudeAgentSdkQueryOptions = {
+    model: compiledSelection.apiModelId,
+    ...(input.title === undefined ? {} : { title: input.title }),
+    tools: [...TEAM_AGENT_FILE_TOOLS],
+    settingSources: [],
+    strictMcpConfig: true,
+    permissionMode: "dontAsk",
+    verbatimPrompts: true,
+    includePartialMessages: true,
+    promptSuggestions: false,
+    ...(compiledSelection.effort === undefined
+      ? {}
+      : { effort: compiledSelection.effort as NonNullable<ClaudeQueryOptions["effort"]> }),
+    ...(input.resume ? { resume: input.nativeThreadId } : { sessionId: input.nativeThreadId }),
+    ...(input.resumeSessionAt === undefined ? {} : { resumeSessionAt: input.resumeSessionAt }),
+    allowedTools: input.mcpServers === undefined ? [] : [...TEAM_AGENT_THREAD_TOOLS],
+    disallowedTools: [...TEAM_AGENT_SECRET_READ_DENY_RULES],
+    canUseTool: denyEveryClaudePrompt,
+    onElicitation: declineEveryClaudeElicitation,
+    ...(compiledSelection.settings.alwaysThinkingEnabled === false
+      ? {}
+      : { thinking: { type: "adaptive" as const, display: "summarized" as const } }),
+    settings,
+    ...(input.settings?.binaryPath
+      ? { pathToClaudeCodeExecutable: input.settings.binaryPath }
+      : {}),
+    ...(input.environment === undefined ? {} : { env: input.environment }),
+    ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
+    systemPrompt: {
+      type: "preset" as const,
+      preset: "claude_code" as const,
+      append: [
+        buildRuntimeInstructions({ harness: "Claude Code", pullRequestLinking: false }),
+        teamAgentInstructions(input.teamAgent.ownerName),
+      ].join("\n\n"),
+    },
+    hooks: { PreToolUse: [{ hooks: [input.teamAgent.preToolUse] }] },
+    additionalDirectories: [...input.teamAgent.readableRoots],
+  };
+  return input.cwd === null ? options : { ...options, cwd: input.cwd };
+}
+
+const makeClaudeTeamAgentPreToolUse =
+  (
+    decide: (input: {
+      readonly toolName: string;
+      readonly toolInput: unknown;
+    }) => Promise<TeamAgentToolDecision>,
+  ): HookCallback =>
+  async (hookInput) => {
+    if (hookInput.hook_event_name !== "PreToolUse") return {};
+    const decision = await decide({
+      toolName: hookInput.tool_name,
+      toolInput: hookInput.tool_input,
+    }).catch((): TeamAgentToolDecision => ({
+      allow: false,
+      reason: "The read check failed, so this call was refused.",
+    }));
+    if (!decision.allow) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: decision.reason,
+        },
+      };
+    }
+    return decision.updatedInput === undefined
+      ? {}
+      : {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "allow",
+            updatedInput: decision.updatedInput,
+          },
+        };
+  };
 
 /**
  * Checks the append launch arguments the way the Claude CLI would and reads the
@@ -5128,7 +5265,9 @@ export interface ClaudeAdapterV2Options {
   readonly settings: ClaudeSettings;
   readonly modelCatalog?: Effect.Effect<ClaudeModelCatalog>;
   readonly environment: NodeJS.ProcessEnv;
+  readonly pinnedEnvironment?: Readonly<Record<string, string>>;
   readonly attachmentsDir: string;
+  readonly teamAgentAppData?: TeamAgentAppData;
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly random: SecureRandom.SecureRandom["Service"];
@@ -11615,11 +11754,52 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           live.selection = selection;
         });
 
+        const teamAgentGuardForTurn = Effect.fnUntraced(function* (
+          turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
+        ) {
+          const scope = decodeTeamAgentReadableRoots(turnInput.runtimePolicy.sandboxPolicy);
+          const cwd = turnInput.runtimePolicy.cwd;
+          if (Option.isNone(scope) || cwd === null) {
+            return yield* queryRunnerError(
+              new Error("An agent conversation needs its read-only project scope."),
+              "teamAgent",
+            );
+          }
+          const readableRoots = scope.value.access.readableRoots;
+          const ownerName = Option.isSome(serverSettings)
+            ? yield* serverSettings.value.getSettings.pipe(
+                Effect.map((settings) => settings.ownerName),
+                Effect.orElseSucceed(() => undefined),
+              )
+            : undefined;
+          return {
+            readableRoots,
+            ownerName,
+            preToolUse: makeClaudeTeamAgentPreToolUse((call) =>
+              runPromise(
+                decideTeamAgentToolUse({
+                  ...call,
+                  cwd,
+                  readableRoots,
+                  appData: adapterOptions.teamAgentAppData,
+                }).pipe(
+                  Effect.provideService(FileSystem.FileSystem, fileSystem),
+                  Effect.provideService(Path.Path, path),
+                ),
+              ),
+            ),
+          } satisfies ClaudeTeamAgentGuard;
+        });
+
         const openQuery = Effect.fnUntraced(function* (
           turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
           nativeThreadId: string,
         ) {
           const queryPolicy = yield* queryPolicyForTurn(turnInput);
+          const teamAgent =
+            turnInput.appThread.teamShare?.agent === undefined
+              ? undefined
+              : yield* teamAgentGuardForTurn(turnInput);
           const mcpSession = yield* mcpSessions.read(turnInput.threadId);
           const mcpOverrides = claudeMcpQueryOverrides({
             mcpSession,
@@ -11629,7 +11809,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ? {}
               : { allowedTools: queryPolicy.allowedTools }),
           });
-          const queryPolicyKey = claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides);
+          const queryPolicyKey =
+            claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides) +
+            (teamAgent === undefined ? "" : `\u0000${teamAgent.readableRoots.join("\u0000")}`);
           const compiledSelection = compileClaudeModelSelection(
             turnInput.modelSelection,
             modelCatalog,
@@ -11776,6 +11958,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             supportedDialogKinds: ["resume_return"],
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),
+            ...(adapterOptions.pinnedEnvironment === undefined
+              ? {}
+              : { pinnedEnvironment: adapterOptions.pinnedEnvironment }),
+            ...(teamAgent === undefined ? {} : { teamAgent }),
           });
           const resolvedTurnCwd = yield* fileSystem
             .realPath(turnInput.runtimePolicy.cwd ?? ".")
@@ -13271,10 +13457,27 @@ export type ClaudeAdapterV2DriverEnv =
   | ProviderInstallationGate.ProviderInstallationGate
   | ServerConfig.ServerConfig;
 
+const CLAUDE_PINNED_ENVIRONMENT = new Set([
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+]);
+
+const claudePinnedEnvironment = (
+  environment: ProviderAdapterDriverCreateInput<ClaudeSettings>["environment"],
+): Readonly<Record<string, string>> =>
+  Object.fromEntries(
+    environment
+      .filter((variable) => CLAUDE_PINNED_ENVIRONMENT.has(variable.name))
+      .map((variable) => [variable.name, variable.value]),
+  );
+
 export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
   function* (
     input: ProviderAdapterDriverCreateInput<ClaudeSettings>,
-    hooks: Pick<ClaudeAdapterV2Options, "scopedLimitNames" | "onUsageLimits" | "modelCatalog"> = {},
+    hooks: Pick<ClaudeAdapterV2Options, "scopedLimitNames" | "onUsageLimits" | "modelCatalog"> & {
+      readonly pinProxyEnvironment?: boolean;
+    } = {},
   ) {
     const { instanceId, environment, enabled, config } = input;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -13300,7 +13503,18 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       instanceId,
       settings: { ...config, enabled, binaryPath },
       environment: claudeEnvironment,
+      ...(hooks.pinProxyEnvironment === true
+        ? { pinnedEnvironment: claudePinnedEnvironment(environment) }
+        : {}),
       attachmentsDir: serverConfig.attachmentsDir,
+      teamAgentAppData: {
+        home: serverConfig.baseDir,
+        workspaceFolders: [
+          path.join(serverConfig.baseDir, "projects"),
+          path.join(serverConfig.baseDir, "scratch"),
+          serverConfig.worktreesDir,
+        ],
+      },
       fileSystem,
       path,
       random,

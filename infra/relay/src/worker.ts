@@ -5,7 +5,9 @@ import * as Drizzle from "@alchemy.run/drizzle/Postgres";
 import * as Config from "effect/Config";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
+import * as Aead from "effect/crypto/Aead";
 import * as Digest from "effect/crypto/Digest";
+import * as Kdf from "effect/crypto/Kdf";
 import * as Mac from "effect/crypto/Mac";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Signature from "effect/crypto/Signature";
@@ -71,6 +73,7 @@ import * as ManagedEndpointReaper from "./environments/ManagedEndpointReaper.ts"
 import * as ManagedTunnelLimits from "./environments/ManagedTunnelLimits.ts";
 import * as Identity from "./auth/identity.ts";
 import * as TeamMembership from "./auth/TeamMembership.ts";
+import * as TeamConnectivity from "./teams/TeamConnectivity.ts";
 import * as MobileRegistrations from "./agentActivity/MobileRegistrations.ts";
 import * as HookForwarder from "./hooks/HookForwarder.ts";
 import * as HeldHooks from "./hooks/HeldHooks.ts";
@@ -79,7 +82,9 @@ import * as HookInboxObject from "./hooks/HookInboxObject.ts";
 import * as MobileTelemetry from "./mobileTelemetry/MobileTelemetry.ts";
 
 const layerWebcrypto = Layer.mergeAll(
+  Aead.layerWebCrypto,
   Digest.layerWebCrypto,
+  Kdf.layerWebCrypto,
   Mac.layerWebCrypto,
   Signature.layerWebCrypto,
 ).pipe(Layer.provideMerge(SecureRandom.layerWebCrypto));
@@ -324,6 +329,7 @@ export const layer = Api.make(
           CloudflareApiPause.layer,
           EnvironmentLinks.layer,
           EnvironmentTeamShares.layer,
+          TeamConnectivity.layer,
           TeamMembership.layerUnavailable,
           ManagedEndpointAllocations.layer,
           ManagedTunnelLimits.layer,

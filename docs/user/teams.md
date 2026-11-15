@@ -30,8 +30,10 @@ A shared thread shows a small badge in its header. Select it to change the level
 
 ## What teammates see and can do
 
-In the team workspace, each shared machine lists the threads shared with that team, grouped by
-project. A teammate sees the thread as it streams: messages, the agent's replies and its work.
+In the team workspace, the sidebar lists the team's people: you first, then everyone else by name,
+with their picture and whether their agent is ready. Under each person are the threads they shared
+with the team and the questions asked of their agent, newest first. A teammate sees a thread as it
+streams: messages, the agent's replies and its work.
 
 - With **View**, there is no message box. They see "View only" and the name of the owner to ask.
 - With **Steer**, they can send text messages. While the agent works, **Steer** sends the message
@@ -47,6 +49,69 @@ Give **Steer** on a full-access thread only to people you would let use your mac
 
 Each message shows who sent it. Avatars in the thread header and the sidebar show who has the thread
 open, and a line above the message box shows who is typing.
+
+## Ask a teammate's agent
+
+Each person's agent answers questions about their work, from their own machine. It is useful when
+you want to know how something was built or why, without waiting for the person.
+
+To ask, select a person whose agent is ready in the team sidebar, or use **Ask <name>'s agent** in
+the command palette. Type the question and press Enter. A new conversation opens and the answer
+streams in. It is listed under that person for the whole team: anyone in the team can read it and
+ask a follow-up. The person sees every question asked of their agent. A question cannot start
+with `/` or name a file with `@` followed by `~`, `./`, `../` or a quote, such as `@./src/auth.ts`.
+Write the path without `@` and the agent reads it. Package names such as `@types/node` are fine.
+
+The agent only reads. It can read the code and the past threads of the projects its owner picked.
+It never reads secret files such as `.env` files, keys, credentials or the `.git` folder, nor
+T3 Code's own data, and it skips threads shared with another team. It cannot change files, run
+commands that change anything, start threads or answer for its owner. It sees nothing from other
+projects. An agent answers at most two questions at a time, follow-ups included.
+
+A person's status in the sidebar says why you cannot ask: **Agent off**, **Offline**, **No machine
+yet**, or **Needs an update** when their machine runs an older T3 Code or their Claude Code is older
+than 2.1.248.
+
+### Turn on your agent
+
+Your agent is off until you turn it on. Open **Settings → Team → My agent**, or **My agent** in the
+command palette. For each of your machines shared with the team, pick at least one project and a
+Claude model, then turn on the switch. The setting is per machine and per team. The agent needs
+Claude Code 2.1.248 or newer on that machine. Agent conversations are shared with the team, so
+they run on the team's connection when it has one (see below).
+
+The agent reads the past threads of the projects you pick, so a secret that was ever printed in one
+of those threads can reach a teammate. Pick project folders, not a broad folder such as your home
+folder or `/`: the agent can read every file there that is not on its secret list.
+
+Turn the switch off and nobody can ask new questions or send follow-ups. Old conversations stay
+readable, and you can delete them like any thread. Agent conversations show only in the team
+workspace, not in Personal. Stop sharing the machine with the team and its agent setting for that
+team goes too.
+
+## Whose accounts a shared thread uses
+
+A shared thread runs on the owner's Claude and Codex accounts, whoever sends the message, unless the
+team connects its own [CLIProxyAPI](./usage.md#connect-a-cliproxyapi-hub) hub.
+
+To connect one, a team owner or admin opens **Settings → Team → Connectivity**, chooses **Connect**,
+and enters the hub's address and one of its client access keys. The key goes to T3 Connect and no
+screen shows it again. Members see the address and who set it. An admin can **Replace** or
+**Remove** it.
+
+Then every thread shared with the team that uses Claude or Codex runs through the team's hub, for
+the owner's and teammates' messages alike. Other providers stay on the owner's accounts. Stop
+sharing the thread and its next message is back on the owner's accounts.
+
+- The share dialog and the header badge say what the thread runs on. Teammates see it under the
+  message box.
+- **Settings → Team → Connectivity** lists each of your machines shared with the team, with
+  **Ready** or why it is not.
+- The machine must run a recent T3 Code. An older one shows **Update this machine to use the team
+  connection** and keeps using your accounts.
+- If the team has a connection but the machine cannot get the key, for example while T3 Connect is
+  unreachable, messages in team threads fail until it is back. They never fall back to your
+  accounts.
 
 ## Stop sharing
 

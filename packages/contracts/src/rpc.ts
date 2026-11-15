@@ -174,6 +174,13 @@ import {
 } from "./guestShare.ts";
 import {
   TeamAccessError,
+  TeamAgentAskInput,
+  TeamAgentAskResult,
+  TeamAgentSetInput,
+  TeamAgentStatus,
+  TeamAgentStatuses,
+  TeamConnectivityStatus,
+  TeamConnectivityStatusInput,
   TeamMemberAccessRevokeInput,
   TeamPresenceReportInput,
   TeamPresenceSnapshot,
@@ -609,6 +616,10 @@ export const WS_METHODS = {
   teamClearThreadShare: "team.clearThreadShare",
   teamReportPresence: "team.reportPresence",
   teamSubscribePresence: "team.subscribePresence",
+  teamGetConnectivity: "team.getConnectivity",
+  teamGetAgents: "team.getAgents",
+  teamSetAgent: "team.setAgent",
+  teamAskAgent: "team.askAgent",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
 
@@ -2273,6 +2284,30 @@ const WsTeamSubscribePresenceRpc = Rpc.make(WS_METHODS.teamSubscribePresence, {
   stream: true,
 });
 
+const WsTeamGetConnectivityRpc = Rpc.make(WS_METHODS.teamGetConnectivity, {
+  payload: TeamConnectivityStatusInput,
+  success: TeamConnectivityStatus,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamGetAgentsRpc = Rpc.make(WS_METHODS.teamGetAgents, {
+  payload: Schema.Struct({}),
+  success: TeamAgentStatuses,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamSetAgentRpc = Rpc.make(WS_METHODS.teamSetAgent, {
+  payload: TeamAgentSetInput,
+  success: TeamAgentStatus,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamAskAgentRpc = Rpc.make(WS_METHODS.teamAskAgent, {
+  payload: TeamAgentAskInput,
+  success: TeamAgentAskResult,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
 const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   payload: SecretRequestAnswerInput,
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
@@ -2325,6 +2360,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsTeamClearThreadShareRpc,
   WsTeamReportPresenceRpc,
   WsTeamSubscribePresenceRpc,
+  WsTeamGetConnectivityRpc,
+  WsTeamGetAgentsRpc,
+  WsTeamSetAgentRpc,
+  WsTeamAskAgentRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

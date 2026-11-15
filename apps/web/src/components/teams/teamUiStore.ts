@@ -1,4 +1,4 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef, TeamPerson } from "@t3tools/contracts";
 import { create } from "zustand";
 
 export type TeamDialog =
@@ -6,6 +6,7 @@ export type TeamDialog =
   | { readonly kind: "invite"; readonly teamId: string }
   | { readonly kind: "share-thread"; readonly threadRef: ScopedThreadRef }
   | { readonly kind: "share-machine"; readonly environmentId: EnvironmentId }
+  | { readonly kind: "ask-agent"; readonly teamId: string; readonly person: TeamPerson }
   | null;
 
 interface TeamUiState {
@@ -29,6 +30,10 @@ export function openTeamShareThreadDialog(threadRef: ScopedThreadRef): void {
 
 export function openTeamShareMachineDialog(environmentId: EnvironmentId): void {
   useTeamUiStore.setState({ dialog: { kind: "share-machine", environmentId } });
+}
+
+export function openAskAgentDialog(teamId: string, person: TeamPerson): void {
+  useTeamUiStore.setState({ dialog: { kind: "ask-agent", teamId, person } });
 }
 
 export function closeTeamDialog(): void {

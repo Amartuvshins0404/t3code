@@ -115,6 +115,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
+import * as QuestionAutoAnswerWorker from "./orchestration-v2/QuestionAutoAnswerWorker.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -126,10 +127,14 @@ import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import * as TeamPresence from "./team/TeamPresence.ts";
 import * as TeamSharing from "./team/TeamSharing.ts";
+import * as TeamConnectivity from "./team/TeamConnectivity.ts";
+import * as TeamAgent from "./team/TeamAgent.ts";
 import {
   decideTeamMemberCommand,
+  TEAM_AGENT_REFUSAL_DETAILS,
   makeTeamShellFilter,
   sharedWithTeam,
+  teamConnectivityStatusRequest,
   teamPerson,
   visiblePresenceEntries,
   withoutClientMember,
@@ -1477,6 +1482,8 @@ export const layerWsRpc = (
         `${terminalViewerPrefix}:${metadata.client.id}`;
       const teamSharing = yield* TeamSharing.TeamSharing;
       const teamPresence = yield* TeamPresence.TeamPresence;
+      const teamConnectivity = yield* TeamConnectivity.TeamConnectivity;
+      const teamAgent = yield* TeamAgent.TeamAgent;
       const teamMember = currentSession.member;
       const presenceClientId = yield* random.uuidV4();
       yield* teamPresence.join({
@@ -1494,25 +1501,36 @@ export const layerWsRpc = (
       const resolveClientCommand = (clientCommand: OrchestrationV2Command) => {
         const command = withoutClientMemberAttribution(clientCommand);
         if (teamMember === undefined) return Effect.succeed(command);
-        return (
-          command.type === "message.dispatch" || command.type === "run.interrupt"
-            ? threadTeamShare(command.threadId)
-            : Effect.undefined
-        ).pipe(
-          Effect.flatMap((teamShare) => {
-            const decision = decideTeamMemberCommand({ command, teamShare, member: teamMember });
-            return Result.isSuccess(decision)
-              ? Effect.succeed(decision.success)
-              : Effect.fail(
-                  new OrchestrationV2DispatchCommandError({
-                    commandId: command.commandId,
-                    commandType: command.type,
-                    message: decision.failure.message,
-                    detail: decision.failure.message,
-                  }),
-                );
-          }),
-        );
+        return Effect.gen(function* () {
+          const threadId =
+            command.type === "message.dispatch" || command.type === "run.interrupt"
+              ? command.threadId
+              : undefined;
+          const teamShare = threadId === undefined ? undefined : yield* threadTeamShare(threadId);
+          const agent =
+            threadId === undefined || teamShare?.agent === undefined
+              ? undefined
+              : yield* teamAgent
+                  .followUpState(threadId, teamShare.organizationId)
+                  .pipe(Effect.orElseSucceed(() => ({ enabled: false, runningTurnsElsewhere: 0 })));
+          const decision = decideTeamMemberCommand({
+            command,
+            teamShare,
+            member: teamMember,
+            ...(agent === undefined ? {} : { agent }),
+          });
+          if (Result.isSuccess(decision)) return decision.success;
+          const { message, requiredPermission } = decision.failure;
+          return yield* new OrchestrationV2DispatchCommandError({
+            commandId: command.commandId,
+            commandType: command.type,
+            message,
+            detail:
+              requiredPermission !== undefined && TEAM_AGENT_REFUSAL_DETAILS.has(requiredPermission)
+                ? requiredPermission
+                : message,
+          });
+        });
       };
       const untilUnsharedFromTeam = <A, E, R>(
         threadId: ThreadId,
@@ -1893,6 +1911,10 @@ export const layerWsRpc = (
           Effect.option,
         );
         const lastEventLoopStall = yield* eventLoopMonitor.latestNoticeableStall;
+        const questionAutoAnswerDefaultMinutes =
+          yield* QuestionAutoAnswerWorker.defaultWaitMinutes.pipe(
+            Effect.orElseSucceed(() => undefined),
+          );
         const discovery = yield* resolveOpenDiscoveryForConfig({
           editors: externalLauncher.resolveAvailableEditors(),
           fileManagerRevealKind: externalLauncher.resolveFileManagerRevealKind(),
@@ -1953,6 +1975,9 @@ export const layerWsRpc = (
           threadSnapshotPagination: true,
           threadFind: true,
           threadFindProgressive: true,
+          ...(questionAutoAnswerDefaultMinutes === undefined
+            ? {}
+            : { questionAutoAnswerDefaultMinutes }),
           secretProviderSettings: true,
           secretReferences: true,
           secretRequestReferences: true,
@@ -2394,6 +2419,11 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(teamSharing.clearThreadShare(input)),
           ),
+        [WS_METHODS.teamGetConnectivity]: (input) =>
+          teamConnectivity.status(teamConnectivityStatusRequest(input, teamMember)),
+        [WS_METHODS.teamGetAgents]: (_input) => teamAgent.getAgents(teamMember),
+        [WS_METHODS.teamSetAgent]: (input) => teamAgent.setAgent(input, teamMember),
+        [WS_METHODS.teamAskAgent]: (input) => teamAgent.askAgent(input, teamMember),
         [WS_METHODS.teamReportPresence]: (input) => teamPresence.report(presenceClientId, input),
         [WS_METHODS.teamSubscribePresence]: (_input) =>
           teamPresence.changes.pipe(

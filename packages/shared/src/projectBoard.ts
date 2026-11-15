@@ -318,6 +318,7 @@ export interface ProjectBoardThread extends WorkingThreadInput {
   readonly archivedAt: string | null;
   readonly deletedAt: string | null;
   readonly lineage: OrchestrationV2ThreadShell["lineage"];
+  readonly source: Pick<OrchestrationV2ThreadShell, "teamShare">;
   readonly pullRequests: ReadonlyArray<ThreadPullRequestLink>;
   readonly pendingGuestMessageCount?: number;
   readonly pendingUserInputAt?: string | null;
@@ -375,7 +376,10 @@ interface Placement {
 
 function isOnBoard(thread: ProjectBoardThread): boolean {
   return (
-    thread.archivedAt == null && thread.deletedAt == null && isListedThreadLineage(thread.lineage)
+    thread.archivedAt == null &&
+    thread.deletedAt == null &&
+    thread.source.teamShare?.agent === undefined &&
+    isListedThreadLineage(thread.lineage)
   );
 }
 
