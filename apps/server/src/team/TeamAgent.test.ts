@@ -1,5 +1,5 @@
-// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Path has no glob matcher to check the Grep exclusion.
-import * as NodePath from "node:path";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Runs the ripgrep that Claude's Grep runs, as Claude does, with a custom argv0.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProjectId,
@@ -246,23 +246,52 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
     ),
   );
 
-  it.effect("keeps secret files out of every Grep", () =>
-    withProject(({ project }) =>
-      Effect.gen(function* () {
-        const decision = yield* decide("Grep", { pattern: "TOKEN" }, project);
-        if (!decision.allow) throw new Error("expected the Grep to run");
-        const glob = String(decision.updatedInput?.glob);
-        expect(glob.startsWith("!")).toBe(true);
-        const excluded = (name: string) => NodePath.matchesGlob(name, glob.slice(1));
-        expect([".env.local", ".npmrc", ".git", "signing.p12", "auth.ts"].map(excluded)).toEqual([
-          true,
-          true,
-          true,
-          true,
-          false,
-        ]);
-      }),
-    ),
+  it.effect("keeps secret files out of every Grep, whatever their letter case", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const project = yield* fs.makeTempDirectoryScoped({ prefix: "t3-team-agent-grep-" });
+      const secretFiles = [
+        ".env.local",
+        ".ENV",
+        ".npmrc",
+        ".git/config",
+        "signing.p12",
+        "Secrets.json",
+        "Credentials.JSON",
+        "server.KEY",
+        "src/ID_RSA",
+      ];
+      yield* fs.makeDirectory(path.join(project, "src"), { recursive: true });
+      for (const file of [...secretFiles, "src/auth.ts"]) {
+        yield* fs.makeDirectory(path.dirname(path.join(project, file)), { recursive: true });
+        yield* fs.writeFileString(path.join(project, file), `password=fake-${file}\n`);
+      }
+      const decision = yield* decide("Grep", { pattern: "password" }, project);
+      if (!decision.allow) throw new Error("expected the Grep to run");
+      const glob = String(decision.updatedInput?.glob);
+      const ripgrep = [
+        { command: "rg", argv0: "rg" },
+        { command: "claude", argv0: "rg" },
+      ].find(
+        ({ command, argv0 }) =>
+          NodeChildProcess.spawnSync(command, ["--version"], {
+            argv0,
+            encoding: "utf8",
+          }).stdout?.startsWith("ripgrep") === true,
+      );
+      if (ripgrep === undefined) {
+        throw new Error("This test needs ripgrep: install `rg` or Claude Code on PATH.");
+      }
+      const search = NodeChildProcess.spawnSync(
+        ripgrep.command,
+        ["--no-config", "--hidden", "--no-heading", "password", "--glob", glob, "."],
+        { argv0: ripgrep.argv0, cwd: project, encoding: "utf8" },
+      );
+      expect(search.stdout.trim().split("\n").toSorted()).toEqual([
+        "./src/auth.ts:password=fake-src/auth.ts",
+      ]);
+    }),
   );
 
   it.effect("never reads T3 Code's own data, even when the owner picked its home", () =>

@@ -489,6 +489,14 @@ jobs:
             node apps/server/node_modules/playwright-core/cli.js install-deps chromium
           fi
 
+      # The team agent Grep test runs the same ripgrep Claude Code bundles.
+      - name: Install ripgrep
+        if: steps.changes.outputs.test_server != 'false'
+        run: |
+          curl -fsSL https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/ripgrep-14.1.1-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+
       # Each server test file runs in its own Vitest process, and a fresh install starts
       # Vitest's content-keyed module cache empty, so every file re-transformed its imports.
       # Only pushes to main save it, so pull requests never evict each other's entries.

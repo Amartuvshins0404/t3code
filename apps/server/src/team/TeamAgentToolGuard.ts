@@ -50,7 +50,10 @@ export const TEAM_AGENT_SECRET_READ_DENY_RULES = SECRET_NAMES.flatMap((name) => 
   `Read(**/${name}/**)`,
 ]);
 
-const TEAM_AGENT_GREP_SECRET_EXCLUSION = `!{${SECRET_NAMES.join(",")}}`;
+const anyCaseGlob = (name: string) =>
+  name.replace(/[a-z]/gi, (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`);
+
+const TEAM_AGENT_GREP_SECRET_EXCLUSION = `!{${SECRET_NAMES.map(anyCaseGlob).join(",")}}`;
 
 const SECRET_REFUSAL =
   "Secret files such as .env, keys, credentials and .git or .ssh folders are never readable here.";
