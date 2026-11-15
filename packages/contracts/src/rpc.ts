@@ -174,6 +174,8 @@ import {
 } from "./guestShare.ts";
 import {
   TeamAccessError,
+  TeamConnectivityStatus,
+  TeamConnectivityStatusInput,
   TeamMemberAccessRevokeInput,
   TeamPresenceReportInput,
   TeamPresenceSnapshot,
@@ -607,6 +609,7 @@ export const WS_METHODS = {
   teamClearThreadShare: "team.clearThreadShare",
   teamReportPresence: "team.reportPresence",
   teamSubscribePresence: "team.subscribePresence",
+  teamGetConnectivity: "team.getConnectivity",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
 
@@ -2265,6 +2268,12 @@ const WsTeamSubscribePresenceRpc = Rpc.make(WS_METHODS.teamSubscribePresence, {
   stream: true,
 });
 
+const WsTeamGetConnectivityRpc = Rpc.make(WS_METHODS.teamGetConnectivity, {
+  payload: TeamConnectivityStatusInput,
+  success: TeamConnectivityStatus,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
 const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   payload: SecretRequestAnswerInput,
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
@@ -2317,6 +2326,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsTeamClearThreadShareRpc,
   WsTeamReportPresenceRpc,
   WsTeamSubscribePresenceRpc,
+  WsTeamGetConnectivityRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
