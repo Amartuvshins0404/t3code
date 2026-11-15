@@ -22,7 +22,7 @@ const TEAM_ACCESS_MESSAGES: Readonly<Record<TeamAccessError["reason"], string>> 
   thread_unavailable: "This thread is not available anymore.",
   agent_off: "This agent is off.",
   agent_project_not_allowed: "This agent does not answer about that project.",
-  agent_provider_unsupported: "Pick a Claude or Codex model.",
+  agent_provider_unsupported: "Pick a Claude model.",
   agent_busy: "This agent is answering two questions. Try again in a moment.",
   internal: "The machine could not do that. Try again.",
 };

@@ -285,6 +285,8 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     });
     assert.deepEqual(options.tools, ["Read", "Glob", "Grep"]);
     assert.equal(options.permissionMode, "dontAsk");
+    assert.deepEqual(options.settingSources, []);
+    assert.equal(options.strictMcpConfig, true);
     assert.isUndefined(options.allowDangerouslySkipPermissions);
     assert.deepEqual(options.allowedTools, []);
     assert.include(options.disallowedTools ?? [], "Read(**/.env*)");

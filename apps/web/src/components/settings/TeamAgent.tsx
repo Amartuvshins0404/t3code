@@ -20,7 +20,7 @@ import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { SETTINGS_PICKER_TRIGGER_CLASSNAME, SettingsRow, SettingsSection } from "./settingsLayout";
 
-const AGENT_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent", "codex"]);
+const AGENT_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent"]);
 
 export function TeamAgentSection({ team }: { readonly team: CloudTeamSummary }) {
   const teamMachines = useManagedRelayTeamEnvironments(team.id);
@@ -142,7 +142,7 @@ function MyAgentControls({
   const description = draft.enabled
     ? `On. Answers about ${pickedTitles.join(", ") || "your projects"}.`
     : entries.length === 0
-      ? `Add a Claude or Codex provider on ${machine.label} to turn it on.`
+      ? `Add a Claude provider on ${machine.label} to turn it on.`
       : draft.projectIds.length === 0
         ? "Off. Pick at least one project to turn it on."
         : "Off.";

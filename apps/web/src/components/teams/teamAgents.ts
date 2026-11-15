@@ -245,8 +245,8 @@ export function teamAgentMessage(cause: unknown, person: TeamPerson, self: boole
         return `${owner} agent does not answer about that project.`;
       case "agent_provider_unsupported":
         return self
-          ? "Pick a Claude or Codex model."
-          : `${person.name} needs to pick a Claude or Codex model for their agent.`;
+          ? "Pick a Claude model."
+          : `${person.name} needs to pick a Claude model for their agent.`;
       case "agent_busy":
         return `${owner} agent is answering two questions. Try again in a moment.`;
       default:

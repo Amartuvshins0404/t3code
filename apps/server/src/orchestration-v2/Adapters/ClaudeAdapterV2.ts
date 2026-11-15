@@ -2124,6 +2124,8 @@ function makeClaudeTeamAgentQueryOptions(input: {
     model: compiledSelection.apiModelId,
     ...(input.title === undefined ? {} : { title: input.title }),
     tools: [...TEAM_AGENT_FILE_TOOLS],
+    settingSources: [],
+    strictMcpConfig: true,
     permissionMode: "dontAsk",
     includePartialMessages: true,
     promptSuggestions: false,

@@ -72,7 +72,7 @@ yet**, or **Needs an update** when their machine runs an older T3 Code.
 
 Your agent is off until you turn it on. Open **Settings → Team → My agent**, or **My agent** in the
 command palette. For each of your machines shared with the team, pick at least one project and a
-Claude or Codex model, then turn on the switch. The setting is per machine and per team. Agent
+Claude model, then turn on the switch. The setting is per machine and per team. Agent
 conversations are shared with the team, so they run on the team's connection when it has one (see
 below).
 
