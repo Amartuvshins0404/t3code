@@ -4,6 +4,7 @@ import {
   type ModelSelection,
   type OrchestrationV2AppThread,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   type RuntimeMode,
   type ServerProvider,
@@ -12,10 +13,12 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import { acpPermissionDisposition } from "@t3tools/provider-acp/server/clientPolicy";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectStore from "./ProjectStore.ts";
@@ -71,6 +74,7 @@ const supportedRuntimeModesByInstance = new Map<ProviderInstanceId, ReadonlyArra
 ]);
 const providerInstanceFor = (instanceId: ProviderInstanceId) =>
   ({
+    driverKind: ProviderDriverKind.make(instanceId),
     snapshot: {
       getSnapshot: Effect.succeed({
         supportedRuntimeModes: supportedRuntimeModesByInstance.get(instanceId),
@@ -92,27 +96,29 @@ const layerWithPolicy = (policy?: ManagedPolicySummary) =>
     ),
     Layer.provide(
       Layer.mock(ProjectStore.ProjectStoreV2)({
-        get: () =>
-          Effect.succeedSome({
-            projectId,
-            title: "Project",
-            workspaceRoot: "/project-root",
-            defaultModelSelection: null,
-            defaultThreadEnvMode: null,
-            autoPull: false,
-            faviconPath: null,
-            projectIcon: null,
-            scripts: [],
-            pinnedAt: null,
-            archivedAt: null,
-            teamShare: null,
-            createdAt: "2026-06-21T00:00:00.000Z",
-            updatedAt: "2026-06-21T00:00:00.000Z",
-            deletedAt: null,
-          }),
+        get: () => Effect.succeedSome(projectRow),
+        list: () => Effect.succeed([projectRow]),
       }),
     ),
   );
+
+const projectRow = {
+  projectId,
+  title: "Project",
+  workspaceRoot: "/project-root",
+  defaultModelSelection: null,
+  defaultThreadEnvMode: null,
+  autoPull: false,
+  faviconPath: null,
+  projectIcon: null,
+  scripts: [],
+  pinnedAt: null,
+  archivedAt: null,
+  teamShare: null,
+  createdAt: "2026-06-21T00:00:00.000Z",
+  updatedAt: "2026-06-21T00:00:00.000Z",
+  deletedAt: null,
+};
 
 const layerTest = layerWithPolicy();
 
@@ -185,6 +191,96 @@ it.layer(
       const allowed = yield* resolve("auto-accept-edits");
       assert.equal(allowed.runtimeMode, "auto-accept-edits");
       assert.equal(allowed.maxRuntimeMode, "auto-accept-edits");
+    }),
+  );
+});
+
+const claudeInstanceId = ProviderInstanceId.make("claudeAgent");
+const agentSecrets = new Map([
+  ["team-shared-organizations", JSON.stringify(["org-on", "org-off"])],
+  [
+    "team-agent-settings",
+    JSON.stringify({
+      "org-on": {
+        enabled: true,
+        projectIds: [projectId],
+        modelSelection: { instanceId: claudeInstanceId, model: "claude-haiku" },
+      },
+      "org-off": { enabled: false, projectIds: [projectId] },
+    }),
+  ],
+]);
+
+it.layer(
+  layerWithPolicy().pipe(
+    Layer.provide(
+      Layer.mock(ServerSecretStore.ServerSecretStore)({
+        get: (name) =>
+          Effect.succeed(
+            Option.map(Option.fromNullishOr(agentSecrets.get(name)), (value) =>
+              new TextEncoder().encode(value),
+            ),
+          ),
+      }),
+    ),
+  ),
+)("RuntimePolicyV2 for an agent conversation", (it) => {
+  const agentThread = (now: DateTime.Utc, organizationId: string) => ({
+    ...makeThread({ now, worktreePath: "/work", runtimeMode: "full-access" }),
+    teamShare: {
+      organizationId,
+      access: "steer" as const,
+      sharedAt: "2026-11-15T00:00:00.000Z",
+      agent: { startedBy: { userId: "user-ana", name: "Ana" } },
+    },
+  });
+
+  it.effect("refuses a turn while the agent is off or on a model that is not Claude", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const refusal = (organizationId: string, instanceId: ProviderInstanceId) =>
+        policy
+          .resolve({
+            thread: agentThread(now, organizationId),
+            modelSelection: { instanceId, model: "test-model" },
+          })
+          .pipe(
+            Effect.flip,
+            Effect.map((error) =>
+              error._tag === "RuntimePolicyTeamAgentRefusedError" ? error.reason : error._tag,
+            ),
+          );
+      assert.equal(yield* refusal("org-off", claudeInstanceId), "agent_off");
+      assert.equal(yield* refusal("org-on", providerInstanceId), "agent_provider_unsupported");
+    }),
+  );
+
+  it.effect("runs an allowed turn read-only at the project root, whatever the thread's mode", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const resolved = yield* policy.resolve({
+        thread: agentThread(now, "org-on"),
+        modelSelection: { instanceId: claudeInstanceId, model: "claude-haiku" },
+      });
+      assert.deepEqual(
+        {
+          runtimeMode: resolved.runtimeMode,
+          cwd: resolved.cwd,
+          approvalPolicy: resolved.approvalPolicy,
+          sandboxPolicy: resolved.sandboxPolicy,
+        },
+        {
+          runtimeMode: "approval-required",
+          cwd: "/project-root",
+          approvalPolicy: "never",
+          sandboxPolicy: {
+            type: "readOnly",
+            access: { type: "restricted", readableRoots: ["/project-root"] },
+          },
+        },
+      );
     }),
   );
 });

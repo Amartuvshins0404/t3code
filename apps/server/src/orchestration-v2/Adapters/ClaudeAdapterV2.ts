@@ -188,6 +188,7 @@ import {
   TEAM_AGENT_FILE_TOOLS,
   TEAM_AGENT_SECRET_READ_DENY_RULES,
   TEAM_AGENT_THREAD_TOOLS,
+  type TeamAgentAppData,
   type TeamAgentToolDecision,
 } from "../../team/TeamAgentToolGuard.ts";
 import { teamAgentInstructions } from "../../team/teamAgentInstructions.ts";
@@ -2135,6 +2136,7 @@ function makeClaudeTeamAgentQueryOptions(input: {
     settingSources: [],
     strictMcpConfig: true,
     permissionMode: "dontAsk",
+    verbatimPrompts: true,
     includePartialMessages: true,
     promptSuggestions: false,
     ...(compiledSelection.effort === undefined
@@ -5261,6 +5263,7 @@ export interface ClaudeAdapterV2Options {
   readonly environment: NodeJS.ProcessEnv;
   readonly pinnedEnvironment?: Readonly<Record<string, string>>;
   readonly attachmentsDir: string;
+  readonly teamAgentAppData?: TeamAgentAppData;
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly random: SecureRandom.SecureRandom["Service"];
@@ -11770,7 +11773,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ownerName,
             preToolUse: makeClaudeTeamAgentPreToolUse((call) =>
               runPromise(
-                decideTeamAgentToolUse({ ...call, cwd, readableRoots }).pipe(
+                decideTeamAgentToolUse({
+                  ...call,
+                  cwd,
+                  readableRoots,
+                  appData: adapterOptions.teamAgentAppData,
+                }).pipe(
                   Effect.provideService(FileSystem.FileSystem, fileSystem),
                   Effect.provideService(Path.Path, path),
                 ),
@@ -13492,6 +13500,14 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
         ? { pinnedEnvironment: claudePinnedEnvironment(environment) }
         : {}),
       attachmentsDir: serverConfig.attachmentsDir,
+      teamAgentAppData: {
+        home: serverConfig.baseDir,
+        workspaceFolders: [
+          path.join(serverConfig.baseDir, "projects"),
+          path.join(serverConfig.baseDir, "scratch"),
+          serverConfig.worktreesDir,
+        ],
+      },
       fileSystem,
       path,
       random,

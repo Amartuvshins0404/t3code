@@ -66,10 +66,18 @@ export const teamAgentReadsOutsideProject = (
   projectId: ProjectId | undefined,
 ) => caller?.teamShare?.agent !== undefined && projectId !== caller.projectId;
 
+export const teamAgentReadsAnotherTeam = (
+  caller: Pick<OrchestrationV2ThreadShell, "teamShare"> | null | undefined,
+  target: Pick<OrchestrationV2ThreadShell, "teamShare"> | null | undefined,
+) =>
+  caller?.teamShare?.agent !== undefined &&
+  target?.teamShare != null &&
+  target.teamShare.organizationId !== caller.teamShare.organizationId;
+
 export const outsideTeamAgentProject = () =>
   new OrchestratorMcpFailure({
     code: "capability_denied",
-    message: "An agent conversation can only read threads in its own project.",
+    message: "An agent conversation can only read threads in its own project and team.",
   });
 
 export interface CallerLimits {

@@ -33,10 +33,13 @@ import {
   type TeamSharingState,
   teamAgentSetting,
 } from "./sharedOrganizations.ts";
-import { teamPerson } from "./TeamMemberAccess.ts";
+import { hasTeamAgentFileMention, TEAM_AGENT_FILE_MENTION_MESSAGE } from "./TeamAgentToolGuard.ts";
+import {
+  TEAM_AGENT_BUSY_MESSAGE,
+  TEAM_AGENT_MAX_RUNNING_TURNS,
+  teamPerson,
+} from "./TeamMemberAccess.ts";
 import * as TeamSharing from "./TeamSharing.ts";
-
-const TEAM_AGENT_MAX_RUNNING_TURNS = 2;
 
 const TEAM_AGENT_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent"]);
 
@@ -54,6 +57,13 @@ export class TeamAgent extends Context.Service<
       input: TeamAgentAskInput,
       member: TeamMemberIdentity | undefined,
     ) => Effect.Effect<TeamAgentAskResult, TeamAccessError>;
+    readonly followUpState: (
+      threadId: ThreadId,
+      organizationId: string,
+    ) => Effect.Effect<
+      { readonly enabled: boolean; readonly runningTurnsElsewhere: number },
+      TeamAccessError
+    >;
   }
 >()("t3/team/TeamAgent") {}
 
@@ -134,6 +144,9 @@ export function decideTeamAgentAsk(input: {
       ),
     );
   }
+  if (hasTeamAgentFileMention(ask.text)) {
+    return Result.fail(refused("not_allowed_for_teammates", TEAM_AGENT_FILE_MENTION_MESSAGE));
+  }
   if (
     setting.modelSelection === undefined ||
     input.modelDriver === undefined ||
@@ -144,9 +157,7 @@ export function decideTeamAgentAsk(input: {
     );
   }
   if (input.runningAgentTurns >= TEAM_AGENT_MAX_RUNNING_TURNS) {
-    return Result.fail(
-      refused("agent_busy", "This agent is answering other questions. Try again in a moment."),
-    );
+    return Result.fail(refused("agent_busy", TEAM_AGENT_BUSY_MESSAGE));
   }
   return Result.succeed({ projectId, modelSelection: setting.modelSelection });
 }
@@ -241,15 +252,30 @@ const make = Effect.gen(function* () {
 
   const ownerPerson = ownerTeamPerson(secrets, settings);
 
-  const runningAgentTurns = threadManagement.getShellSnapshot().pipe(
-    Effect.map(
-      (snapshot) =>
-        snapshot.threads.filter(
-          (thread) => thread.teamShare?.agent !== undefined && thread.activeRunId !== null,
-        ).length,
-    ),
-    Effect.mapError(internal("Could not count the agent's running answers.")),
-  );
+  const runningAgentTurns = (exceptThreadId?: ThreadId) =>
+    threadManagement.getShellSnapshot().pipe(
+      Effect.map(
+        (snapshot) =>
+          snapshot.threads.filter(
+            (thread) =>
+              thread.id !== exceptThreadId &&
+              thread.teamShare?.agent !== undefined &&
+              thread.activeRunId !== null,
+          ).length,
+      ),
+      Effect.mapError(internal("Could not count the agent's running answers.")),
+    );
+
+  const followUpState = Effect.fn("TeamAgent.followUpState")(function* (
+    threadId: ThreadId,
+    organizationId: string,
+  ) {
+    const state = yield* sharing.readState;
+    return {
+      enabled: teamAgentSetting(state, organizationId)?.enabled === true,
+      runningTurnsElsewhere: yield* runningAgentTurns(threadId),
+    };
+  });
 
   const getAgents = Effect.fn("TeamAgent.getAgents")(function* (
     member: TeamMemberIdentity | undefined,
@@ -369,7 +395,7 @@ const make = Effect.gen(function* () {
             state,
             existingProjectIds: new Set(existing.map((row) => row.projectId)),
             modelDriver: instance?.enabled === true ? instance.driverKind : undefined,
-            runningAgentTurns: yield* runningAgentTurns,
+            runningAgentTurns: yield* runningAgentTurns(),
           }),
         );
         return yield* startConversation({ ask: input, member, ...decision });
@@ -377,7 +403,7 @@ const make = Effect.gen(function* () {
     );
   });
 
-  return TeamAgent.of({ getAgents, setAgent, askAgent });
+  return TeamAgent.of({ getAgents, setAgent, askAgent, followUpState });
 });
 
 export const layer = Layer.effect(TeamAgent, make);

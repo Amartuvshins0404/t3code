@@ -17,6 +17,7 @@ import * as Schema from "effect/Schema";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import { readTeamSharingState, teamAgentSetting } from "../team/sharedOrganizations.ts";
+import { TEAM_AGENT_FILE_MENTION_MESSAGE } from "../team/TeamAgentToolGuard.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectStore from "./ProjectStore.ts";
@@ -64,6 +65,7 @@ export class RuntimePolicyTeamAgentRefusedError extends Schema.TaggedError<Runti
       "agent_project_not_allowed",
       "agent_provider_unsupported",
       "agent_slash_command",
+      "agent_file_mention",
     ]),
   },
 ) {
@@ -71,6 +73,8 @@ export class RuntimePolicyTeamAgentRefusedError extends Schema.TaggedError<Runti
     switch (this.reason) {
       case "agent_slash_command":
         return "Agent conversations do not take slash commands. Start the message with a word.";
+      case "agent_file_mention":
+        return TEAM_AGENT_FILE_MENTION_MESSAGE;
       case "agent_off":
         return "This agent is off. Its owner can turn it on in Settings, Team.";
       case "agent_project_not_allowed":

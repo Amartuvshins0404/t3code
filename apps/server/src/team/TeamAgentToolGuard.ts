@@ -10,29 +10,61 @@ export const TEAM_AGENT_THREAD_TOOLS = [
   "mcp__t3-code__t3_thread_read",
 ] as const;
 
-const SECRET_NAME_PATTERNS = [
-  /^\.env/i,
-  /\.pem$/i,
-  /\.key$/i,
-  /^id_(rsa|dsa|ecdsa|ed25519)/i,
-  /^\.ssh$/i,
-  /^\.netrc$/i,
+const SECRET_NAMES = [
+  ".env*",
+  ".envrc",
+  ".netrc",
+  ".npmrc",
+  ".pypirc",
+  ".git",
+  ".aws",
+  ".ssh",
+  ".gnupg",
+  ".kube",
+  ".docker",
+  ".t3",
+  "credentials",
+  "credentials.*",
+  "secrets.*",
+  "*.pem",
+  "*.key",
+  "*.p12",
+  "*.pfx",
+  "*.jks",
+  "*.keystore",
+  "*.tfstate",
+  "*.tfvars",
+  "id_rsa*",
+  "id_dsa*",
+  "id_ecdsa*",
+  "id_ed25519*",
 ];
 
-export const TEAM_AGENT_SECRET_READ_DENY_RULES = [
-  "Read(**/.env*)",
-  "Read(**/*.pem)",
-  "Read(**/*.key)",
-  "Read(**/id_rsa*)",
-  "Read(**/id_dsa*)",
-  "Read(**/id_ecdsa*)",
-  "Read(**/id_ed25519*)",
-  "Read(**/.ssh/**)",
-  "Read(**/.netrc)",
-];
+const SECRET_NAME_PATTERNS = SECRET_NAMES.map(
+  (name) =>
+    new RegExp(`^${name.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*")}$`, "i"),
+);
 
-const TEAM_AGENT_GREP_SECRET_EXCLUSION =
-  "!{.env*,*.pem,*.key,id_rsa*,id_dsa*,id_ecdsa*,id_ed25519*,.ssh,.netrc}";
+export const TEAM_AGENT_SECRET_READ_DENY_RULES = SECRET_NAMES.flatMap((name) => [
+  `Read(**/${name})`,
+  `Read(**/${name}/**)`,
+]);
+
+const TEAM_AGENT_GREP_SECRET_EXCLUSION = `!{${SECRET_NAMES.join(",")}}`;
+
+const SECRET_REFUSAL =
+  "Secret files such as .env, keys, credentials and .git or .ssh folders are never readable here.";
+
+const FILE_MENTION = /(?:^|[\s([{<"'`])@(\S+)/g;
+
+export const TEAM_AGENT_FILE_MENTION_MESSAGE =
+  "Agent conversations do not take @ file mentions. Write the path without @ and the agent will read it.";
+
+export const hasTeamAgentFileMention = (text: string) =>
+  [...text.matchAll(FILE_MENTION)].some(([, token = ""]) => {
+    const target = token.replace(/^["'`]/, "");
+    return target.startsWith("~") || target.includes("/") || target.includes(".");
+  });
 
 export const TeamAgentReadableRoots = Schema.Struct({
   type: Schema.Literal("readOnly"),
@@ -62,6 +94,11 @@ const isTeamAgentSecretPath = (filePath: string) =>
     .split(/[\\/]+/)
     .some((segment) => SECRET_NAME_PATTERNS.some((pattern) => pattern.test(segment)));
 
+export interface TeamAgentAppData {
+  readonly home: string;
+  readonly workspaceFolders: ReadonlyArray<string>;
+}
+
 const escapesBase = (pattern: string) =>
   pattern.startsWith("/") ||
   pattern.startsWith("~") ||
@@ -79,36 +116,51 @@ const resolveReal = Effect.fn("TeamAgentToolGuard.resolveReal")(function* (
     .pipe(Effect.orElseSucceed(() => undefined));
 });
 
+const relativeInside = (path: Path.Path, root: string, target: string) => {
+  const relative = path.relative(root, target);
+  return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+    ? undefined
+    : relative;
+};
+
 const insideRoots = Effect.fn("TeamAgentToolGuard.insideRoots")(function* (
   realTarget: string,
-  readableRoots: ReadonlyArray<string>,
+  roots: ReadonlyArray<string>,
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  for (const root of readableRoots) {
+  for (const root of roots) {
     const realRoot = yield* fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => undefined));
     if (realRoot === undefined) continue;
-    const relative = path.relative(realRoot, realTarget);
-    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) return true;
+    const relative = relativeInside(path, realRoot, realTarget);
+    if (relative !== undefined) return relative;
   }
-  return false;
+  return undefined;
 });
 
 const checkPath = Effect.fn("TeamAgentToolGuard.checkPath")(function* (input: {
   readonly cwd: string;
   readonly target: string;
   readonly readableRoots: ReadonlyArray<string>;
+  readonly appData: TeamAgentAppData | undefined;
 }) {
-  if (isTeamAgentSecretPath(input.target)) {
-    return deny("Secret files such as .env, keys and SSH files are never readable here.");
-  }
+  const path = yield* Path.Path;
+  const lexicalTarget = path.resolve(input.cwd, input.target);
+  const lexical = input.readableRoots
+    .map((root) => relativeInside(path, path.resolve(root), lexicalTarget))
+    .find((relative) => relative !== undefined);
+  if (lexical !== undefined && isTeamAgentSecretPath(lexical)) return deny(SECRET_REFUSAL);
   const realTarget = yield* resolveReal(input.cwd, input.target);
   if (realTarget === undefined) return deny(`${input.target} does not exist or is not readable.`);
-  if (isTeamAgentSecretPath(realTarget)) {
-    return deny("Secret files such as .env, keys and SSH files are never readable here.");
-  }
-  if (!(yield* insideRoots(realTarget, input.readableRoots))) {
-    return deny("Only files inside this agent's projects are readable.");
+  const inside = yield* insideRoots(realTarget, input.readableRoots);
+  if (inside === undefined) return deny("Only files inside this agent's projects are readable.");
+  if (isTeamAgentSecretPath(inside)) return deny(SECRET_REFUSAL);
+  if (
+    input.appData !== undefined &&
+    (yield* insideRoots(realTarget, [input.appData.home])) !== undefined &&
+    (yield* insideRoots(realTarget, input.appData.workspaceFolders)) === undefined
+  ) {
+    return deny("T3 Code's own data is never readable here.");
   }
   return { allow: true } as TeamAgentToolDecision;
 });
@@ -118,9 +170,10 @@ export const decideTeamAgentToolUse = Effect.fn("TeamAgentToolGuard.decide")(fun
   readonly toolInput: unknown;
   readonly cwd: string;
   readonly readableRoots: ReadonlyArray<string>;
+  readonly appData: TeamAgentAppData | undefined;
 }) {
   const toolInput = isRecord(input.toolInput) ? input.toolInput : {};
-  const scope = { cwd: input.cwd, readableRoots: input.readableRoots };
+  const scope = { cwd: input.cwd, readableRoots: input.readableRoots, appData: input.appData };
   switch (input.toolName) {
     case "Read": {
       const filePath = stringField(toolInput, "file_path");
@@ -143,6 +196,16 @@ export const decideTeamAgentToolUse = Effect.fn("TeamAgentToolGuard.decide")(fun
       const searchPath = stringField(toolInput, "path") ?? input.cwd;
       const checked = yield* checkPath({ ...scope, target: searchPath });
       if (!checked.allow) return checked;
+      const appHome =
+        input.appData === undefined ? undefined : yield* resolveReal(input.cwd, input.appData.home);
+      const realSearchPath = yield* resolveReal(input.cwd, searchPath);
+      if (
+        appHome !== undefined &&
+        realSearchPath !== undefined &&
+        (yield* insideRoots(appHome, [realSearchPath])) !== undefined
+      ) {
+        return deny("This folder holds T3 Code's own data. Search inside a project folder.");
+      }
       return {
         allow: true,
         updatedInput: { ...toolInput, glob: TEAM_AGENT_GREP_SECRET_EXCLUSION },

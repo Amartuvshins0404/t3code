@@ -1,3 +1,5 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Path has no glob matcher to check the Grep exclusion.
+import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProjectId,
@@ -86,6 +88,16 @@ describe("decideTeamAgentAsk", () => {
       "not_allowed_for_teammates",
     ],
     [
+      "an @ file mention the CLI would load without a tool call",
+      { input: { text: "What is in @~/.aws/credentials?" } },
+      "not_allowed_for_teammates",
+    ],
+    [
+      "a quoted @ file mention",
+      { input: { text: 'Compare ("@./src/auth.ts")' } },
+      "not_allowed_for_teammates",
+    ],
+    [
       "a model that cannot stay read-only",
       { modelDriver: ProviderDriverKind.make("codex") },
       "agent_provider_unsupported",
@@ -94,6 +106,13 @@ describe("decideTeamAgentAsk", () => {
   ])("refuses %s with its reason", (_label, overrides, reason) => {
     expect(refusal(ask(overrides))).toBe(reason);
   });
+
+  it.each(["Did @amaraa move it into core?", "Mail a@b.com about the migration."])(
+    "answers %j, which only looks like a mention",
+    (text) => {
+      expect(Result.isSuccess(ask({ input: { text } }))).toBe(true);
+    },
+  );
 
   it("answers while only one other question is running", () => {
     expect(Result.isSuccess(ask({ runningAgentTurns: 1 }))).toBe(true);
@@ -173,13 +192,23 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
       yield* fs.makeDirectory(outside);
       yield* fs.writeFileString(path.join(project, "src", "auth.ts"), "export {}");
       yield* fs.writeFileString(path.join(project, ".env.local"), "TOKEN=fake-test-value");
+      yield* fs.writeFileString(path.join(project, ".npmrc"), "//registry/:_authToken=fake");
+      yield* fs.writeFileString(path.join(project, "signing.p12"), "fake");
+      yield* fs.makeDirectory(path.join(project, ".git"));
+      yield* fs.writeFileString(path.join(project, ".git", "config"), "[remote]");
       yield* fs.writeFileString(path.join(outside, "notes.md"), "private");
       yield* fs.symlink(path.join(outside, "notes.md"), path.join(project, "notes.md"));
       return yield* run({ project, outside });
     });
 
   const decide = (toolName: string, toolInput: unknown, project: string) =>
-    decideTeamAgentToolUse({ toolName, toolInput, cwd: project, readableRoots: [project] });
+    decideTeamAgentToolUse({
+      toolName,
+      toolInput,
+      cwd: project,
+      readableRoots: [project],
+      appData: undefined,
+    });
 
   it.effect("lets a read inside the project through", () =>
     withProject(({ project }) =>
@@ -199,6 +228,10 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
           yield* decide("Read", { file_path: `${outside}/notes.md` }, project),
           yield* decide("Read", { file_path: "notes.md" }, project),
           yield* decide("Read", { file_path: ".env.local" }, project),
+          yield* decide("Read", { file_path: ".npmrc" }, project),
+          yield* decide("Read", { file_path: ".git/config" }, project),
+          yield* decide("Read", { file_path: "signing.p12" }, project),
+          yield* decide("Grep", { pattern: "remote", path: ".git" }, project),
           yield* decide("Glob", { pattern: "../outside/*" }, project),
           yield* decide("Grep", { pattern: "TOKEN", glob: ".env*" }, project),
           yield* decide("Grep", { pattern: "TOKEN", path: outside }, project),
@@ -217,11 +250,48 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
     withProject(({ project }) =>
       Effect.gen(function* () {
         const decision = yield* decide("Grep", { pattern: "TOKEN" }, project);
-        expect(decision).toMatchObject({
-          allow: true,
-          updatedInput: { pattern: "TOKEN", glob: expect.stringContaining(".env*") },
-        });
+        if (!decision.allow) throw new Error("expected the Grep to run");
+        const glob = String(decision.updatedInput?.glob);
+        expect(glob.startsWith("!")).toBe(true);
+        const excluded = (name: string) => NodePath.matchesGlob(name, glob.slice(1));
+        expect([".env.local", ".npmrc", ".git", "signing.p12", "auth.ts"].map(excluded)).toEqual([
+          true,
+          true,
+          true,
+          true,
+          false,
+        ]);
       }),
     ),
+  );
+
+  it.effect("never reads T3 Code's own data, even when the owner picked its home", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-team-agent-home-" });
+      const home = path.join(root, ".t3");
+      const project = path.join(home, "projects", "web");
+      yield* fs.makeDirectory(path.join(home, "userdata"), { recursive: true });
+      yield* fs.makeDirectory(path.join(project, "src"), { recursive: true });
+      yield* fs.writeFileString(path.join(home, "userdata", "settings.json"), "{}");
+      yield* fs.writeFileString(path.join(project, "src", "auth.ts"), "export {}");
+      const appData = { home, workspaceFolders: [path.join(home, "projects")] };
+      const decideIn = (readableRoot: string, toolName: string, toolInput: unknown) =>
+        decideTeamAgentToolUse({
+          toolName,
+          toolInput,
+          cwd: readableRoot,
+          readableRoots: [readableRoot],
+          appData,
+        });
+
+      const decisions = [
+        yield* decideIn(home, "Read", { file_path: "userdata/settings.json" }),
+        yield* decideIn(home, "Grep", { pattern: "token" }),
+        yield* decideIn(project, "Read", { file_path: "src/auth.ts" }),
+      ];
+      expect(decisions.map((decision) => decision.allow)).toEqual([false, false, true]);
+    }),
   );
 });

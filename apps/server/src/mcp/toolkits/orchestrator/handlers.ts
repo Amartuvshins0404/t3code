@@ -10,6 +10,7 @@ import * as ThreadManagementService from "../../../orchestration-v2/ThreadManage
 import {
   outsideTeamAgentProject,
   readCaller,
+  teamAgentReadsAnotherTeam,
   teamAgentReadsOutsideProject,
 } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -171,7 +172,10 @@ const handlers = {
           const target = yield* threads
             .getThreadShell(input.threadId)
             .pipe(Effect.orElseSucceed(() => null));
-          if (teamAgentReadsOutsideProject(caller, target?.projectId)) {
+          if (
+            teamAgentReadsOutsideProject(caller, target?.projectId) ||
+            teamAgentReadsAnotherTeam(caller, target)
+          ) {
             return yield* outsideTeamAgentProject();
           }
         }
