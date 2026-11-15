@@ -61,7 +61,10 @@ interface Placement {
 
 function isOnBoard(thread: EnvironmentThreadShell): boolean {
   return (
-    thread.archivedAt == null && thread.deletedAt == null && isListedThreadLineage(thread.lineage)
+    thread.archivedAt == null &&
+    thread.deletedAt == null &&
+    thread.source.teamShare?.agent === undefined &&
+    isListedThreadLineage(thread.lineage)
   );
 }
 
