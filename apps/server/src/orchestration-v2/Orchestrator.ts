@@ -519,6 +519,8 @@ export interface OrchestratorV2Shape {
     OrchestratorV2Error
   >;
   readonly countThreads: () => Effect.Effect<number, OrchestratorV2Error>;
+  /** Whether this is the owner's one agent thread, which no team or guest may read. */
+  readonly isMasterAgentThread: (threadId: ThreadId) => Effect.Effect<boolean, OrchestratorV2Error>;
   readonly listActiveShellIndex: () => Effect.Effect<
     ReadonlyArray<ActiveShellIndexEntry>,
     OrchestratorV2Error
@@ -15505,6 +15507,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .pipe(Effect.mapError(shellProjectionError));
       },
     ),
+    isMasterAgentThread: Effect.fn("OrchestratorV2.isMasterAgentThread")(function (threadId) {
+      return masterAgentStore.readThreadId.pipe(
+        Effect.map((masterThreadId) => masterThreadId === threadId),
+        Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
+      );
+    }),
     countThreads: Effect.fn("OrchestratorV2.countThreads")(function () {
       return projectionStore.countThreads().pipe(Effect.mapError(shellProjectionError));
     }),

@@ -174,7 +174,10 @@ const handlers = {
             .pipe(Effect.orElseSucceed(() => null));
           if (
             teamAgentReadsOutsideProject(caller, target?.projectId) ||
-            teamAgentReadsAnotherTeam(caller, target)
+            teamAgentReadsAnotherTeam(caller, target) ||
+            (yield* threads
+              .isMasterAgentThread(input.threadId)
+              .pipe(Effect.orElseSucceed(() => true)))
           ) {
             return yield* outsideTeamAgentProject();
           }
