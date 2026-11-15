@@ -25,6 +25,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from "../ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./SidebarChrome";
 
@@ -153,7 +154,11 @@ function TeamPersonSection({
   const { person, self } = entry;
   const ready = status.kind === "ready";
   const name = self ? "You" : person.name;
-  const ask = () => openAskAgentDialog(teamId, person);
+  const { isMobile, setOpenMobile } = useSidebar();
+  const ask = () => {
+    if (isMobile) setOpenMobile(false);
+    openAskAgentDialog(teamId, person);
+  };
   const label = STATUS_LABELS[status.kind];
   const identity = (
     <>
@@ -249,7 +254,7 @@ function TeamThreadRow({
           <EyeIcon aria-label="View only" className="size-3.5 shrink-0" />
         )}
         <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-        {asker && asker.userId !== selfUserId ? (
+        {asker && asker.userId !== selfUserId && asker.userId !== owner.userId ? (
           <span className="max-w-20 shrink-0 truncate text-muted-foreground text-xs">
             {asker.name}
           </span>
