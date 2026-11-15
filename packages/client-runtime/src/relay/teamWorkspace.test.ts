@@ -1,6 +1,9 @@
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  type AgentMachine,
+  personAgentStatus,
   planTeamConnections,
   shareMachineWithTeam,
   stopSharingMachine,
@@ -52,6 +55,31 @@ describe("workspace scope", () => {
     ).toBe(false);
   });
 
+  it("lists an agent conversation in its team and never in Personal", () => {
+    const agentShare = {
+      organizationId: "team-a",
+      agent: { startedBy: { userId: "asker", name: "Asker" } },
+    };
+    const personal: WorkspaceScope = { kind: "personal", teamOnlyEnvironmentIds: new Set() };
+    const team: WorkspaceScope = {
+      kind: "team",
+      teamId: "team-a",
+      environmentIds: new Set(["my-machine"]),
+    };
+    expect(
+      workspaceListsThread(personal, { environmentId: "my-machine", teamShare: agentShare }),
+    ).toBe(false);
+    expect(workspaceListsThread(team, { environmentId: "my-machine", teamShare: agentShare })).toBe(
+      true,
+    );
+    expect(
+      workspaceListsThread(personal, {
+        environmentId: "my-machine",
+        teamShare: teamShare("team-a"),
+      }),
+    ).toBe(true);
+  });
+
   it("leaving a team drops only the connections the team workspace added", () => {
     const plan = planTeamConnections({
       catalogIds: new Set(["my-machine", "teammate-machine"]),
@@ -70,6 +98,66 @@ describe("workspace scope", () => {
     expect(joined.register).toEqual(["teammate-machine"]);
     expect(joined.remove).toEqual([]);
     expect(joined.tracked).toEqual(["teammate-machine"]);
+  });
+});
+
+describe("a person's agent", () => {
+  const agent = (enabled: boolean, projects = enabled ? 1 : 0) => ({
+    organizationId: "team-a",
+    enabled,
+    projects: Array.from({ length: projects }, (_, index) => ({
+      projectId: ProjectId.make(`project-${index}`),
+      title: `Project ${index}`,
+    })),
+  });
+  const machine = (
+    environmentId: string,
+    sharedAt: string,
+    state: AgentMachine["state"],
+  ): AgentMachine => ({ environmentId: EnvironmentId.make(environmentId), sharedAt, state });
+
+  it.each([
+    ["no machine yet", [], "no_machine"],
+    [
+      "agent ready",
+      [machine("m1", "2026-01-01", { kind: "answered", agent: agent(true) })],
+      "ready",
+    ],
+    ["agent off", [machine("m1", "2026-01-01", { kind: "answered", agent: agent(false) })], "off"],
+    [
+      "agent on with no project counts as off",
+      [machine("m1", "2026-01-01", { kind: "answered", agent: agent(true, 0) })],
+      "off",
+    ],
+    [
+      "agent never set counts as off",
+      [machine("m1", "2026-01-01", { kind: "answered", agent: null })],
+      "off",
+    ],
+    ["offline", [machine("m1", "2026-01-01", { kind: "offline" })], "offline"],
+    ["needs an update", [machine("m1", "2026-01-01", { kind: "outdated" })], "needs_update"],
+    ["still connecting", [machine("m1", "2026-01-01", { kind: "connecting" })], "loading"],
+    ["still checking", [machine("m1", "2026-01-01", { kind: "checking" })], "loading"],
+    [
+      "several machines, only the second online and on",
+      [
+        machine("m1", "2026-01-01", { kind: "offline" }),
+        machine("m2", "2026-02-01", { kind: "answered", agent: agent(true) }),
+      ],
+      "ready",
+    ],
+  ] as const)("%s", (_, machines, kind) => {
+    expect(personAgentStatus(machines).kind).toBe(kind);
+  });
+
+  it("sends a question to the oldest shared machine that is online with the agent on", () => {
+    const status = personAgentStatus([
+      machine("newest-on", "2026-03-01", { kind: "answered", agent: agent(true) }),
+      machine("oldest-offline", "2026-01-01", { kind: "offline" }),
+      machine("older-off", "2026-01-15", { kind: "answered", agent: agent(false) }),
+      machine("older-on", "2026-02-01", { kind: "answered", agent: agent(true) }),
+    ]);
+    expect(status).toMatchObject({ kind: "ready", environmentId: "older-on" });
   });
 });
 
