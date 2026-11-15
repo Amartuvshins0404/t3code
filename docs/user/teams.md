@@ -1,8 +1,8 @@
 # Teams
 
 A team lets the people you invite follow threads on your machine and, if you allow it, send messages
-to the agent. They see only the threads you share, one at a time. Your other threads, projects,
-files and terminals stay private.
+to the agent. They see only the threads you share, one at a time, and the threads in projects you
+share with the team. Your other threads, projects, files and terminals stay private.
 
 ## Start a team
 
@@ -30,7 +30,8 @@ A shared thread shows a small badge in its header. Select it to change the level
 
 ## What teammates see and can do
 
-In the team workspace, the sidebar lists the team's people: you first, then everyone else by name,
+In the team workspace, the sidebar lists the team's projects first (see
+[Team projects](#team-projects)), then the team's people: you first, then everyone else by name,
 with their picture and whether their agent is ready. Under each person are the threads they shared
 with the team and the questions asked of their agent, newest first. A teammate sees a thread as it
 streams: messages, the agent's replies and its work.
@@ -40,8 +41,9 @@ streams: messages, the agent's replies and its work.
   into the current turn and **Queue** holds it for after the turn. They can also stop the agent.
 
 Teammates cannot rename, delete, archive or settle the thread, change its model or mode, attach
-files, answer the agent's questions, open terminals or files, or start threads on your machine.
-They also cannot send slash commands such as `/compact`: a message that starts with `/` is refused.
+files, answer the agent's questions, or open terminals or files. They can start threads on your
+machine only in a project you shared with the team. They also cannot send slash commands such as
+`/compact`: a message that starts with `/` is refused.
 
 A message from a teammate with **Steer** starts a turn in the thread's current permission mode. In a
 full-access thread, that turn can run commands and change files on your machine without asking.
@@ -49,6 +51,32 @@ Give **Steer** on a full-access thread only to people you would let use your mac
 
 Each message shows who sent it. Avatars in the thread header and the sidebar show who has the thread
 open, and a line above the message box shows who is typing.
+
+## Team projects
+
+A team project is a project on your machine that the whole team works in. Every new thread in it is
+shared with the team with **Steer**, whoever starts it, and anyone in the team can start a thread in
+it. The project stays on your machine; nothing is copied to other machines.
+
+To start one, choose **Start a team project** in the team sidebar, the command palette or **Settings
+→ Team → Team projects**. Pick one of your machines shared with the team, then a project on it or
+**Add a project…**, then the model and access level that teammates' threads get, and choose **Share
+with <team>**. You can also choose **Share with team** in a project's menu in the Personal sidebar.
+A small team mark shows on a shared project there.
+
+- To start a thread, select the pen next to the project in the team sidebar, or **New thread in
+  <project>** in the command palette. A teammate types the first message and sends it; the thread
+  runs on your machine with the model and access you picked. They cannot change either.
+- Teammates' threads get **Full access**: they run commands and change files on your machine without
+  asking, because nobody can answer an approval for them. Share a project only with people you
+  would let use your machine.
+- Threads that were in the project before you shared it stay private. Share them one by one if you
+  want to. You can still make one thread private with **Stop sharing** on its badge.
+
+To change the model or access, use **Team sharing** in the project's menu or **Change** in **Settings
+→ Team → Team projects**. To stop, choose **Stop sharing with team** or **Stop sharing** there. The
+team loses the project and every thread in it that was shared with the team. Stopping sharing the
+machine, or archiving or deleting the project, ends it too.
 
 ## Ask a teammate's agent
 

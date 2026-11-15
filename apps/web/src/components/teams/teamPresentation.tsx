@@ -24,6 +24,8 @@ const TEAM_ACCESS_MESSAGES: Readonly<Record<TeamAccessError["reason"], string>> 
   agent_project_not_allowed: "This agent does not answer about that project.",
   agent_provider_unsupported: "Pick a Claude model.",
   agent_busy: "This agent is answering two questions. Try again in a moment.",
+  project_not_shared: "This project is no longer shared with the team.",
+  project_unavailable: "This project is not available anymore.",
   internal: "The machine could not do that. Try again.",
 };
 

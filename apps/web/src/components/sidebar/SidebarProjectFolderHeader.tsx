@@ -1,6 +1,6 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { ChevronDownIcon, SquarePenIcon } from "lucide-react";
+import { ChevronDownIcon, SquarePenIcon, UsersIcon } from "lucide-react";
 import { memo } from "react";
 
 import { cn } from "~/lib/utils";
@@ -79,6 +79,13 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
           {group.displayName}
         </span>
+        {group.memberProjects.some((member) => member.teamShare) ? (
+          <UsersIcon
+            aria-label="Shared with a team"
+            role="img"
+            className="size-3 shrink-0 text-sidebar-muted-foreground"
+          />
+        ) : null}
         {dot ? (
           <span className={cn("size-1.5 shrink-0 rounded-full", FOLDER_DOT_CLASS_NAME[dot])}>
             <span className="sr-only">{FOLDER_DOT_LABEL[dot]}</span>

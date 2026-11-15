@@ -181,7 +181,7 @@ export function useTeamPeople(): TeamPeopleState {
   };
 }
 
-async function runOrThrow<W, A, E>(command: AtomCommand<W, A, E>, value: W): Promise<A> {
+export async function runOrThrow<W, A, E>(command: AtomCommand<W, A, E>, value: W): Promise<A> {
   const result = await runAtomCommand(appAtomRegistry, command, value, { reportFailure: false });
   if (result._tag === "Success") return result.value;
   throw squashAtomCommandFailure(result);
