@@ -179,6 +179,11 @@ import {
   TeamAgentSetInput,
   TeamAgentStatus,
   TeamAgentStatuses,
+  ProjectTeamShare,
+  TeamProjectShareClearInput,
+  TeamProjectShareSetInput,
+  TeamProjectThreadStartInput,
+  TeamProjectThreadStartResult,
   TeamConnectivityStatus,
   TeamConnectivityStatusInput,
   TeamMemberAccessRevokeInput,
@@ -618,6 +623,9 @@ export const WS_METHODS = {
   teamGetAgents: "team.getAgents",
   teamSetAgent: "team.setAgent",
   teamAskAgent: "team.askAgent",
+  teamSetProjectShare: "team.setProjectShare",
+  teamClearProjectShare: "team.clearProjectShare",
+  teamStartProjectThread: "team.startProjectThread",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
 
@@ -2300,6 +2308,23 @@ const WsTeamAskAgentRpc = Rpc.make(WS_METHODS.teamAskAgent, {
   error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
 });
 
+const WsTeamSetProjectShareRpc = Rpc.make(WS_METHODS.teamSetProjectShare, {
+  payload: TeamProjectShareSetInput,
+  success: ProjectTeamShare,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamClearProjectShareRpc = Rpc.make(WS_METHODS.teamClearProjectShare, {
+  payload: TeamProjectShareClearInput,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
+const WsTeamStartProjectThreadRpc = Rpc.make(WS_METHODS.teamStartProjectThread, {
+  payload: TeamProjectThreadStartInput,
+  success: TeamProjectThreadStartResult,
+  error: Schema.Union([TeamAccessError, EnvironmentAuthorizationError]),
+});
+
 const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   payload: SecretRequestAnswerInput,
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
@@ -2356,6 +2381,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsTeamGetAgentsRpc,
   WsTeamSetAgentRpc,
   WsTeamAskAgentRpc,
+  WsTeamSetProjectShareRpc,
+  WsTeamClearProjectShareRpc,
+  WsTeamStartProjectThreadRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

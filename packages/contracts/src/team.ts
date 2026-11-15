@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 
 import { IsoDateTime, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 
 export const TeamRole = Schema.Literals(["owner", "admin", "member"]);
 export type TeamRole = typeof TeamRole.Type;
@@ -35,6 +36,7 @@ export const ThreadTeamShare = Schema.Struct({
   access: TeamThreadAccess,
   sharedAt: IsoDateTime,
   agent: Schema.optional(TeamAgentConversation),
+  startedBy: Schema.optional(TeamPerson),
 });
 export type ThreadTeamShare = typeof ThreadTeamShare.Type;
 
@@ -151,6 +153,38 @@ export const TeamAgentAskResult = Schema.Struct({
 });
 export type TeamAgentAskResult = typeof TeamAgentAskResult.Type;
 
+export const ProjectTeamShare = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  sharedAt: IsoDateTime,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+});
+export type ProjectTeamShare = typeof ProjectTeamShare.Type;
+
+export const TeamProjectShareSetInput = Schema.Struct({
+  projectId: ProjectId,
+  organizationId: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+});
+export type TeamProjectShareSetInput = typeof TeamProjectShareSetInput.Type;
+
+export const TeamProjectShareClearInput = Schema.Struct({
+  projectId: ProjectId,
+});
+export type TeamProjectShareClearInput = typeof TeamProjectShareClearInput.Type;
+
+export const TeamProjectThreadStartInput = Schema.Struct({
+  projectId: ProjectId,
+  text: TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_AGENT_QUESTION_MAX_LENGTH)),
+});
+export type TeamProjectThreadStartInput = typeof TeamProjectThreadStartInput.Type;
+
+export const TeamProjectThreadStartResult = Schema.Struct({
+  threadId: ThreadId,
+});
+export type TeamProjectThreadStartResult = typeof TeamProjectThreadStartResult.Type;
+
 export class TeamAccessError extends Schema.TaggedError<TeamAccessError>()("TeamAccessError", {
   reason: Schema.Literals([
     "not_allowed_for_teammates",
@@ -162,6 +196,8 @@ export class TeamAccessError extends Schema.TaggedError<TeamAccessError>()("Team
     "agent_project_not_allowed",
     "agent_provider_unsupported",
     "agent_busy",
+    "project_not_shared",
+    "project_unavailable",
     "internal",
   ]),
   message: Schema.String,
