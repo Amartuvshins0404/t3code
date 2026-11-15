@@ -217,8 +217,9 @@ const codexTeamLaunchArgs = (url: string) =>
     "model_providers.t3team.name=Team CLI Proxy",
     `model_providers.t3team.base_url=${new URL("v1", `${url.replace(/\/+$/, "")}/`).toString()}`,
     `model_providers.t3team.env_key=${CODEX_TEAM_KEY_VARIABLE}`,
+    "features.shell_snapshot=false",
   ]
-    .map((override) => `-c ${override}`)
+    .map((override) => `-c "${override.replace(/["\\$`]/g, "\\$&")}"`)
     .join(" ");
 
 export const teamProviderEnvironment = (
