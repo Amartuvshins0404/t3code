@@ -18,6 +18,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { readSharedOrganizationIds, writeSharedOrganizationIds } from "./sharedOrganizations.ts";
+import * as TeamConnectivity from "./TeamConnectivity.ts";
 
 export class TeamSharing extends Context.Service<
   TeamSharing,
@@ -51,6 +52,7 @@ const make = Effect.gen(function* () {
   const pairingLinks = yield* PairingGrantStore.PairingGrantStore;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const random = yield* SecureRandom.SecureRandom;
+  const connectivity = yield* TeamConnectivity.TeamConnectivity;
   const writes = yield* Semaphore.make(1);
 
   const read = readSharedOrganizationIds(secrets).pipe(
@@ -81,6 +83,7 @@ const make = Effect.gen(function* () {
         if (current.includes(organizationId)) return { organizationIds: current };
         const organizationIds = [...current, organizationId];
         yield* write(organizationIds);
+        yield* connectivity.sharedOrganizationsChanged(organizationIds);
         return { organizationIds };
       }),
     );
@@ -94,6 +97,7 @@ const make = Effect.gen(function* () {
         const current = yield* read;
         const next = current.filter((candidate) => candidate !== organizationId);
         if (next.length !== current.length) yield* write(next);
+        yield* connectivity.sharedOrganizationsChanged(next);
         return next;
       }),
     );
