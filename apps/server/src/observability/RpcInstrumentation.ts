@@ -112,6 +112,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.teamClearThreadShare]: "team",
   [WS_METHODS.teamReportPresence]: "team",
   [WS_METHODS.teamSubscribePresence]: "team",
+  [WS_METHODS.teamGetConnectivity]: "team",
   [WS_METHODS.cloudGetRelayClientStatus]: "cloud",
   [WS_METHODS.cloudInstallRelayClient]: "cloud",
   [WS_METHODS.codeSearchStatus]: "codeSearch",

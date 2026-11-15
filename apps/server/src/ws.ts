@@ -126,10 +126,12 @@ import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import * as TeamPresence from "./team/TeamPresence.ts";
 import * as TeamSharing from "./team/TeamSharing.ts";
+import * as TeamConnectivity from "./team/TeamConnectivity.ts";
 import {
   decideTeamMemberCommand,
   makeTeamShellFilter,
   sharedWithTeam,
+  teamConnectivityStatusRequest,
   teamPerson,
   visiblePresenceEntries,
   withoutClientMember,
@@ -1475,6 +1477,7 @@ export const layerWsRpc = (
         `${terminalViewerPrefix}:${metadata.client.id}`;
       const teamSharing = yield* TeamSharing.TeamSharing;
       const teamPresence = yield* TeamPresence.TeamPresence;
+      const teamConnectivity = yield* TeamConnectivity.TeamConnectivity;
       const teamMember = currentSession.member;
       const presenceClientId = yield* random.uuidV4();
       yield* teamPresence.join({
@@ -2382,6 +2385,8 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(teamSharing.clearThreadShare(input)),
           ),
+        [WS_METHODS.teamGetConnectivity]: (input) =>
+          teamConnectivity.status(teamConnectivityStatusRequest(input, teamMember)),
         [WS_METHODS.teamReportPresence]: (input) => teamPresence.report(presenceClientId, input),
         [WS_METHODS.teamSubscribePresence]: (_input) =>
           teamPresence.changes.pipe(

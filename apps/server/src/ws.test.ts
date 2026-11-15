@@ -116,6 +116,7 @@ import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import * as TeamPresence from "./team/TeamPresence.ts";
 import * as TeamSharing from "./team/TeamSharing.ts";
+import * as TeamConnectivity from "./team/TeamConnectivity.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -849,6 +850,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(SecretResolver.SecretResolver)({}),
   Layer.mock(GuestShareService.GuestShareService)({}),
   Layer.mock(TeamSharing.TeamSharing)({}),
+  Layer.mock(TeamConnectivity.TeamConnectivity)({}),
   TeamPresence.layer,
   Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({}),
   Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({}),
@@ -2204,6 +2206,7 @@ it.effect(
         }),
         Layer.mock(CommandOutputHub.CommandOutputHub)({ subscribe: () => Stream.never }),
         Layer.succeed(TeamPresence.TeamPresence, presence),
+        Layer.mock(TeamConnectivity.TeamConnectivity)({}),
       );
       const server = yield* RpcServer.makeNoSerialization(group, {
         ...WS_RPC_SERVER_OPTIONS,

@@ -59,6 +59,11 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import {
+  parseTeamProviderSessionId,
+  type TeamConnectivityUnavailableError,
+  TeamProviderRoutes,
+} from "../team/TeamProviderRoutes.ts";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -370,6 +375,7 @@ export const layerWithOptions = (
     ProviderSessionManagerV2,
     Effect.gen(function* () {
       const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+      const teamRoutes = yield* TeamProviderRoutes;
       const fileSystem = yield* FileSystem.FileSystem;
       const mcpSessionRegistry = yield* McpSessionRegistry.McpSessionRegistry;
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
@@ -2655,7 +2661,31 @@ export const layerWithOptions = (
                 return existing.exposedRuntime;
               }
 
-              const adapter = yield* registry.get(input.modelSelection.instanceId).pipe(
+              const teamSession = parseTeamProviderSessionId(input.providerSessionId);
+              const adapterScope =
+                teamSession === undefined ? undefined : yield* Scope.fork(sessionScopes);
+              const lookupAdapter: Effect.Effect<
+                ProviderAdapter.ProviderAdapterV2["Service"],
+                | ProviderAdapterRegistry.ProviderAdapterRegistryV2Error
+                | TeamConnectivityUnavailableError
+              > =
+                teamSession === undefined || adapterScope === undefined
+                  ? registry.get(input.modelSelection.instanceId)
+                  : teamRoutes
+                      .openAdapter({
+                        session: teamSession,
+                        instanceId: input.modelSelection.instanceId,
+                      })
+                      .pipe(
+                        Effect.provideService(Scope.Scope, adapterScope),
+                        Effect.onError(() =>
+                          closeScopeWithin(adapterScope, {
+                            providerSessionId: input.providerSessionId,
+                            reason: "open_failed",
+                          }),
+                        ),
+                      );
+              const adapter = yield* lookupAdapter.pipe(
                 Effect.mapError(
                   (cause) =>
                     new ProviderSessionOpenError({
@@ -2665,10 +2695,14 @@ export const layerWithOptions = (
                     }),
                 ),
               );
-              const openedWithLinkedEnvironments = yield* readLinkedEnvironments;
-              const prepared = yield* prepareMcpSession(
-                input.threadId,
-                input.modelSelection.instanceId,
+              const closeAdapterOnError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+                adapterScope === undefined
+                  ? effect
+                  : effect.pipe(Effect.onError(() => Scope.close(adapterScope, Exit.void)));
+              const openedWithLinkedEnvironments =
+                yield* closeAdapterOnError(readLinkedEnvironments);
+              const prepared = yield* closeAdapterOnError(
+                prepareMcpSession(input.threadId, input.modelSelection.instanceId),
               );
               const mcpCredentialId = prepared.mcpCredentialId;
               let reservationDropped = mcpCredentialId === undefined;
@@ -2679,6 +2713,9 @@ export const layerWithOptions = (
                 }
               });
               const sessionScope = yield* Scope.fork(sessionScopes);
+              if (adapterScope !== undefined) {
+                yield* Scope.addFinalizer(sessionScope, Scope.close(adapterScope, Exit.void));
+              }
               yield* agentScope.clear(input.threadId);
               const runtime = yield* installationGate
                 .execute(

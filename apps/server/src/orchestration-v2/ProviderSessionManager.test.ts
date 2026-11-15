@@ -57,6 +57,7 @@ import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
+import { teamProviderSessionId } from "../team/TeamProviderRoutes.ts";
 import * as CommandOutputHub from "./CommandOutputHub.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import {
@@ -1148,6 +1149,51 @@ it.effect("ProviderSessionManagerV2 opens provider sessions inside the installat
               update: () => Effect.die("unused"),
             }),
           ),
+        }),
+      ),
+    );
+  }),
+);
+
+it.effect("ProviderSessionManagerV2 never opens a team session on the owner's provider", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    const log: Array<string> = [];
+    const effect = Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const threadId = ThreadId.make("thread-provider-session-manager-team-route");
+      yield* eventSink.write({
+        events: [
+          yield* makeThreadCreatedEvent({ idAllocator, threadId, now: yield* DateTime.now }),
+        ],
+      });
+
+      const opened = yield* manager
+        .open({
+          threadId,
+          providerSessionId: teamProviderSessionId({
+            organizationId: "org-team",
+            version: "v1",
+            instanceId: modelSelection.instanceId,
+            threadId,
+          }),
+          modelSelection,
+          runtimePolicy,
+        })
+        .pipe(Effect.exit);
+
+      assert.isTrue(Exit.isFailure(opened));
+      assert.deepStrictEqual(log, []);
+    });
+
+    yield* effect.pipe(
+      Effect.provide(
+        layerTest({
+          state,
+          idleTimeoutMs: 60_000,
+          beforeOpen: () => Effect.sync(() => log.push("owner openSession")),
         }),
       ),
     );
