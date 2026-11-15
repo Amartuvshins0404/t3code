@@ -273,7 +273,11 @@ import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import { useCanShareWithTeam, useThreadTeamShare } from "./teams/teamShareAvailability";
 import { teamAccessMessage } from "./teams/teamPresentation";
 import { useIsTeammateEnvironment } from "../cloud/teamWorkspace";
-import { openTeamShareMachineDialog, openTeamShareThreadDialog } from "./teams/teamUiStore";
+import {
+  markProjectAddStarted,
+  openTeamShareMachineDialog,
+  openTeamShareThreadDialog,
+} from "./teams/teamUiStore";
 import { openUseInAnotherApp } from "./mcp/UseInAnotherAppDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { settingsForThisPlatform, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -2116,6 +2120,7 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
     const projectId = newProjectId();
+    markProjectAddStarted(input.environmentId);
     const createResult = await createProject({
       environmentId: input.environmentId,
       input: {
@@ -2186,6 +2191,7 @@ function OpenCommandPaletteDialog(props: {
     }
     newProjectSubmittingRef.current = true;
     setIsCreatingNewProject(true);
+    markProjectAddStarted(newProjectFlow.environmentId);
     const created = await settlePromise(() =>
       createNewProject({
         environmentId: newProjectFlow.environmentId,
@@ -2363,6 +2369,7 @@ function OpenCommandPaletteDialog(props: {
     }
 
     setIsRemoteProjectCloning(true);
+    markProjectAddStarted(addProjectCloneFlow.environmentId);
     const startResult = await startProjectClone({
       environmentId: addProjectCloneFlow.environmentId,
       input: {

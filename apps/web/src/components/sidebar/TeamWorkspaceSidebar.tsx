@@ -336,6 +336,7 @@ function TeamThreadRow({
   readonly selfUserId: string | null;
 }) {
   const route = useThreadRouteTarget();
+  const { isMobile, setOpenMobile } = useSidebar();
   const { environmentId, id: threadId } = thread;
   const share = thread.source.teamShare;
   const isActive =
@@ -354,6 +355,9 @@ function TeamThreadRow({
     <SidebarMenuSubItem>
       <SidebarMenuSubButton
         isActive={isActive}
+        onClick={() => {
+          if (isMobile) setOpenMobile(false);
+        }}
         render={<Link to="/$environmentId/$threadId" params={{ environmentId, threadId }} />}
       >
         {asker ? (
