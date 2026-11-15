@@ -26,6 +26,7 @@ import {
   CommandId,
   type GuestMessageId,
   isCompactionCommandMessage,
+  isListedThreadLineage,
   isOrchestrationV2WorkActive,
   isProviderNativeSubagentThread,
   MessageId,
@@ -103,6 +104,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ProjectStore from "./ProjectStore.ts";
+import { teamShareAtCreation } from "./teamShareAtCreation.ts";
 import {
   isCheckpointRestoreIsolated,
   SHARED_WORKSPACE_RESTORE_MESSAGE,
@@ -3404,11 +3406,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const project = yield* projects.get(command.projectId).pipe(mapDispatchError(command));
+    const teamShare = teamShareAtCreation({
+      inherited: undefined,
+      requested: command.teamShare,
+      project: Option.getOrUndefined(project),
+      sharedAt: DateTime.formatIso(now),
+    });
     const thread: OrchestrationV2AppThread = {
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
       projectId: command.projectId,
+      ...(teamShare == null ? {} : { teamShare }),
       title: command.title,
       providerInstanceId: command.modelSelection.instanceId,
       modelSelection: command.modelSelection,
@@ -5276,13 +5286,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         createdAt: now,
       })
       .pipe(mapDispatchError(command));
+    const forkTeamShare = isListedThreadLineage(targetThread.lineage)
+      ? teamShareAtCreation({
+          inherited: targetThread.teamShare,
+          requested: undefined,
+          project: Option.getOrUndefined(
+            yield* projects.get(targetThread.projectId).pipe(mapDispatchError(command)),
+          ),
+          sharedAt: DateTime.formatIso(now),
+        })
+      : targetThread.teamShare;
 
     yield* emitEvent({
       type: "thread.created",
       threadId: command.targetThreadId,
       providerInstanceId: targetThread.providerInstanceId,
       occurredAt: now,
-      payload: targetThread,
+      payload:
+        forkTeamShare === targetThread.teamShare
+          ? targetThread
+          : { ...targetThread, teamShare: forkTeamShare ?? null },
     });
     yield* emitEvent({
       type: "context-transfer.created",

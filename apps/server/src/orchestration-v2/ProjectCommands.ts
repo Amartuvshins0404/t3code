@@ -6,6 +6,7 @@ import {
   type ProjectIconOverride,
   ProjectId,
   type ProjectScript,
+  type ProjectTeamShare,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
 } from "@t3tools/contracts";
@@ -47,7 +48,18 @@ export interface ProjectDeleteCommand {
   readonly projectId: ProjectId;
 }
 
-export type ProjectCommand = ProjectCreateCommand | ProjectMetaUpdateCommand | ProjectDeleteCommand;
+export interface ProjectTeamShareSetCommand {
+  readonly type: "project.team-share.set";
+  readonly commandId: CommandId;
+  readonly projectId: ProjectId;
+  readonly teamShare: ProjectTeamShare | null;
+}
+
+export type ProjectCommand =
+  | ProjectCreateCommand
+  | ProjectMetaUpdateCommand
+  | ProjectDeleteCommand
+  | ProjectTeamShareSetCommand;
 
 export class ProjectCommandInvariantError extends Schema.TaggedError<ProjectCommandInvariantError>()(
   "ProjectCommandInvariantError",
@@ -217,7 +229,25 @@ export function planProjectCommand(input: {
           ...(command.archived === undefined
             ? {}
             : { archivedAt: command.archived ? (project.archivedAt ?? occurredAt) : null }),
+          ...(command.archived === true && project.teamShare !== null ? { teamShare: null } : {}),
           updatedAt: occurredAt,
+        },
+      });
+    }
+
+    case "project.team-share.set": {
+      const project = activeProject;
+      if (project === undefined) return missingProject();
+      if (command.teamShare !== null && project.archivedAt !== null) {
+        return invariant("An archived project cannot be shared with a team.");
+      }
+      return Result.succeed({
+        ...base,
+        type: "project.meta-updated",
+        payload: {
+          projectId: command.projectId,
+          teamShare: command.teamShare,
+          updatedAt: project.updatedAt,
         },
       });
     }

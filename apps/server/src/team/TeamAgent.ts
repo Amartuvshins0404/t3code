@@ -187,11 +187,32 @@ export function decideTeamAgentSetting(input: {
   return Result.succeed(setting);
 }
 
-const questionTitle = (text: string) => {
+export const questionTitle = (text: string) => {
   const line = text.trim().split(/\r?\n/, 1)[0]?.trim() ?? "";
   const title = line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
   return title.length === 0 ? "Question" : title;
 };
+
+export const ownerTeamPerson = Effect.fn("TeamAgent.ownerTeamPerson")(function* (
+  secrets: ServerSecretStore.ServerSecretStore["Service"],
+  settings: ServerSettings.ServerSettingsService["Service"],
+) {
+  const userId = yield* secrets.get(CLOUD_LINKED_USER_ID).pipe(
+    Effect.map(Option.map((bytes) => new TextDecoder().decode(bytes).trim())),
+    Effect.orElseSucceed(() => Option.none<string>()),
+  );
+  const ownerName = yield* settings.getSettings.pipe(
+    Effect.map((current) => current.ownerName.trim()),
+    Effect.orElseSucceed(() => ""),
+  );
+  return {
+    userId: Option.getOrElse(
+      Option.filter(userId, (id) => id.length > 0),
+      () => "owner",
+    ),
+    name: ownerName.length > 0 ? ownerName : "Owner",
+  } satisfies TeamPerson;
+});
 
 const make = Effect.gen(function* () {
   const sharing = yield* TeamSharing.TeamSharing;
@@ -218,23 +239,7 @@ const make = Effect.gen(function* () {
       ? Effect.void.pipe(Effect.as(undefined))
       : providerInstances.getInstance(modelSelection.instanceId);
 
-  const ownerPerson = Effect.gen(function* () {
-    const userId = yield* secrets.get(CLOUD_LINKED_USER_ID).pipe(
-      Effect.map(Option.map((bytes) => new TextDecoder().decode(bytes).trim())),
-      Effect.orElseSucceed(() => Option.none<string>()),
-    );
-    const ownerName = yield* settings.getSettings.pipe(
-      Effect.map((current) => current.ownerName.trim()),
-      Effect.orElseSucceed(() => ""),
-    );
-    return {
-      userId: Option.getOrElse(
-        Option.filter(userId, (id) => id.length > 0),
-        () => "owner",
-      ),
-      name: ownerName.length > 0 ? ownerName : "Owner",
-    } satisfies TeamPerson;
-  });
+  const ownerPerson = ownerTeamPerson(secrets, settings);
 
   const runningAgentTurns = threadManagement.getShellSnapshot().pipe(
     Effect.map(
@@ -310,17 +315,14 @@ const make = Effect.gen(function* () {
         interactionMode: "default",
         branch: null,
         worktreePath: null,
+        teamShare: {
+          organizationId: input.ask.organizationId,
+          access: "steer",
+          agent: { startedBy },
+        },
       })
       .pipe(Effect.mapError(internal("Could not start the agent conversation.")));
     const started = yield* Effect.gen(function* () {
-      yield* threadManagement.dispatch({
-        type: "thread.team-share.set",
-        commandId: yield* commandId("share"),
-        threadId,
-        organizationId: input.ask.organizationId,
-        access: "steer",
-        agent: { startedBy },
-      });
       const { thread } = yield* threadManagement.getThreadRecords(threadId, []);
       if (thread.teamShare?.agent === undefined) {
         return yield* Effect.fail("The agent conversation was not shared.");
