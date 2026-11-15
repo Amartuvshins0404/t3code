@@ -31,6 +31,10 @@ export function TeamAgentSection({ team }: { readonly team: CloudTeamSummary }) 
         Teammates can ask your agent about these projects. It can read the code and the thread
         history there. It cannot change anything.
       </p>
+      <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
+        It reads past threads in these projects too, so anything once printed there can reach your
+        team.
+      </p>
       {teamMachines.data !== null && mine.length === 0 ? (
         <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
           Share a machine with {team.name} to turn on your agent.
