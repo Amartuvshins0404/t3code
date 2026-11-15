@@ -1,6 +1,8 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
-export type MasterAgentThreadIdLookup = (environmentId: EnvironmentId) => ThreadId | null | undefined;
+export type MasterAgentThreadIdLookup = (
+  environmentId: EnvironmentId,
+) => ThreadId | null | undefined;
 
 export function isMasterAgentThread(
   thread: { readonly environmentId: EnvironmentId; readonly id: ThreadId },

@@ -443,6 +443,12 @@ const handlers: Record<string, (input: never) => unknown> = {
     }),
   [WS_METHODS.subscribeServerConfig]: () =>
     subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig() }]),
+  [WS_METHODS.masterAgentEnsure]: () => {
+    const threadId = baseServerConfig.masterAgentThreadId;
+    return threadId === undefined
+      ? Effect.never
+      : Effect.succeed({ projectId: PROJECT_ID, threadId });
+  },
 };
 
 // Unanswered calls stay pending, like a server that has not replied yet.
@@ -495,10 +501,17 @@ const encodedDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor)(
 /** Serves the environment's HTTP API and these threads until disposed. */
 export function installFakeEnvironment(
   fixtures: ReadonlyArray<FakeThread>,
-  options?: { readonly acceptCommands?: boolean; readonly providers?: ReadonlyArray<unknown> },
+  options?: {
+    readonly acceptCommands?: boolean;
+    readonly providers?: ReadonlyArray<unknown>;
+    readonly masterAgentThreadId?: ThreadId;
+  },
 ): Disposable {
   threads = fixtures;
   baseServerConfig = makeServerConfig(options?.providers ?? [CODEX_PROVIDER]);
+  if (options?.masterAgentThreadId !== undefined) {
+    baseServerConfig = { ...baseServerConfig, masterAgentThreadId: options.masterAgentThreadId };
+  }
   dispatched = [];
   acceptCommands = options?.acceptCommands === true;
   globalThis.fetch = async (input, init) => {

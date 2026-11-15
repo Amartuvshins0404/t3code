@@ -239,6 +239,7 @@ interface MessagesTimelineProps {
   onOpenWorktreeSetupTerminal?: (terminalId: string) => void;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
+  hideCompaction?: boolean;
   awaitingUser?: "approval" | "input" | null;
   /** Which request is waiting, so a second one of the same kind is announced too. */
   awaitingRequestId?: string | null;
@@ -353,6 +354,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenWorktreeSetupTerminal,
   isPreparingWorktree = false,
   isCompacting = false,
+  hideCompaction = false,
   awaitingUser = null,
   awaitingRequestId = null,
   listRef,
@@ -743,7 +745,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
     toolCallVisibility,
     revealedMessageId,
   });
-  const rows = useStableRows(rawRows, listIdentityKey);
+  const shownRows = hideCompaction
+    ? rawRows.filter((row) => row.kind !== "context-compaction")
+    : rawRows;
+  const rows = useStableRows(shownRows, listIdentityKey);
   const matchedApprovalRequestIds = new Set<string>();
   for (const row of pendingApprovalRequestIds.size > 0 ? rows : []) {
     const entries =
@@ -1133,6 +1138,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   };
   const compactionAwaitingRow =
     isCompacting &&
+    !hideCompaction &&
     !rows.some(
       (row) =>
         (row.kind === "context-compaction" && row.active) ||
@@ -1148,6 +1154,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const activityState: TimelineRowActivityState = {
     isWorking,
     isCompacting: compactionAwaitingRow,
+    hideCompaction,
     isRevertingCheckpoint,
     backgroundWorktreeSetup,
     awaitingUser: awaitingUser !== null,

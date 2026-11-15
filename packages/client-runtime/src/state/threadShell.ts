@@ -18,6 +18,11 @@ import {
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
 import { hiddenThreadKeys, NO_HIDDEN_THREADS } from "./threadTagFilter.ts";
+import {
+  isMasterAgentThread,
+  type MasterAgentThreadIdLookup,
+  withoutMasterAgentThreads,
+} from "./masterAgent.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
 import {
   arrayElementsEqual,
@@ -120,6 +125,7 @@ export function createEnvironmentThreadShellAtoms(input: {
   readonly hiddenThreadTagsAtom: (
     environmentId: EnvironmentId,
   ) => Atom.Atom<ReadonlyArray<string> | null>;
+  readonly masterAgentThreadIdAtom?: (environmentId: EnvironmentId) => Atom.Atom<ThreadId | null>;
 }) {
   // Point reads and aggregate lists share values without keeping an atom alive
   // for every listed thread. Replaced source objects can be collected.
@@ -543,16 +549,37 @@ export function createEnvironmentThreadShellAtoms(input: {
     ),
   ).pipe(Atom.withLabel("environment-any-hiding-thread-tags"));
 
-  /** threadShellsAtom without the threads the tag filter hides, for pickers and palettes. */
+  const masterAgentThreadIdsAtom = Atom.make((get): ReadonlyMap<EnvironmentId, ThreadId> => {
+    const ids = new Map<EnvironmentId, ThreadId>();
+    if (input.masterAgentThreadIdAtom === undefined) return ids;
+    for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
+      const threadId = get(input.masterAgentThreadIdAtom(environmentId));
+      if (threadId !== null) ids.set(environmentId, threadId);
+    }
+    return ids;
+  }).pipe(Atom.withLabel("environment-master-agent-thread-ids"));
+  const masterAgentLookup =
+    (ids: ReadonlyMap<EnvironmentId, ThreadId>): MasterAgentThreadIdLookup =>
+    (environmentId) =>
+      ids.get(environmentId);
+
+  /** threadShellsAtom without the agent threads and those the tag filter hides, for pickers and palettes. */
   let previousVisibleThreadShells: ReadonlyArray<EnvironmentThreadShell> = [];
   const visibleThreadShellsAtom = Atom.make((get) => {
     const threads = get(threadShellsAtom);
     const hidden = get(hiddenThreadKeysAtom);
-    if (hidden.size === 0) return threads;
-    const next = threads.filter(
-      (thread) =>
-        !hidden.has(threadKey({ environmentId: thread.environmentId, threadId: thread.id })),
+    const listed = withoutMasterAgentThreads(
+      threads,
+      masterAgentLookup(get(masterAgentThreadIdsAtom)),
     );
+    const next =
+      hidden.size === 0
+        ? listed
+        : listed.filter(
+            (thread) =>
+              !hidden.has(threadKey({ environmentId: thread.environmentId, threadId: thread.id })),
+          );
+    if (next.length === threads.length) return threads;
     if (arrayElementsEqual(previousVisibleThreadShells, next)) return previousVisibleThreadShells;
     previousVisibleThreadShells = next;
     return next;
@@ -564,10 +591,11 @@ export function createEnvironmentThreadShellAtoms(input: {
   const quietThreadShellsAtom = Atom.make((get) => {
     const next: EnvironmentThreadShell[] = [];
     const hidden = get(hiddenThreadKeysAtom);
+    const masterAgentThreadIdFor = masterAgentLookup(get(masterAgentThreadIdsAtom));
     for (const ref of get(threadRefsAtom)) {
       if (hidden.has(threadKey(ref))) continue;
       const shell = get(quietThreadShellAtomFamily(threadKey(ref)));
-      if (shell !== null) next.push(shell);
+      if (shell !== null && !isMasterAgentThread(shell, masterAgentThreadIdFor)) next.push(shell);
     }
     if (arrayElementsEqual(previousQuietThreadShells, next)) return previousQuietThreadShells;
     previousQuietThreadShells = next;
@@ -607,11 +635,13 @@ export function createEnvironmentThreadShellAtoms(input: {
     const next: EnvironmentThreadShell[] = [];
     const underParent = get(delegatedUnderParentAtom);
     const hidden = get(hiddenThreadKeysAtom);
+    const masterAgentThreadIdFor = masterAgentLookup(get(masterAgentThreadIdsAtom));
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
       for (const thread of get(environmentThreadsAtom(environmentId))) {
         if (
           thread.archivedAt !== null ||
+          isMasterAgentThread({ environmentId, id: thread.id }, masterAgentThreadIdFor) ||
           isShownUnderParent({ environmentId, threadId: thread.id }, thread.lineage, underParent) ||
           hidden.has(threadKey({ environmentId, threadId: thread.id }))
         ) {
@@ -635,6 +665,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     visibleThreadShellsAtom,
     hiddenThreadKeysAtom,
     anyEnvironmentHidingAtom,
+    masterAgentThreadIdsAtom,
     quietThreadShellsAtom,
     navigationThreadShellsAtom,
     delegatedUnderParentAtom,

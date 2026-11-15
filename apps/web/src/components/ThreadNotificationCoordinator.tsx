@@ -21,7 +21,9 @@ import {
 
 import { getClientSettings, subscribeClientSettings } from "../hooks/useSettings";
 import { isWindowsPlatform } from "../lib/utils";
+import { primaryMasterAgentThreadIdAtom } from "../state/masterAgent";
 import { environmentSummaries } from "../state/presentation";
+import { primaryEnvironmentIdAtom } from "../state/primaryEnvironment";
 import { environmentProjects } from "../state/projects";
 import { environmentShell } from "../state/shell";
 import { environmentThreadShells } from "../state/threads";
@@ -94,11 +96,17 @@ export function startThreadNotifications(
       openToasts.delete(key);
     }
   };
-  const activeThread = () =>
-    (router.state.matches.at(-1)?.params ?? {}) as {
+  const activeThread = (): { environmentId?: EnvironmentId; threadId?: ThreadId } => {
+    if (router.state.matches.at(-1)?.pathname === "/agent") {
+      const environmentId = registry.get(primaryEnvironmentIdAtom);
+      const threadId = registry.get(primaryMasterAgentThreadIdAtom);
+      return environmentId === null || threadId === null ? {} : { environmentId, threadId };
+    }
+    return (router.state.matches.at(-1)?.params ?? {}) as {
       environmentId?: EnvironmentId;
       threadId?: ThreadId;
     };
+  };
   const closeOpenedThreadToasts = () => {
     const { environmentId, threadId } = activeThread();
     if (environmentId === undefined || threadId === undefined) return;

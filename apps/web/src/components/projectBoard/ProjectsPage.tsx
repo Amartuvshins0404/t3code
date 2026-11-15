@@ -51,7 +51,11 @@ export function ProjectsPage() {
     else threadsByProject.set(key, [thread]);
   }
   const tiles = sortScopedProjectsForSidebar(
-    projects.filter((project) => project.archivedAt == null),
+    projects.filter(
+      (project) =>
+        project.archivedAt == null &&
+        (project.isScratch !== true || threadsByProject.has(projectBoardKey(project))),
+    ),
     threads,
     "updated_at",
   ).map((project) => {
