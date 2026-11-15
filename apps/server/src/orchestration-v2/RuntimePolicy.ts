@@ -17,7 +17,11 @@ import * as Schema from "effect/Schema";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import { readTeamSharingState, teamAgentSetting } from "../team/sharedOrganizations.ts";
-import { TEAM_AGENT_FILE_MENTION_MESSAGE } from "../team/TeamAgentToolGuard.ts";
+import {
+  claudeVersionServesTeamAgent,
+  TEAM_AGENT_CLAUDE_OUTDATED_MESSAGE,
+  TEAM_AGENT_FILE_MENTION_MESSAGE,
+} from "../team/TeamAgentToolGuard.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectStore from "./ProjectStore.ts";
@@ -66,6 +70,7 @@ export class RuntimePolicyTeamAgentRefusedError extends Schema.TaggedError<Runti
       "agent_provider_unsupported",
       "agent_slash_command",
       "agent_file_mention",
+      "agent_claude_outdated",
     ]),
   },
 ) {
@@ -81,6 +86,8 @@ export class RuntimePolicyTeamAgentRefusedError extends Schema.TaggedError<Runti
         return "This agent no longer answers about this project.";
       case "agent_provider_unsupported":
         return "Agent conversations run only on a Claude model.";
+      case "agent_claude_outdated":
+        return TEAM_AGENT_CLAUDE_OUTDATED_MESSAGE;
     }
   }
 }
@@ -201,6 +208,9 @@ export const layerFromProjectStore: Layer.Layer<
       const instance = yield* providerInstances.getInstance(input.modelSelection.instanceId);
       if (instance?.driverKind !== "claudeAgent") {
         return yield* refuse("agent_provider_unsupported");
+      }
+      if (!claudeVersionServesTeamAgent((yield* instance.snapshot.getSnapshot).version)) {
+        return yield* refuse("agent_claude_outdated");
       }
       if (Option.isNone(secrets)) return yield* refuse("agent_off");
       const state = yield* readTeamSharingState(secrets.value).pipe(Effect.mapError(resolveError));

@@ -33,7 +33,12 @@ import {
   type TeamSharingState,
   teamAgentSetting,
 } from "./sharedOrganizations.ts";
-import { hasTeamAgentFileMention, TEAM_AGENT_FILE_MENTION_MESSAGE } from "./TeamAgentToolGuard.ts";
+import {
+  claudeVersionServesTeamAgent,
+  hasTeamAgentFileMention,
+  TEAM_AGENT_CLAUDE_OUTDATED_MESSAGE,
+  TEAM_AGENT_FILE_MENTION_MESSAGE,
+} from "./TeamAgentToolGuard.ts";
 import {
   TEAM_AGENT_BUSY_MESSAGE,
   TEAM_AGENT_MAX_RUNNING_TURNS,
@@ -79,6 +84,7 @@ export function teamAgentStatuses(input: {
   readonly state: TeamSharingState;
   readonly member: Pick<TeamMemberIdentity, "organizationId"> | undefined;
   readonly projects: ReadonlyArray<TeamAgentProjectRef>;
+  readonly claudeOutdatedOrganizationIds: ReadonlySet<string>;
 }): TeamAgentStatuses {
   const organizationIds =
     input.member === undefined
@@ -95,6 +101,9 @@ export function teamAgentStatuses(input: {
         organizationId,
         enabled: setting?.enabled === true && projects.length > 0,
         projects,
+        ...(input.claudeOutdatedOrganizationIds.has(organizationId)
+          ? { claudeOutdated: true }
+          : {}),
         ...(input.member === undefined && setting?.modelSelection !== undefined
           ? { modelSelection: setting.modelSelection }
           : {}),
@@ -109,6 +118,7 @@ export function decideTeamAgentAsk(input: {
   readonly state: TeamSharingState;
   readonly existingProjectIds: ReadonlySet<ProjectId>;
   readonly modelDriver: ProviderDriverKind | undefined;
+  readonly modelVersion: string | null | undefined;
   readonly runningAgentTurns: number;
 }): Result.Result<
   { readonly projectId: ProjectId; readonly modelSelection: ModelSelection },
@@ -155,6 +165,9 @@ export function decideTeamAgentAsk(input: {
     return Result.fail(
       refused("agent_provider_unsupported", "This agent's model cannot answer questions."),
     );
+  }
+  if (!claudeVersionServesTeamAgent(input.modelVersion)) {
+    return Result.fail(refused("agent_claude_outdated", TEAM_AGENT_CLAUDE_OUTDATED_MESSAGE));
   }
   if (input.runningAgentTurns >= TEAM_AGENT_MAX_RUNNING_TURNS) {
     return Result.fail(refused("agent_busy", TEAM_AGENT_BUSY_MESSAGE));
@@ -283,10 +296,20 @@ const make = Effect.gen(function* () {
     const state = yield* sharing.readState;
     const projectIds = Object.values(state.agents).flatMap((setting) => setting.projectIds);
     const rows = yield* listProjects([...new Set(projectIds)]);
+    const claudeOutdatedOrganizationIds = new Set<string>();
+    for (const [organizationId, setting] of Object.entries(state.agents)) {
+      if (!setting.enabled) continue;
+      const instance = yield* modelInstance(setting.modelSelection);
+      if (instance === undefined || !TEAM_AGENT_DRIVERS.has(instance.driverKind)) continue;
+      if (!claudeVersionServesTeamAgent((yield* instance.snapshot.getSnapshot).version)) {
+        claudeOutdatedOrganizationIds.add(organizationId);
+      }
+    }
     return teamAgentStatuses({
       state,
       member,
       projects: rows.map((row) => ({ projectId: row.projectId, title: row.title })),
+      claudeOutdatedOrganizationIds,
     });
   });
 
@@ -395,6 +418,8 @@ const make = Effect.gen(function* () {
             state,
             existingProjectIds: new Set(existing.map((row) => row.projectId)),
             modelDriver: instance?.enabled === true ? instance.driverKind : undefined,
+            modelVersion:
+              instance === undefined ? undefined : (yield* instance.snapshot.getSnapshot).version,
             runningAgentTurns: yield* runningAgentTurns(),
           }),
         );

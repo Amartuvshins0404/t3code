@@ -194,7 +194,9 @@ export type PersonAgentStatus =
   | { readonly kind: "loading" };
 
 export function agentIsReady(agent: TeamAgentStatus | null): agent is TeamAgentStatus {
-  return agent !== null && agent.enabled && agent.projects.length > 0;
+  return (
+    agent !== null && agent.enabled && agent.projects.length > 0 && agent.claudeOutdated !== true
+  );
 }
 
 export function personAgentStatus(machines: ReadonlyArray<AgentMachine>): PersonAgentStatus {
@@ -213,6 +215,14 @@ export function personAgentStatus(machines: ReadonlyArray<AgentMachine>): Person
   }
   const kinds = new Set(machines.map((machine) => machine.state.kind));
   if (kinds.has("connecting") || kinds.has("checking")) return { kind: "loading" };
+  if (
+    machines.some(
+      (machine) =>
+        machine.state.kind === "answered" && machine.state.agent?.claudeOutdated === true,
+    )
+  ) {
+    return { kind: "needs_update" };
+  }
   if (kinds.has("answered")) return { kind: "off" };
   if (kinds.has("outdated")) return { kind: "needs_update" };
   return { kind: "offline" };

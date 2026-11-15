@@ -1,5 +1,5 @@
-// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Path has no glob matcher to check the Grep exclusion.
-import * as NodePath from "node:path";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Runs the ripgrep that Claude's Grep runs, as Claude does, with a custom argv0.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProjectId,
@@ -46,6 +46,7 @@ const ask = (
     state,
     existingProjectIds: new Set([web, api]),
     modelDriver: claude,
+    modelVersion: "2.1.248",
     runningAgentTurns: 0,
     ...overrides,
   });
@@ -93,8 +94,18 @@ describe("decideTeamAgentAsk", () => {
       "not_allowed_for_teammates",
     ],
     [
-      "a quoted @ file mention",
+      "a bracketed @ file mention",
       { input: { text: 'Compare ("@./src/auth.ts")' } },
+      "not_allowed_for_teammates",
+    ],
+    [
+      "an @ mention of a parent folder",
+      { input: { text: "Read @../secrets/notes.md" } },
+      "not_allowed_for_teammates",
+    ],
+    [
+      "a quoted @ file mention",
+      { input: { text: 'Summarise @"my file.txt"' } },
       "not_allowed_for_teammates",
     ],
     [
@@ -102,17 +113,25 @@ describe("decideTeamAgentAsk", () => {
       { modelDriver: ProviderDriverKind.make("codex") },
       "agent_provider_unsupported",
     ],
+    ["a Claude Code older than 2.1.248", { modelVersion: "2.1.247" }, "agent_claude_outdated"],
+    ["a Claude Code of unknown version", { modelVersion: null }, "agent_claude_outdated"],
     ["a third question while two are running", { runningAgentTurns: 2 }, "agent_busy"],
   ])("refuses %s with its reason", (_label, overrides, reason) => {
     expect(refusal(ask(overrides))).toBe(reason);
   });
 
-  it.each(["Did @amaraa move it into core?", "Mail a@b.com about the migration."])(
-    "answers %j, which only looks like a mention",
-    (text) => {
-      expect(Result.isSuccess(ask({ input: { text } }))).toBe(true);
-    },
-  );
+  it.each([
+    "Did @amaraa move it into core?",
+    "Mail a@b.com about the migration.",
+    "Which @effect/platform version do we use?",
+    "Do we still need @types/node and @angular/core?",
+    "Where does @/components resolve?",
+    "What changed in @v1.2?",
+    "Is @media.print still used?",
+    "Why is @Injectable() on the service?",
+  ])("answers %j, which only looks like a mention", (text) => {
+    expect(Result.isSuccess(ask({ input: { text } }))).toBe(true);
+  });
 
   it("answers while only one other question is running", () => {
     expect(Result.isSuccess(ask({ runningAgentTurns: 1 }))).toBe(true);
@@ -164,17 +183,30 @@ describe("teamAgentStatuses", () => {
   const projects = [{ projectId: web, title: "Web" }];
 
   it("shows a teammate only their own team's agent and never the model", () => {
-    expect(teamAgentStatuses({ state, member: teammate, projects })).toEqual({
+    expect(
+      teamAgentStatuses({
+        state,
+        member: teammate,
+        projects,
+        claudeOutdatedOrganizationIds: new Set(),
+      }),
+    ).toEqual({
       agents: [
         { organizationId: "org-a", enabled: true, projects: [{ projectId: web, title: "Web" }] },
       ],
     });
   });
 
-  it("shows the owner every shared team with its model", () => {
-    const statuses = teamAgentStatuses({ state, member: undefined, projects });
+  it("shows the owner every shared team with its model and whether Claude Code is too old", () => {
+    const statuses = teamAgentStatuses({
+      state,
+      member: undefined,
+      projects,
+      claudeOutdatedOrganizationIds: new Set(["org-a"]),
+    });
     expect(statuses.agents.map((agent) => agent.organizationId)).toEqual(["org-a", "org-b"]);
     expect(statuses.agents[0]?.modelSelection).toEqual(modelSelection);
+    expect(statuses.agents.map((agent) => agent.claudeOutdated === true)).toEqual([true, false]);
   });
 });
 
@@ -246,23 +278,53 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
     ),
   );
 
-  it.effect("keeps secret files out of every Grep", () =>
-    withProject(({ project }) =>
-      Effect.gen(function* () {
-        const decision = yield* decide("Grep", { pattern: "TOKEN" }, project);
-        if (!decision.allow) throw new Error("expected the Grep to run");
-        const glob = String(decision.updatedInput?.glob);
-        expect(glob.startsWith("!")).toBe(true);
-        const excluded = (name: string) => NodePath.matchesGlob(name, glob.slice(1));
-        expect([".env.local", ".npmrc", ".git", "signing.p12", "auth.ts"].map(excluded)).toEqual([
-          true,
-          true,
-          true,
-          true,
-          false,
-        ]);
-      }),
-    ),
+  it.effect("keeps secret files out of every Grep, whatever their letter case", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const project = yield* fs.makeTempDirectoryScoped({ prefix: "t3-team-agent-grep-" });
+      const secretFiles = [
+        ".env.local",
+        ".ENV",
+        ".npmrc",
+        ".git/config",
+        "signing.p12",
+        "Secrets.json",
+        "Credentials.JSON",
+        "server.KEY",
+        "src/ID_RSA",
+        "config/.Git-Credentials",
+        "deploy/Service-Account-prod.json",
+      ];
+      for (const file of [...secretFiles, "src/auth.ts"]) {
+        yield* fs.makeDirectory(path.dirname(path.join(project, file)), { recursive: true });
+        yield* fs.writeFileString(path.join(project, file), `password=fake-${file}\n`);
+      }
+      const decision = yield* decide("Grep", { pattern: "password" }, project);
+      if (!decision.allow) throw new Error("expected the Grep to run");
+      const glob = String(decision.updatedInput?.glob);
+      const ripgrep = [
+        { command: "rg", argv0: "rg" },
+        { command: "claude", argv0: "rg" },
+      ].find(
+        ({ command, argv0 }) =>
+          NodeChildProcess.spawnSync(command, ["--version"], {
+            argv0,
+            encoding: "utf8",
+          }).stdout?.startsWith("ripgrep") === true,
+      );
+      if (ripgrep === undefined) {
+        throw new Error("This test needs ripgrep: install `rg` or Claude Code on PATH.");
+      }
+      const search = NodeChildProcess.spawnSync(
+        ripgrep.command,
+        ["--no-config", "--hidden", "--no-heading", "password", "--glob", glob, "."],
+        { argv0: ripgrep.argv0, cwd: project, encoding: "utf8" },
+      );
+      expect(search.stdout.trim().split("\n").toSorted()).toEqual([
+        "./src/auth.ts:password=fake-src/auth.ts",
+      ]);
+    }),
   );
 
   it.effect("never reads T3 Code's own data, even when the owner picked its home", () =>

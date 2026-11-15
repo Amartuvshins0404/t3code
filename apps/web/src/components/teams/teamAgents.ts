@@ -249,6 +249,10 @@ export function teamAgentMessage(cause: unknown, person: TeamPerson, self: boole
         return self
           ? "Pick a Claude model."
           : `${person.name} needs to pick a Claude model for their agent.`;
+      case "agent_claude_outdated":
+        return self
+          ? "Update Claude Code to 2.1.248 or newer to use your agent."
+          : `${person.name} needs to update Claude Code for their agent.`;
       case "agent_busy":
         return `${owner} agent is answering two questions. Try again in a moment.`;
       default:

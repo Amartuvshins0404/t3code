@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 
 export const TEAM_AGENT_FILE_TOOLS = ["Read", "Glob", "Grep"] as const;
 
@@ -23,9 +24,19 @@ const SECRET_NAMES = [
   ".kube",
   ".docker",
   ".t3",
+  ".git-credentials",
+  ".dev.vars",
+  ".pgpass",
+  ".my.cnf",
+  ".htpasswd",
+  "kubeconfig",
   "credentials",
   "credentials.*",
   "secrets.*",
+  "service-account*.json",
+  "*serviceaccount*.json",
+  "database.yml",
+  "wp-config.php",
   "*.pem",
   "*.key",
   "*.p12",
@@ -33,6 +44,7 @@ const SECRET_NAMES = [
   "*.jks",
   "*.keystore",
   "*.tfstate",
+  "terraform.tfstate*",
   "*.tfvars",
   "id_rsa*",
   "id_dsa*",
@@ -50,21 +62,29 @@ export const TEAM_AGENT_SECRET_READ_DENY_RULES = SECRET_NAMES.flatMap((name) => 
   `Read(**/${name}/**)`,
 ]);
 
-const TEAM_AGENT_GREP_SECRET_EXCLUSION = `!{${SECRET_NAMES.join(",")}}`;
+const anyCaseGlob = (name: string) =>
+  name.replace(/[a-z]/gi, (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`);
+
+const TEAM_AGENT_GREP_SECRET_EXCLUSION = `!{${SECRET_NAMES.map(anyCaseGlob).join(",")}}`;
 
 const SECRET_REFUSAL =
   "Secret files such as .env, keys, credentials and .git or .ssh folders are never readable here.";
 
-const FILE_MENTION = /(?:^|[\s([{<"'`])@(\S+)/g;
+const FILE_MENTION = /(?:^|[\s([{<"'`])@(?:~|\.\.?\/|["'`])/;
 
 export const TEAM_AGENT_FILE_MENTION_MESSAGE =
   "Agent conversations do not take @ file mentions. Write the path without @ and the agent will read it.";
 
-export const hasTeamAgentFileMention = (text: string) =>
-  [...text.matchAll(FILE_MENTION)].some(([, token = ""]) => {
-    const target = token.replace(/^["'`]/, "");
-    return target.startsWith("~") || target.includes("/") || target.includes(".");
-  });
+export const hasTeamAgentFileMention = (text: string) => FILE_MENTION.test(text);
+
+const TEAM_AGENT_MIN_CLAUDE_VERSION = "2.1.248";
+
+export const TEAM_AGENT_CLAUDE_OUTDATED_MESSAGE = `This agent needs Claude Code ${TEAM_AGENT_MIN_CLAUDE_VERSION} or newer on its owner's machine.`;
+
+export const claudeVersionServesTeamAgent = (version: string | null | undefined) =>
+  version != null &&
+  parseSemver(version) !== null &&
+  compareSemverVersions(version, TEAM_AGENT_MIN_CLAUDE_VERSION) >= 0;
 
 export const TeamAgentReadableRoots = Schema.Struct({
   type: Schema.Literal("readOnly"),

@@ -31,6 +31,10 @@ export function TeamAgentSection({ team }: { readonly team: CloudTeamSummary }) 
         Teammates can ask your agent about these projects. It can read the code and the thread
         history there. It cannot change anything.
       </p>
+      <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
+        It reads past threads in these projects too, so anything once printed there can reach your
+        team.
+      </p>
       {teamMachines.data !== null && mine.length === 0 ? (
         <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
           Share a machine with {team.name} to turn on your agent.
@@ -140,7 +144,9 @@ function MyAgentControls({
     .filter((project) => draft.projectIds.includes(project.id))
     .map((project) => project.title);
   const description = draft.enabled
-    ? `On. Answers about ${pickedTitles.join(", ") || "your projects"}.`
+    ? current?.claudeOutdated === true
+      ? `On, but Claude Code on ${machine.label} needs 2.1.248 or newer before it can answer.`
+      : `On. Answers about ${pickedTitles.join(", ") || "your projects"}.`
     : entries.length === 0
       ? `Add a Claude provider on ${machine.label} to turn it on.`
       : draft.projectIds.length === 0
