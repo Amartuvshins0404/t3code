@@ -1,7 +1,6 @@
 import { ProcessSignalActions } from "./ProcessSignalActions";
 import { getAppBaseName } from "@t3tools/client-runtime/app-name";
 import { AuthEnvironmentMaintainScope } from "@t3tools/contracts";
-import { useAppBaseName } from "~/state/appBranding";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
   ActivityIcon,
@@ -821,7 +820,7 @@ function ResourceTelemetryDiagnosticsBody({
   environmentId: EnvironmentId | null;
 }) {
   const registry = useContext(RegistryContext);
-  const appBaseName = useAppBaseName();
+  const appBaseName = getAppBaseName();
   const [windowMs, setWindowMs] = useState(15 * 60_000);
   const selectedWindow =
     HISTORY_WINDOWS.find((option) => option.windowMs === windowMs) ?? HISTORY_WINDOWS[1];
