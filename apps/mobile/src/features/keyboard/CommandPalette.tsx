@@ -59,6 +59,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { ThreadSearchMatchExcerpt } from "../threads/thread-search-match";
 import { pickTriageEnvironment } from "../triage/triageTarget";
 import { useStartTriage } from "../triage/useStartTriage";
+import { useOpenMasterAgent } from "../home/useOpenMasterAgent";
 import { useNewTaskFlow } from "../threads/new-task-flow-provider";
 import { useActiveNewTask } from "../../state/active-new-task";
 import {
@@ -269,6 +270,14 @@ export function CommandPalette(props: {
   );
   const serverConfigs = useServerConfigs();
   const startTriage = useStartTriage();
+  const openMasterAgent = useOpenMasterAgent({
+    preferredEnvironmentId: null,
+    connectedEnvironmentIds: searchEnvironmentIds,
+  });
+  const activeThreadIsMasterAgent =
+    activeThreadRef !== null &&
+    serverConfigs.get(activeThreadRef.environmentId)?.masterAgentThreadId ===
+      activeThreadRef.threadId;
   const newTaskFlow = useNewTaskFlow();
   const draftEnvironmentId =
     useActiveNewTask() === null ? null : (newTaskFlow.selectedProject?.environmentId ?? null);
@@ -347,6 +356,15 @@ export function CommandPalette(props: {
         run: () => openSettings(navigation, "SettingsArchive"),
       },
     ];
+    if (openMasterAgent !== null) {
+      actions.push({
+        key: "masterAgent",
+        kind: "action",
+        title: "Agent",
+        searchTerms: ["agent", "assistant", "chat", "memory"],
+        run: () => void openMasterAgent(),
+      });
+    }
     if (canTriage) {
       actions.push({
         key: "triage",
@@ -384,7 +402,7 @@ export function CommandPalette(props: {
           }),
       });
     }
-    if (activeThreadRef) {
+    if (activeThreadRef && !activeThreadIsMasterAgent) {
       const threadActions = [
         ["files", "Go to file", ["open", "files", "browse", "search"]],
         ["terminal", "Open terminal", ["shell", "console"]],
@@ -464,9 +482,11 @@ export function CommandPalette(props: {
     selectTab,
     activeThread,
     activeThreadRef,
+    activeThreadIsMasterAgent,
     environments.length,
     canTriage,
     navigation,
+    openMasterAgent,
     projects,
     runCommand,
     savedConnectionsById,
