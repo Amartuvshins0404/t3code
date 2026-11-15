@@ -286,6 +286,7 @@ import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "./WorkspaceBreadcrumb";
 import { useSideChat } from "./chat/useSideChat";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -404,6 +405,7 @@ type ChatViewProps =
       forceExpandedMobileComposer?: boolean;
       /** A side chat in its parent's right panel; the parent keeps the keyboard and workspace UI. */
       embedded?: SideChatParentPanel;
+      chatOnly?: boolean;
       routeKind: "server";
       draftId?: never;
     }
@@ -414,6 +416,7 @@ type ChatViewProps =
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
       embedded?: never;
+      chatOnly?: never;
       routeKind: "draft";
       draftId: DraftId;
     };
@@ -429,8 +432,10 @@ export default function ChatView(props: ChatViewProps) {
     reserveTitleBarControlInset = true,
     forceExpandedMobileComposer = false,
     embedded: parentPanel,
+    chatOnly = false,
   } = props;
   const embedded = parentPanel !== undefined;
+  const workspaceUi = !embedded && !chatOnly;
   const teammate = useIsTeammateEnvironment(environmentId);
   const canOperateThread =
     useEnvironmentScope(environmentId, AuthOrchestrationOperateScope) && !teammate;
@@ -1061,7 +1066,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
-  const rightPanelOpen = rightPanelState.isOpen;
+  const rightPanelOpen = !chatOnly && rightPanelState.isOpen;
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const rightPanelPresenceValue = {
@@ -1747,7 +1752,7 @@ export default function ChatView(props: ChatViewProps) {
           reportedModelSelection,
         );
   const showComposerContextStrip =
-    !embedded &&
+    workspaceUi &&
     shouldShowComposerContextStrip({
       isDraftHeroState,
       persistInActiveThreads: settings.persistComposerContextStrip,
@@ -2773,7 +2778,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.lineage.relationshipToParent === "subagent" || delegatedFrom !== null;
   // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
   const sideChatsOffered =
-    !embedded &&
+    workspaceUi &&
     canOperateThread &&
     activeThread?.lineage.sideChat !== true &&
     !isSubagentThread &&
@@ -3286,14 +3291,14 @@ export default function ChatView(props: ChatViewProps) {
       ref={setWorkspaceLayoutElement}
       className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
     >
-      {embedded ? null : (
+      {workspaceUi ? (
         <DeviceSetupDialogHost
           threadKey={activeThreadKey}
           threadRef={activeThreadRef}
           state={deviceState}
         />
-      )}
-      {rightPanelControlsAtRoot && !embedded ? panelLayoutControls : null}
+      ) : null}
+      {rightPanelControlsAtRoot && workspaceUi ? panelLayoutControls : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -3326,24 +3331,36 @@ export default function ChatView(props: ChatViewProps) {
                 className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
               />
             ) : null}
-            {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
-            {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
-            <ChatHeader
-              activeThreadEnvironmentId={activeThread.environmentId}
-              activeThreadId={activeThread.id}
-              isServerThread={isServerThread}
-              activeThreadTitle={activeThread.title}
-              activeThreadLinkOrigin={activeThreadShell?.linkOrigin?.label ?? null}
-              activeProject={activeProject ?? null}
-              parentThreadLink={headerParentThreadLink}
-              onOpenThread={onOpenRelatedThreadStable}
-              rightPanelOpen={inlineRightPanelOwnsTitleBar}
-              onNewThreadInProject={handleNewThreadInActiveProjectStable}
-              {...(activeDraftLogicalProjectKey
-                ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
-                : {})}
-              {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
-            />
+            {chatOnly ? (
+              <WorkspaceBreadcrumb ariaLabel="Agent breadcrumb">
+                <WorkspaceBreadcrumbItem current>
+                  <h1 className="truncate">{activeThread.title}</h1>
+                </WorkspaceBreadcrumbItem>
+              </WorkspaceBreadcrumb>
+            ) : (
+              <>
+                {!rightPanelControlsAtRoot && !rightPanelControlsInPanel
+                  ? panelLayoutControls
+                  : null}
+                {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
+                <ChatHeader
+                  activeThreadEnvironmentId={activeThread.environmentId}
+                  activeThreadId={activeThread.id}
+                  isServerThread={isServerThread}
+                  activeThreadTitle={activeThread.title}
+                  activeThreadLinkOrigin={activeThreadShell?.linkOrigin?.label ?? null}
+                  activeProject={activeProject ?? null}
+                  parentThreadLink={headerParentThreadLink}
+                  onOpenThread={onOpenRelatedThreadStable}
+                  rightPanelOpen={inlineRightPanelOwnsTitleBar}
+                  onNewThreadInProject={handleNewThreadInActiveProjectStable}
+                  {...(activeDraftLogicalProjectKey
+                    ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
+                    : {})}
+                  {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
+                />
+              </>
+            )}
           </header>
         )}
 
@@ -3412,6 +3429,7 @@ export default function ChatView(props: ChatViewProps) {
                   isWorking={isWorking}
                   runlessWorkActive={runlessWorkStartedAt !== null}
                   isCompacting={isCompacting}
+                  hideCompaction={chatOnly}
                   awaitingUser={
                     activePendingApproval !== null
                       ? "approval"
@@ -3453,9 +3471,9 @@ export default function ChatView(props: ChatViewProps) {
                   announceTurnStatus={!isProviderSubagent}
                   onOpenToolDiff={parentPanel?.openToolDiff ?? onOpenToolDiffStable}
                   // Side chat runs keep no checkpoints to diff, and a fork would promote the side chat.
-                  {...(embedded
-                    ? {}
-                    : { onOpenTurnDiff: onOpenTurnDiffStable, onForkFromRun: onForkFromRunStable })}
+                  {...(workspaceUi
+                    ? { onOpenTurnDiff: onOpenTurnDiffStable, onForkFromRun: onForkFromRunStable }
+                    : {})}
                   onOpenThread={onOpenRelatedThreadStable}
                   parentThreadLink={parentThreadLink}
                   workflowOpening={workflowOpening}
@@ -3661,7 +3679,7 @@ export default function ChatView(props: ChatViewProps) {
                                     ? EMPTY_COMPOSER_BANNER_ITEMS
                                     : composerBannerItems
                                 }
-                                resumeCompactionTokens={resumeCompactionTokens}
+                                resumeCompactionTokens={chatOnly ? null : resumeCompactionTokens}
                                 keepFullHistory={keepFullHistory}
                                 onToggleKeepFullHistory={toggleKeepFullHistoryStable}
                                 sideChatAvailable={sideChat.available}
@@ -3843,10 +3861,13 @@ export default function ChatView(props: ChatViewProps) {
               </div>
             </div>
 
-            {canOperatePreview && activeThreadRef && activeEnvironmentServerBrowser && !embedded ? (
+            {canOperatePreview &&
+            activeThreadRef &&
+            activeEnvironmentServerBrowser &&
+            workspaceUi ? (
               <PreviewSessionSync threadRef={activeThreadRef} />
             ) : null}
-            {activeThreadRef && shownPreviewMiniPlayer && !embedded ? (
+            {activeThreadRef && shownPreviewMiniPlayer && workspaceUi ? (
               <ThreadPreviewMiniPlayer
                 key={`${activeThreadKey}:${previewMiniPlayerSourceKey(shownPreviewMiniPlayer.source)}`}
                 threadRef={activeThreadRef}
@@ -3854,7 +3875,7 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : null}
 
-            {embedded ? null : (
+            {workspaceUi ? (
               <>
                 <BranchRestoreConfirmHost
                   threadKey={activeThreadKey}
@@ -3946,11 +3967,11 @@ export default function ChatView(props: ChatViewProps) {
                   onPrepared={handlePreparedPullRequestThreadStable}
                 />
               </>
-            )}
+            ) : null}
           </ThreadFindCanvas>
         </div>
 
-        {embedded ? null : (
+        {workspaceUi ? (
           <ChatTerminalDrawers
             activeThreadKey={activeThreadKey}
             activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
@@ -3963,7 +3984,7 @@ export default function ChatView(props: ChatViewProps) {
             keybindings={keybindings}
             onAddTerminalContext={addTerminalContextToDraftStable}
           />
-        )}
+        ) : null}
       </div>
 
       {rightPanelPresent && activeThreadRef && !embedded ? (
@@ -4035,7 +4056,7 @@ export default function ChatView(props: ChatViewProps) {
         checkpoints={serverProjection?.checkpoints}
         onConfirm={onConfirmRevertStable}
       />
-      {embedded ? null : <LinkPullRequestDialogHost />}
+      {workspaceUi ? <LinkPullRequestDialogHost /> : null}
       <ThreadVisitWatermark threadRef={routeThreadRef} />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
     </div>

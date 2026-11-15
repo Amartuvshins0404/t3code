@@ -103,6 +103,7 @@ export interface TimelineRowSharedState {
 export interface TimelineRowActivityState {
   isWorking: boolean;
   isCompacting: boolean;
+  hideCompaction: boolean;
   isRevertingCheckpoint: boolean;
   awaitingUser: boolean;
   isPreparingWorktree: boolean;

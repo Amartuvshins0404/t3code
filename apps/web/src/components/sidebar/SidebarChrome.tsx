@@ -1,6 +1,7 @@
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  BotMessageSquareIcon,
   ChartNoAxesColumnIcon,
   SettingsIcon,
   SquareKanbanIcon,
@@ -18,6 +19,7 @@ import {
   type HistoryDirection,
 } from "../../navigationHistory";
 import { primaryServerKeybindingsAtom } from "../../state/server";
+import { usePrimaryMasterAgentAvailable } from "../../state/masterAgent";
 import { cn } from "../../lib/utils";
 import { usePullRequestsSupported } from "../../state/environments";
 import { useAppBaseName } from "../../state/appBranding";
@@ -226,6 +228,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
   const pullRequestsSupported = usePullRequestsSupported();
+  const masterAgentAvailable = usePrimaryMasterAgentAvailable();
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -253,6 +256,11 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       setOpenMobile(false);
     }
     void navigate({ to: "/usage" });
+  };
+
+  const handleAgentClick = () => {
+    closeMobileSidebar();
+    void navigate({ to: "/agent" });
   };
 
   const handleBackClick = () => {
@@ -293,6 +301,13 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Usage"
             onClick={handleUsageClick}
           />
+          {masterAgentAvailable ? (
+            <SidebarUtilityItem
+              icon={<BotMessageSquareIcon />}
+              label="Agent"
+              onClick={handleAgentClick}
+            />
+          ) : null}
         </>
       )}
       <SidebarThreadUndoNotice />
