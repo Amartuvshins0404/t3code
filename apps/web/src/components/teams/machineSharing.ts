@@ -25,6 +25,7 @@ async function runOrThrow<W, A, E>(command: AtomCommand<W, A, E>, value: W): Pro
 function refreshAfterChange(environmentId: EnvironmentId, organizationId: string) {
   refreshTeamMachines(organizationId);
   appAtomRegistry.refresh(serverEnvironment.teamSharedOrganizations({ environmentId, input: {} }));
+  appAtomRegistry.refresh(serverEnvironment.teamConnectivity({ environmentId, input: {} }));
 }
 
 function relayAccountId(): string {

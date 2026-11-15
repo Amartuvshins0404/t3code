@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
+import * as Option from "effect/Option";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { afterEach, vi } from "vite-plus/test";
 
@@ -19,7 +20,9 @@ import {
   ManagedRelaySessionError,
   managedRelaySessionAtom,
   setManagedRelaySession,
+  setManagedRelayTeamConnectivity,
 } from "./managedRelayState.ts";
+import { createRuntimeCommand, runAtomCommand } from "../state/runtime.ts";
 
 let registry = AtomRegistry.make();
 
@@ -68,6 +71,9 @@ function createClient(overrides?: Partial<ManagedRelay.ManagedRelayClient["Servi
     listEnvironmentTeamShares: () => Effect.die("unused"),
     shareEnvironmentWithTeam: () => Effect.die("unused"),
     unshareEnvironmentWithTeam: () => Effect.die("unused"),
+    getTeamConnectivity: () => Effect.die("unused"),
+    setTeamConnectivity: () => Effect.die("unused"),
+    removeTeamConnectivity: () => Effect.die("unused"),
     linkEnvironment: () => Effect.die("unused"),
     unlinkEnvironment: () => Effect.die("unused"),
     getEnvironmentStatus: () =>
@@ -92,6 +98,15 @@ function setSession() {
     accountId: "account-1",
     readIdentityToken: () => Promise.resolve("identity-token"),
   });
+}
+
+function holdsText(value: unknown, text: string, seen = new WeakSet<object>()): boolean {
+  if (typeof value === "string") return value.includes(text);
+  if (typeof value !== "object" || value === null || seen.has(value)) return false;
+  seen.add(value);
+  const entries: ReadonlyArray<unknown> =
+    value instanceof Map ? [...value.entries()] : Object.values(value);
+  return entries.some((entry) => holdsText(entry, text, seen));
 }
 
 function identityToken(expiresAtSeconds: number): string {
@@ -143,6 +158,67 @@ describe("createManagedRelayQueryManager", () => {
       for (const unsubscribe of readers) unsubscribe();
 
       expect(logs).toEqual([["[t3-cloud] Relay device listing failed"]]);
+    }),
+  );
+
+  it.effect("forgets the team proxy access key once the save returns", () =>
+    Effect.gen(function* () {
+      const accessKey = "fake-team-access-key-0000";
+      const record = {
+        organizationId: "team-a",
+        url: "https://proxy.example.test",
+        version: "v1",
+        updatedAt: "2026-11-15T00:00:00.000Z",
+        updatedBy: { userId: "user-1", name: "Ada" },
+      };
+      const setTeamConnectivity = vi.fn(() => Effect.succeed(record));
+      const runtime = Atom.runtime(
+        Layer.succeed(
+          ManagedRelay.ManagedRelayClient,
+          createClient({
+            setTeamConnectivity,
+            getTeamConnectivity: () => Effect.succeed(record),
+          }),
+        ),
+      );
+      const manager = createManagedRelayQueryManager(runtime);
+      setSession();
+      const save = createRuntimeCommand(runtime, {
+        label: "test:set-team-connectivity",
+        execute: (
+          input: {
+            readonly accountId: string;
+            readonly organizationId: string;
+            readonly url: string;
+            readonly clientKey: string;
+          },
+          commandRegistry,
+        ) => setManagedRelayTeamConnectivity(commandRegistry, input),
+      });
+      const view = registry.subscribe(
+        manager.teamConnectivityAtom("account-1", "team-a"),
+        () => {},
+      );
+
+      const result = yield* Effect.promise(() =>
+        runAtomCommand(registry, save, {
+          accountId: "account-1",
+          organizationId: "team-a",
+          url: record.url,
+          clientKey: accessKey,
+        }),
+      );
+      manager.refreshTeamConnectivity(registry, "account-1", "team-a");
+      view();
+
+      expect(result._tag).toBe("Success");
+      expect(setTeamConnectivity).toHaveBeenCalledWith(
+        expect.objectContaining({ clientKey: accessKey }),
+      );
+      const held = [...registry.getNodes().values()].flatMap((node) =>
+        Option.toArray(node.valueOption()),
+      );
+      expect(held.some((value) => holdsText(value, accessKey))).toBe(false);
     }),
   );
 

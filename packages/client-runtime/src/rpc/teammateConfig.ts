@@ -72,6 +72,7 @@ const TEAMMATE_RPC_METHODS: ReadonlySet<string> = new Set([
   ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
   WS_METHODS.teamReportPresence,
   WS_METHODS.teamSubscribePresence,
+  WS_METHODS.teamGetConnectivity,
 ]);
 
 export function teammateProtocolClient(client: WsRpcProtocolClient): WsRpcProtocolClient {

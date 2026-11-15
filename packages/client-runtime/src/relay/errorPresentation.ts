@@ -73,9 +73,14 @@ export function relayProtectedErrorMessage(error: RelayProtectedError): string {
     case "RelayTeamsUnavailableError":
       return "Teams are not available on this relay.";
     case "RelayTeamAccessDeniedError":
-      return error.reason === "not_team_member"
-        ? "You are not a member of this team."
-        : "Relay has no active link from you to this environment.";
+      switch (error.reason) {
+        case "not_team_member":
+          return "You are not a member of this team.";
+        case "not_team_admin":
+          return "Only a team owner or admin can do this.";
+        case "environment_link_not_found":
+          return "Relay has no active link from you to this environment.";
+      }
     case "RelayInternalError":
       return `Relay encountered an internal error (${error.reason}).`;
   }

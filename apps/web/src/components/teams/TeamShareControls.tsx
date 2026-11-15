@@ -1,4 +1,4 @@
-import type { CloudTeamSummary } from "@t3tools/client-runtime/cloud-auth";
+import { canManageTeam, type CloudTeamSummary } from "@t3tools/client-runtime/cloud-auth";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -17,6 +17,7 @@ import {
 import { serverEnvironment } from "~/state/server";
 import { useConnectName } from "~/state/appBranding";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { cn } from "~/lib/utils";
 import {
   MyMachineRow,
   machineShareHint,
@@ -36,7 +37,13 @@ import { Label } from "../ui/label";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { machineShareFailureMessage, shareMachineWithTeam } from "./machineSharing";
+import {
+  ownerConnectivityLine,
+  TEAM_CONNECTIVITY_SECTION_ID,
+  useThreadConnectivity,
+} from "./teamConnectivity";
 import { TeamMark, teamAccessMessage } from "./teamPresentation";
 import { useCanShareWithTeam, useThreadTeamShare } from "./teamShareAvailability";
 import {
@@ -65,15 +72,89 @@ export function TeamShareIndicator({ threadRef }: { readonly threadRef: ScopedTh
   const teams = teamsState.status === "signedOut" ? [] : teamsState.teams;
   const team = teams.find((candidate) => candidate.id === share.organizationId) ?? null;
   return (
+    <SharedThreadBadge
+      threadRef={threadRef}
+      organizationId={share.organizationId}
+      access={share.access}
+      team={team}
+    />
+  );
+}
+
+function SharedThreadBadge({
+  threadRef,
+  organizationId,
+  access,
+  team,
+}: {
+  readonly threadRef: ScopedThreadRef;
+  readonly organizationId: string;
+  readonly access: TeamThreadAccess;
+  readonly team: CloudTeamSummary | null;
+}) {
+  const line = ownerConnectivityLine(
+    useThreadConnectivity(threadRef, organizationId),
+    team?.name ?? "the team",
+  );
+  const badge = (
     <Button
       size="xs"
       variant="ghost-muted"
-      aria-label={`Shared with ${team?.name ?? "a team"}, ${TEAM_ACCESS_LABELS[share.access]}. Change sharing`}
+      aria-label={`Shared with ${team?.name ?? "a team"}, ${TEAM_ACCESS_LABELS[access]}. Change sharing`}
       onClick={() => openTeamShareThreadDialog(threadRef)}
     >
       {team ? <TeamMark team={team} /> : <UsersIcon aria-hidden />}
-      {TEAM_ACCESS_LABELS[share.access]}
+      {TEAM_ACCESS_LABELS[access]}
     </Button>
+  );
+  if (line === null) return badge;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={badge} />
+      <TooltipPopup>{line}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+function ThreadConnectivityLine({
+  threadRef,
+  team,
+}: {
+  readonly threadRef: ScopedThreadRef;
+  readonly team: CloudTeamSummary;
+}) {
+  const navigate = useNavigate();
+  const connectivity = useThreadConnectivity(threadRef, team.id);
+  const line = ownerConnectivityLine(connectivity, team.name);
+  if (line === null) return null;
+  const canSetUp =
+    connectivity.kind === "owner" &&
+    connectivity.reason === "no_connection" &&
+    canManageTeam(team.role);
+  return (
+    <p
+      className={cn(
+        "text-xs",
+        connectivity.kind === "unavailable" ? "text-destructive" : "text-muted-foreground",
+      )}
+    >
+      {line}
+      {canSetUp ? (
+        <>
+          {" "}
+          <Button
+            size="xs"
+            variant="link"
+            onClick={() => {
+              closeTeamDialog();
+              void navigate({ to: "/settings/team", hash: TEAM_CONNECTIVITY_SECTION_ID });
+            }}
+          >
+            Set up
+          </Button>
+        </>
+      ) : null}
+    </p>
   );
 }
 
@@ -266,6 +347,9 @@ function TeamShareThreadDialog({ threadRef }: { readonly threadRef: ScopedThread
                   This machine is not shared with {team.name} yet. Sharing the thread shares the
                   machine too. Teammates still see only the threads you share, one at a time.
                 </p>
+              ) : null}
+              {team && machineState.kind === "ready" && machineState.shared ? (
+                <ThreadConnectivityLine threadRef={threadRef} team={team} />
               ) : null}
               {error ? (
                 <p role="alert" className="text-xs text-destructive">

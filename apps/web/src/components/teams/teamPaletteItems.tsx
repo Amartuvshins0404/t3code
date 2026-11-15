@@ -1,6 +1,6 @@
 import { canManageTeam } from "@t3tools/client-runtime/cloud-auth";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeftRightIcon, PlusIcon, SettingsIcon, UserPlusIcon } from "lucide-react";
+import { ArrowLeftRightIcon, PlugIcon, PlusIcon, SettingsIcon, UserPlusIcon } from "lucide-react";
 
 import { getCloudAuth, useCloudAuth } from "../../cloud/cloudAuth";
 import {
@@ -16,6 +16,7 @@ import {
   type CommandPaletteActionItem,
   type CommandPaletteSubmenuItem,
 } from "../CommandPalette.logic";
+import { TEAM_CONNECTIVITY_SECTION_ID } from "./teamConnectivity";
 import { TeamMark, TEAM_ROLE_LABELS } from "./teamPresentation";
 import { openCreateTeamDialog, openInviteTeamDialog } from "./teamUiStore";
 
@@ -96,6 +97,16 @@ export function useTeamPaletteItems(): ReadonlyArray<
       icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({ to: "/settings/team" });
+      },
+    });
+    items.push({
+      kind: "action",
+      value: "action:team-connectivity",
+      searchTerms: ["team", "connectivity", "connection", "proxy", "cli proxy", "team key"],
+      title: "Team connection",
+      icon: <PlugIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({ to: "/settings/team", hash: TEAM_CONNECTIVITY_SECTION_ID });
       },
     });
   }
