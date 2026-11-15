@@ -4,6 +4,7 @@ import type {
   RelayAgentAwarenessPreferences,
   RelayManagedEndpointOrigin,
 } from "@t3tools/contracts/relay";
+import type { TeamPerson } from "@t3tools/contracts";
 import {
   bigint,
   boolean,
@@ -104,6 +105,15 @@ export const relayEnvironmentTeamShares = pgTable(
     ),
   ],
 );
+
+export const relayTeamConnectivity = pgTable("relay_team_connectivity", {
+  organizationId: varchar("organization_id", { length: 191 }).primaryKey(),
+  url: text("url").notNull(),
+  clientKeyCiphertext: text("client_key_ciphertext").notNull(),
+  version: varchar("version", { length: 64 }).notNull(),
+  updatedAt: varchar("updated_at", { length: 64 }).notNull(),
+  updatedByJson: jsonb("updated_by_json").notNull().$type<TeamPerson>(),
+});
 
 export const relayManagedEndpointAllocations = pgTable(
   "relay_managed_endpoint_allocations",

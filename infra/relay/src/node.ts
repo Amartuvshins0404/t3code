@@ -7,7 +7,9 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
+import * as Aead from "effect/crypto/Aead";
 import * as Digest from "effect/crypto/Digest";
+import * as Kdf from "effect/crypto/Kdf";
 import * as Mac from "effect/crypto/Mac";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Signature from "effect/crypto/Signature";
@@ -72,10 +74,13 @@ import * as CloudflareApi from "./node/CloudflareApi.ts";
 import * as Database from "./node/Database.ts";
 import * as NodeTeamMembership from "./node/TeamMembership.ts";
 import * as Observability from "./spanAttributes.ts";
+import * as TeamConnectivity from "./teams/TeamConnectivity.ts";
 import * as WebCrypto from "./WebCrypto.ts";
 
 const layerPlatform = Layer.mergeAll(
+  Aead.layerWebCrypto,
   Digest.layerWebCrypto,
+  Kdf.layerWebCrypto,
   Mac.layerWebCrypto,
   Signature.layerWebCrypto,
   FetchHttpClient.layer,
@@ -203,6 +208,7 @@ const layerRuntime = Layer.empty.pipe(
       CloudflareApiPause.layer,
       EnvironmentLinks.layer,
       EnvironmentTeamShares.layer,
+      TeamConnectivity.layer,
       NodeTeamMembership.layer,
       ManagedEndpointAllocations.layer,
       ManagedTunnelLimits.layer,

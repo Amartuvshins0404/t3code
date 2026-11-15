@@ -70,6 +70,7 @@ import * as EnvironmentCredentials from "../environments/EnvironmentCredentials.
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
 import * as EnvironmentTeamShares from "../environments/EnvironmentTeamShares.ts";
 import * as TeamMembership from "../auth/TeamMembership.ts";
+import * as TeamConnectivity from "../teams/TeamConnectivity.ts";
 import * as HeldHooks from "../hooks/HeldHooks.ts";
 import * as HookInbox from "../hooks/HookInbox.ts";
 import * as LiveActivities from "../agentActivity/LiveActivities.ts";
@@ -810,6 +811,7 @@ export const layerClientApi = HttpApiBuilder.group(
     const tunnelLimits = yield* ManagedTunnelLimits.ManagedTunnelLimits;
     const teamShares = yield* EnvironmentTeamShares.EnvironmentTeamShares;
     const membership = yield* TeamMembership.TeamMembership;
+    const teamConnectivity = yield* TeamConnectivity.TeamConnectivity;
     const requireOwnLink = Effect.fnUntraced(function* (input: {
       readonly userId: string;
       readonly environmentId: string;
@@ -830,6 +832,16 @@ export const layerClientApi = HttpApiBuilder.group(
       const member = yield* TeamMembership.findMember(membership, input);
       if (!member) {
         return yield* relayTeamAccessDenied("not_team_member");
+      }
+      return member;
+    });
+    const requireTeamAdmin = Effect.fnUntraced(function* (input: {
+      readonly userId: string;
+      readonly organizationId: string;
+    }) {
+      const member = yield* requireTeamMember(input);
+      if (member.role !== "owner" && member.role !== "admin") {
+        return yield* relayTeamAccessDenied("not_team_admin");
       }
       return member;
     });
@@ -1085,6 +1097,45 @@ export const layerClientApi = HttpApiBuilder.group(
         }, mapRelayCommonApiErrors("not_authorized")),
       )
       .handle(
+        "getTeamConnectivity",
+        Effect.fn("relay.api.client.getTeamConnectivity")(function* (args) {
+          const { organizationId } = args.params;
+          const { userId } = yield* RelayClientPrincipal;
+          yield* requireTeamMember({ userId, organizationId });
+          return { connectivity: yield* teamConnectivity.get({ organizationId }) };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "setTeamConnectivity",
+        Effect.fn("relay.api.client.setTeamConnectivity")(function* (args) {
+          const { params, payload } = args;
+          const { userId } = yield* RelayClientPrincipal;
+          const member = yield* requireTeamAdmin({
+            userId,
+            organizationId: params.organizationId,
+          });
+          return yield* teamConnectivity.set({
+            organizationId: params.organizationId,
+            url: payload.url,
+            clientKey: Redacted.make(payload.clientKey),
+            updatedBy: {
+              userId: member.userId,
+              name: member.name,
+              ...(member.image ? { image: member.image } : {}),
+            },
+          });
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "removeTeamConnectivity",
+        Effect.fn("relay.api.client.removeTeamConnectivity")(function* (args) {
+          const { organizationId } = args.params;
+          const { userId } = yield* RelayClientPrincipal;
+          yield* requireTeamAdmin({ userId, organizationId });
+          return { ok: yield* teamConnectivity.remove({ organizationId }) };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
         "getT3ChatLink",
         Effect.fn("relay.api.client.getT3ChatLink")(function* () {
           yield* appendRelayCredentialResponseHeaders;
@@ -1284,6 +1335,10 @@ export const layerServerApi = HttpApiBuilder.group(
     const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
     const publishSignatures = yield* EnvironmentPublishSignatures.EnvironmentPublishSignatures;
     const heldHooks = yield* HeldHooks.HeldHooks;
+    const links = yield* EnvironmentLinks.EnvironmentLinks;
+    const teamShares = yield* EnvironmentTeamShares.EnvironmentTeamShares;
+    const membership = yield* TeamMembership.TeamMembership;
+    const teamConnectivity = yield* TeamConnectivity.TeamConnectivity;
     const requireOwnEnvironment =
       /* Request instrumentation already owns the span; keep this helper in that context. */
       Effect.fnUntraced(function* (environmentId: string) {
@@ -1522,6 +1577,53 @@ export const layerServerApi = HttpApiBuilder.group(
           });
           return { pending };
         }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "readEnvironmentTeamConnectivity",
+        Effect.fn("relay.api.server.readEnvironmentTeamConnectivity")(function* ({ params }) {
+          yield* requireOwnEnvironment(params.environmentId);
+          if (!membership.available) {
+            return yield* relayTeamsUnavailable();
+          }
+          yield* appendRelayCredentialResponseHeaders;
+          const principal = yield* RelayEnvironmentPrincipal;
+          const shares = yield* teamShares.listForEnvironment({
+            environmentId: params.environmentId,
+          });
+          const valid = yield* Effect.forEach(
+            shares,
+            Effect.fnUntraced(function* (share) {
+              const link = yield* links.getForUser({
+                userId: share.ownerUserId,
+                environmentId: params.environmentId,
+              });
+              if (!link || link.environmentPublicKey !== principal.environmentPublicKey) {
+                return false;
+              }
+              const owner = yield* TeamMembership.findMember(membership, {
+                userId: share.ownerUserId,
+                organizationId: share.organizationId,
+              });
+              return owner !== null;
+            }),
+            { concurrency: 4 },
+          );
+          const sharedOrganizationIds = [
+            ...new Set(shares.filter((_, index) => valid[index]).map((s) => s.organizationId)),
+          ];
+          const teams = yield* teamConnectivity.listWithKeys({
+            organizationIds: sharedOrganizationIds,
+          });
+          return {
+            sharedOrganizationIds,
+            teams: teams.map((team) => ({
+              organizationId: team.organizationId,
+              url: team.url,
+              clientKey: Redacted.value(team.clientKey),
+              version: team.version,
+            })),
+          };
+        }, mapRelayCommonApiErrors("not_authorized")),
       );
   }),
 );
@@ -1557,6 +1659,7 @@ const RelayCommonPersistenceError = Schema.Union([
   HookInbox.HookInboxError,
   EnvironmentTeamShares.EnvironmentTeamSharePersistenceError,
   TeamMembership.TeamMembershipLookupError,
+  TeamConnectivity.TeamConnectivityPersistenceError,
 ]);
 type RelayCommonPersistenceError = typeof RelayCommonPersistenceError.Type;
 const isRelayCommonPersistenceError = Schema.is(RelayCommonPersistenceError);
