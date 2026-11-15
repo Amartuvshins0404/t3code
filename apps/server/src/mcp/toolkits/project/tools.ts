@@ -14,6 +14,8 @@ import {
   ProjectCreatePayload,
   ProjectUpdatePayload,
   ProjectId,
+  ProjectPlantAction,
+  ProjectPlantStatus,
   OrchestratorMcpClientRequestId,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
@@ -31,6 +33,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 import * as ProjectService from "../../../project/ProjectService.ts";
+import * as ProjectPlant from "../../../project/ProjectPlant.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -66,14 +69,34 @@ const ProjectListTool = Tool.make("t3_project_list", {
   .annotate(Tool.Destructive, false);
 const ProjectReadTool = Tool.make("t3_project_read", {
   ...shared,
-  description: "Read one project: workspace and saved scripts.",
+  description: "Read one project: workspace, saved scripts, and agent-trust `plant` status.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     projectId: ProjectId,
   }),
+  success: Schema.Struct({ ...Project.fields, plant: ProjectPlantStatus }),
+  dependencies: [...shared.dependencies, ProjectPlant.ProjectPlant],
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
+const ProjectPlantTool = Tool.make("t3_project_plant", {
+  ...shared,
+  description:
+    "Set up (`plant`) or remove (`unplant`) agent-trust in a project: starts a thread that opens one pull request. Use this, not `t3_thread_launch`, for agent-trust. A repeat returns the open thread.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    projectId: ProjectId,
+    action: ProjectPlantAction,
+  }),
+  success: Schema.Struct({
+    threadId: ThreadId,
+    link: Schema.optional(Schema.String),
+    reused: Schema.Boolean,
+  }),
+  dependencies: [...shared.dependencies, ProjectPlant.ProjectPlant],
+})
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.OpenWorld, true);
 const ProjectCreateTool = Tool.make("t3_project_create", {
   ...shared,
   description:
@@ -182,6 +205,7 @@ export const ProjectToolkit = Toolkit.make(
   ThreadLaunchTool,
   ProjectListTool,
   ProjectReadTool,
+  ProjectPlantTool,
   ProjectCreateTool,
   ProjectUpdateTool,
   ProjectDeleteTool,

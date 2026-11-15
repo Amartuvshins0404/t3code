@@ -91,7 +91,26 @@ export function createProjectEnvironmentAtoms<R, E>(
     key: ({ environmentId, input }: { environmentId: string; input: { projectId: string } }) =>
       JSON.stringify([environmentId, input.projectId]),
   };
+  const readPlant = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:projects:read-plant",
+    tag: WS_METHODS.projectsReadPlant,
+    staleTimeMs: 15_000,
+  });
   return {
+    readPlant,
+    plant: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:plant",
+      tag: WS_METHODS.projectsPlant,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.projectId]),
+      },
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(readPlant({ environmentId, input: { projectId: input.projectId } })),
+        ),
+    }),
     fileMetadata: fileMetadata.metadata,
     fileMetadataThread: fileMetadata.retainThread,
     invalidateFileMetadata: createEnvironmentCommand(runtime, {

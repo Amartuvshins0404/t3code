@@ -1683,6 +1683,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ),
   });
 
+  const refreshRemoteIfStale: GitVcsDriver.GitVcsDriver["Service"]["refreshRemoteIfStale"] =
+    Effect.fn("refreshRemoteIfStale")(function* (input) {
+      const gitCommonDir = yield* resolveGitCommonDir(input.cwd);
+      yield* Cache.get(
+        statusRemoteRefreshCache,
+        new StatusRemoteRefreshCacheKey({ gitCommonDir, remoteName: input.remoteName }),
+      ).pipe(Effect.ignore);
+    });
+
   const refreshStatusUpstreamIfStale = Effect.fn("refreshStatusUpstreamIfStale")(function* (
     cwd: string,
   ) {
@@ -1701,11 +1710,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     ).pipe(Effect.map((stdout) => stdout.trim()));
     // Empty means no upstream; `.` means the upstream is a local branch.
     if (remoteName.length === 0 || remoteName === ".") return;
-    const gitCommonDir = yield* resolveGitCommonDir(cwd);
-    yield* Cache.get(
-      statusRemoteRefreshCache,
-      new StatusRemoteRefreshCacheKey({ gitCommonDir, remoteName }),
-    ).pipe(Effect.ignore);
+    yield* refreshRemoteIfStale({ cwd, remoteName });
   });
 
   const resolveDefaultBranchName = (
@@ -5359,6 +5364,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }),
     resolvePrimaryRemoteName,
     resolveDefaultBranchName,
+    refreshRemoteIfStale,
     fetchRemote: Effect.fnUntraced(function* (input) {
       return yield* withListRefsInvalidation(
         input.cwd,

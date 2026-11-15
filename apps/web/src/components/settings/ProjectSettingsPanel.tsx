@@ -31,6 +31,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { useThreadShells, waitForProjectRemoval } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { ProjectPlantButton } from "../projectPlant/ProjectPlantButton";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -600,6 +601,17 @@ function ProjectDetail({
                   Choose file
                 </Button>
               </div>
+            }
+          />
+          <SettingsRow
+            title="agent-trust"
+            description="Merge lanes and blind checks on the default branch. Plant and Unplant start an agent that opens one pull request for you to merge."
+            control={
+              <ProjectPlantButton
+                environmentId={filePickerProject.environmentId}
+                projectId={filePickerProject.id}
+                size="row"
+              />
             }
           />
           {canOrganize ? (

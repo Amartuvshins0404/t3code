@@ -62,6 +62,25 @@ back. On mobile, both are in **Settings → Projects → Organize**.
 
 A project on several machines must have every machine connected to pin or archive it.
 
+## Set up agent-trust (Plant)
+
+**Plant** adds agent-trust's merge lanes and blind checks to a project. It starts an agent thread
+that runs the agent-trust setup in a fresh worktree of the default branch and opens one pull
+request. Nothing changes until you merge that pull request. Find **Plant** in **Settings →
+Projects**, on the project's board page, in a thread's details panel next to **Actions**, or as
+**Plant project…** in the command palette. Agents can do the same with the `t3_project_plant`
+tool.
+
+The status follows the default branch on the remote, as last fetched, not your local checkout. A
+project reads as planted once the setup pull request is merged there. While a plant thread for the
+current default branch is open, the button reads **Open plant thread** and takes you to it instead
+of starting another. If a workflow named `merge-lane.yml` or `blind-checks.yml` that is not
+agent-trust's is already on the default branch, Plant is unavailable and says which file is in the
+way.
+
+**Unplant** takes agent-trust out the same way, through one pull request, and asks first. Any
+branch protection agent-trust added is removed at once, before that pull request merges.
+
 ## Worktree branch names
 
 In **Settings → Worktrees → Worktree branch naming**, choose a static prefix,

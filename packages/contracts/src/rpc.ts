@@ -445,6 +445,13 @@ import {
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
+import {
+  ProjectPlantError,
+  ProjectPlantInput,
+  ProjectPlantReadInput,
+  ProjectPlantStartResult,
+  ProjectPlantStatus,
+} from "./projectPlant.ts";
 
 export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
@@ -457,6 +464,8 @@ export const WS_METHODS = {
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
   projectsCreateFromThread: "projects.createFromThread",
+  projectsReadPlant: "projects.readPlant",
+  projectsPlant: "projects.plant",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -1569,6 +1578,18 @@ const WsProjectsCreateFromThreadRpc = Rpc.make(WS_METHODS.projectsCreateFromThre
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsReadPlantRpc = Rpc.make(WS_METHODS.projectsReadPlant, {
+  payload: ProjectPlantReadInput,
+  success: ProjectPlantStatus,
+  error: Schema.Union([ProjectPlantError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectsPlantRpc = Rpc.make(WS_METHODS.projectsPlant, {
+  payload: ProjectPlantInput,
+  success: ProjectPlantStartResult,
+  error: Schema.Union([ProjectPlantError, EnvironmentAuthorizationError]),
+});
+
 const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -2440,6 +2461,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsEnsureScratchRpc,
   WsProjectsCreateNewRpc,
   WsProjectsCreateFromThreadRpc,
+  WsProjectsReadPlantRpc,
+  WsProjectsPlantRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

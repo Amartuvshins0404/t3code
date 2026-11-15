@@ -25,6 +25,8 @@ import {
   type EnvironmentMachineKind,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  type ProjectPlantAction,
+  type ProjectPlantStatus,
   type SourceControlDiscoveryResult,
   type SourceControlRepositoryInfo,
   THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -397,6 +399,22 @@ export function buildProjectActionItems(input: {
         await input.runProject(project);
       },
     };
+  });
+}
+
+export function buildProjectPlantItems(input: {
+  projects: ReadonlyArray<CommandPaletteProject>;
+  action: ProjectPlantAction;
+  statusOf: (project: CommandPaletteProject) => ProjectPlantStatus | undefined;
+  icon: (project: CommandPaletteProject) => ReactNode;
+  runProject: (project: CommandPaletteProject) => Promise<void>;
+}): CommandPaletteActionItem[] {
+  const accepted = input.action === "plant" ? "not_planted" : "planted";
+  return buildProjectActionItems({
+    projects: input.projects.filter((project) => input.statusOf(project)?._tag === accepted),
+    valuePrefix: `project-${input.action}`,
+    icon: input.icon,
+    runProject: input.runProject,
   });
 }
 

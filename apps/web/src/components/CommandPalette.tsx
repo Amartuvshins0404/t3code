@@ -73,6 +73,8 @@ import {
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
+  ShovelIcon,
+  SproutIcon,
   SquareKanbanIcon,
   MonitorIcon,
   PinIcon,
@@ -223,6 +225,7 @@ import {
   type AddProjectCloneFlow,
   type AddProjectEnvironmentOption,
   buildPaletteRemoteSourceReadiness,
+  buildProjectPlantItems,
   errorMessage,
   getEnvironmentBrowsePlatform,
   remoteProjectInputPlaceholder,
@@ -230,6 +233,11 @@ import {
   type SearchOverlayMode,
 } from "./CommandPalette.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
+import {
+  projectPlantStatusesAtom,
+  projectPlantStatusesKey,
+} from "./projectPlant/projectPlantStatuses";
+import { useStartProjectPlant } from "./projectPlant/useStartProjectPlant";
 import { isSidebarHiddenThread } from "./Sidebar.logic";
 import { CommandPaletteContent, type PendingInputSelection } from "./CommandPaletteContent";
 import {
@@ -291,6 +299,11 @@ const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
 const NEW_THREAD_IN_GROUP = "projects";
+const PROJECT_PLANT_GROUP = { plant: "project-plant", unplant: "project-unplant" } as const;
+const PROJECT_PLANT_ITEM_ICON = {
+  plant: () => <SproutIcon className={ITEM_ICON_CLASS} />,
+  unplant: () => <ShovelIcon className={ITEM_ICON_CLASS} />,
+};
 
 /** The submenu an open intent starts in; its groups resolve while rendering. */
 function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPaletteView | null {
@@ -585,6 +598,35 @@ function OpenCommandPaletteDialog(props: {
       group,
     ]),
   );
+  const plantCandidates = pickerProjects.filter(
+    (project) => !isScratchProject(project, scratchWorkspaceRootFor(project.environmentId)),
+  );
+  const plantView =
+    currentView?.groups[0]?.value === PROJECT_PLANT_GROUP.plant
+      ? "plant"
+      : currentView?.groups[0]?.value === PROJECT_PLANT_GROUP.unplant
+        ? "unplant"
+        : null;
+  const { statuses: plantStatuses, pending: isPlantStatusPending } = useAtomValue(
+    projectPlantStatusesAtom(plantView === null ? "" : projectPlantStatusesKey(plantCandidates)),
+  );
+  const startProjectPlant = useStartProjectPlant();
+  const projectPlantItems = (action: "plant" | "unplant") =>
+    buildProjectPlantItems({
+      projects: plantCandidates,
+      action,
+      statusOf: (project) => plantStatuses.get(`${project.environmentId}:${project.id}`),
+      icon: PROJECT_PLANT_ITEM_ICON[action],
+      runProject: (project) =>
+        startProjectPlant(
+          {
+            environmentId: project.environmentId,
+            projectId: project.id,
+            projectName: project.displayName,
+          },
+          action,
+        ),
+    });
   const { canPinProjectGroup, toggleProjectGroupPin } = useProjectPin();
   // A row's target record can change when another machine's copy loads, so the kept
   // order follows the project group instead.
@@ -1370,6 +1412,29 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (plantCandidates.length > 0) {
+    actionItems.push(
+      {
+        kind: "submenu",
+        value: "action:project-plant",
+        searchTerms: ["plant", "agent-trust", "merge lane", "blind checks", "set up", "project"],
+        title: "Plant project…",
+        icon: <SproutIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <SproutIcon className={ADDON_ICON_CLASS} />,
+        groups: [{ value: PROJECT_PLANT_GROUP.plant, label: "Projects", items: [] }],
+      },
+      {
+        kind: "submenu",
+        value: "action:project-unplant",
+        searchTerms: ["unplant", "agent-trust", "remove", "merge lane", "blind checks", "project"],
+        title: "Unplant project…",
+        icon: <ShovelIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <ShovelIcon className={ADDON_ICON_CLASS} />,
+        groups: [{ value: PROJECT_PLANT_GROUP.unplant, label: "Projects", items: [] }],
+      },
+    );
+  }
+
   if (activeThreadKey !== null && supportsThreadFind) {
     actionItems.push({
       kind: "action",
@@ -1895,11 +1960,19 @@ function OpenCommandPaletteDialog(props: {
                 items: projectThreadItems.length > 0 ? projectThreadItems : [addProjectAction],
               },
             ]
-          : currentView?.groups[0]?.value === "themes"
-            ? changeThemeItem.groups
-            : currentView?.groups[0]?.value === "appearance"
-              ? changeAppearanceItem.groups
-              : (currentView?.groups ?? rootGroups);
+          : plantView !== null
+            ? [
+                {
+                  value: PROJECT_PLANT_GROUP[plantView],
+                  label: "Projects",
+                  items: projectPlantItems(plantView),
+                },
+              ]
+            : currentView?.groups[0]?.value === "themes"
+              ? changeThemeItem.groups
+              : currentView?.groups[0]?.value === "appearance"
+                ? changeAppearanceItem.groups
+                : (currentView?.groups ?? rootGroups);
 
   const isLinkedThreadSearch =
     linkedThreadSearch?.linkedThreads !== undefined && deferredQuery === linkedThreadSearch.query;
@@ -3152,7 +3225,9 @@ function OpenCommandPaletteDialog(props: {
                   }
                 : isThreadSearchPending
                   ? { emptyStateMessage: "Searching thread messages…" }
-                  : {})}
+                  : isPlantStatusPending
+                    ? { emptyStateMessage: "Reading agent-trust status…" }
+                    : {})}
       />
     </CommandPaletteContent>
   );
