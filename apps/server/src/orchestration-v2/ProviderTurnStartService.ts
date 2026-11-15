@@ -59,6 +59,11 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import {
+  TeamConnectivityUnavailableError,
+  TeamProviderRoutes,
+  turnProviderSessionId,
+} from "../team/TeamProviderRoutes.ts";
+import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
   restartCancelledBackgroundWorkNote,
@@ -177,6 +182,7 @@ export const layer: Layer.Layer<
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
+    const teamRoutes = yield* TeamProviderRoutes;
 
     const resolveRecreateBase = Effect.fn("ProviderTurnStartService.resolveRecreateBase")(
       function* (cwd: string) {
@@ -695,7 +701,42 @@ export const layer: Layer.Layer<
       const inheritedBackgroundTurnItems = yield* projectionStore
         .getRuntimeRecoveryProjection(projection.thread.id)
         .pipe(Effect.map(selectInheritedBackgroundItems));
-      const providerSessionId = providerThread.providerSessionId;
+      const teamShare =
+        projection.thread.teamShare ??
+        (projection.thread.lineage.relationshipToParent === "subagent" &&
+        projection.thread.lineage.rootThreadId !== projection.thread.id
+          ? yield* projectionStore.getThreadShell(projection.thread.lineage.rootThreadId).pipe(
+              Effect.map((root) => root?.teamShare),
+              Effect.orElseSucceed(() => undefined),
+            )
+          : undefined);
+      const teamRoute = yield* teamRoutes.routeTurn({
+        teamShare,
+        driver: providerThread.driver,
+      });
+      if (teamRoute.type === "unavailable") {
+        yield* settleStartFailure({
+          signal: "team-connectivity-unavailable",
+          title: "Team connection unavailable",
+          error: new TeamConnectivityUnavailableError({
+            organizationId: teamRoute.organizationId,
+          }),
+        });
+        return;
+      }
+      const providerSessionId = yield* turnProviderSessionId({
+        route: teamRoute,
+        current: providerThread.providerSessionId,
+        instanceId: run.providerInstanceId,
+        threadId: projection.thread.id,
+        ownerSessionId: () =>
+          idAllocator.allocate
+            .providerSession({
+              providerInstanceId: run.providerInstanceId,
+              threadId: projection.thread.id,
+            })
+            .pipe(Effect.orDie),
+      });
       const runControls = makeRunControls({
         threadId: projection.thread.id,
         runId: run.id,
@@ -750,7 +791,7 @@ export const layer: Layer.Layer<
       });
       const abandonedTurn = abandonedTurns.at(-1)?.turn;
       if (abandonedTurn !== undefined) {
-        const liveSession = yield* providerSessions.get(providerSessionId);
+        const liveSession = yield* providerSessions.get(providerThread.providerSessionId);
         if (Option.isSome(liveSession)) {
           // Older versions could fail the run without stopping its provider.
           // Recover that exact turn before reusing its native conversation.
@@ -793,6 +834,22 @@ export const layer: Layer.Layer<
           ),
         });
         if (!repaired.committed) return;
+      }
+      if (providerSessionId !== providerThread.providerSessionId) {
+        yield* providerSessions
+          .detach({
+            providerSessionId: providerThread.providerSessionId,
+            threadId: projection.thread.id,
+            detail: "The thread moved between the owner's and a team's provider connection.",
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Could not detach the thread's previous provider session", {
+                providerSessionId: providerThread.providerSessionId,
+                cause,
+              }),
+            ),
+          );
       }
       const sessionResult = yield* Effect.result(
         providerSessions.open({

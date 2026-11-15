@@ -79,6 +79,30 @@ export const TeamPresenceSnapshot = Schema.Struct({
 });
 export type TeamPresenceSnapshot = typeof TeamPresenceSnapshot.Type;
 
+export const TeamConnectivityDriver = Schema.Literals(["claudeAgent", "codex"]);
+export type TeamConnectivityDriver = typeof TeamConnectivityDriver.Type;
+
+export const TeamConnectivityState = Schema.Literals(["ready", "not_configured", "unavailable"]);
+export type TeamConnectivityState = typeof TeamConnectivityState.Type;
+
+export const TeamConnectivityOrganizationStatus = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  state: TeamConnectivityState,
+  drivers: Schema.Array(TeamConnectivityDriver),
+  checkedAt: IsoDateTime,
+});
+export type TeamConnectivityOrganizationStatus = typeof TeamConnectivityOrganizationStatus.Type;
+
+export const TeamConnectivityStatus = Schema.Struct({
+  organizations: Schema.Array(TeamConnectivityOrganizationStatus),
+});
+export type TeamConnectivityStatus = typeof TeamConnectivityStatus.Type;
+
+export const TeamConnectivityStatusInput = Schema.Struct({
+  refresh: Schema.optional(Schema.Boolean),
+});
+export type TeamConnectivityStatusInput = typeof TeamConnectivityStatusInput.Type;
+
 export class TeamAccessError extends Schema.TaggedError<TeamAccessError>()("TeamAccessError", {
   reason: Schema.Literals([
     "not_allowed_for_teammates",

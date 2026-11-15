@@ -1932,6 +1932,7 @@ export function makeClaudeQueryOptions(input: {
   readonly appendSystemPromptFileText?: string;
   // Flag settings, because a user's settings.json env beats the process env in Claude Code.
   readonly toolSearchOverride?: "true";
+  readonly pinnedEnvironment?: Readonly<Record<string, string>>;
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection, input.modelCatalog);
   const {
@@ -1979,13 +1980,19 @@ export function makeClaudeQueryOptions(input: {
           ...(typeof querySettings === "object" && querySettings !== null ? querySettings : {}),
           autoCompactWindow: Number(input.settings.autoCompactWindow),
         } as ClaudeSdkSettings);
+  const flagEnvironment = {
+    ...(input.toolSearchOverride === undefined
+      ? {}
+      : { ENABLE_TOOL_SEARCH: input.toolSearchOverride }),
+    ...input.pinnedEnvironment,
+  };
   // A settings file path cannot take extra keys, so it goes through unchanged.
   const effectiveQuerySettings =
-    input.toolSearchOverride === undefined || typeof compactQuerySettings === "string"
+    Object.keys(flagEnvironment).length === 0 || typeof compactQuerySettings === "string"
       ? compactQuerySettings
       : ({
           ...compactQuerySettings,
-          env: { ...compactQuerySettings?.env, ENABLE_TOOL_SEARCH: input.toolSearchOverride },
+          env: { ...compactQuerySettings?.env, ...flagEnvironment },
         } as ClaudeSdkSettings);
   const deviceInstructions = input.mcpServers !== undefined && input.deviceToolsAvailable === true;
   const options: ClaudeAgentSdkQueryOptions = {
@@ -5124,6 +5131,7 @@ export interface ClaudeAdapterV2Options {
   readonly settings: ClaudeSettings;
   readonly modelCatalog?: Effect.Effect<ClaudeModelCatalog>;
   readonly environment: NodeJS.ProcessEnv;
+  readonly pinnedEnvironment?: Readonly<Record<string, string>>;
   readonly attachmentsDir: string;
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
@@ -11769,6 +11777,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             supportedDialogKinds: ["resume_return"],
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),
+            ...(adapterOptions.pinnedEnvironment === undefined
+              ? {}
+              : { pinnedEnvironment: adapterOptions.pinnedEnvironment }),
           });
           const resolvedTurnCwd = yield* fileSystem
             .realPath(turnInput.runtimePolicy.cwd ?? ".")
@@ -13264,10 +13275,27 @@ export type ClaudeAdapterV2DriverEnv =
   | ProviderInstallationGate.ProviderInstallationGate
   | ServerConfig.ServerConfig;
 
+const CLAUDE_PINNED_ENVIRONMENT = new Set([
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+]);
+
+const claudePinnedEnvironment = (
+  environment: ProviderAdapterDriverCreateInput<ClaudeSettings>["environment"],
+): Readonly<Record<string, string>> =>
+  Object.fromEntries(
+    environment
+      .filter((variable) => CLAUDE_PINNED_ENVIRONMENT.has(variable.name))
+      .map((variable) => [variable.name, variable.value]),
+  );
+
 export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
   function* (
     input: ProviderAdapterDriverCreateInput<ClaudeSettings>,
-    hooks: Pick<ClaudeAdapterV2Options, "scopedLimitNames" | "onUsageLimits" | "modelCatalog"> = {},
+    hooks: Pick<ClaudeAdapterV2Options, "scopedLimitNames" | "onUsageLimits" | "modelCatalog"> & {
+      readonly pinProxyEnvironment?: boolean;
+    } = {},
   ) {
     const { instanceId, environment, enabled, config } = input;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -13293,6 +13321,9 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       instanceId,
       settings: { ...config, enabled, binaryPath },
       environment: claudeEnvironment,
+      ...(hooks.pinProxyEnvironment === true
+        ? { pinnedEnvironment: claudePinnedEnvironment(environment) }
+        : {}),
       attachmentsDir: serverConfig.attachmentsDir,
       fileSystem,
       path,

@@ -272,6 +272,7 @@ export const make = Effect.gen(function* () {
       ownerBranding: true,
       codeSearchSetup: true,
       cliproxyLocalSetup: true,
+      teamConnectivity: true,
       projectCloneTracking: true,
       projectOrganization: true,
       ignoredFileListing: true,

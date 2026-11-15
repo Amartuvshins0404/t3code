@@ -6,14 +6,17 @@ import {
 import type { ProviderInteractionMode, RuntimeMode, ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 
+import { useCloudTeamsState } from "~/cloud/cloudTeams";
 import { useTeamMachine } from "~/cloud/teamWorkspace";
-import { newMessageId } from "~/lib/utils";
+import { cn, newMessageId } from "~/lib/utils";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { teamAccessMessage } from "./teamPresentation";
+import { teammateConnectivityLine, useThreadConnectivity } from "./teamConnectivity";
+import { useThreadTeamShare } from "./teamShareAvailability";
 import { setTeammateTyping } from "./TeamThreadPresence";
 
 export function TeammateComposer({
@@ -56,9 +59,12 @@ export function TeammateComposer({
   }
   if (mode === "view") {
     return (
-      <p className="px-4 py-3 text-sm text-muted-foreground">
-        View only. Ask {ownerName} for Steer to send messages.
-      </p>
+      <div className="flex flex-col gap-1 px-4 py-3">
+        <p className="text-sm text-muted-foreground">
+          View only. Ask {ownerName} for Steer to send messages.
+        </p>
+        <TeammateConnectivityLine threadRef={threadRef} ownerName={ownerName} />
+      </div>
     );
   }
 
@@ -126,6 +132,7 @@ export function TeammateComposer({
         }}
       />
       <div className="flex items-center justify-end gap-2">
+        <TeammateConnectivityLine threadRef={threadRef} ownerName={ownerName} />
         {running && canInterrupt ? (
           <Button
             type="button"
@@ -153,5 +160,33 @@ export function TeammateComposer({
         </Button>
       </div>
     </form>
+  );
+}
+
+function TeammateConnectivityLine({
+  threadRef,
+  ownerName,
+}: {
+  readonly threadRef: ScopedThreadRef;
+  readonly ownerName: string;
+}) {
+  const organizationId = useThreadTeamShare(threadRef)?.organizationId ?? "";
+  const teamsState = useCloudTeamsState();
+  const teamName =
+    (teamsState.status === "signedOut" ? [] : teamsState.teams).find(
+      (team) => team.id === organizationId,
+    )?.name ?? "the team";
+  const connectivity = useThreadConnectivity(threadRef, organizationId);
+  const line = teammateConnectivityLine(connectivity, teamName, ownerName);
+  if (line === null) return null;
+  return (
+    <p
+      className={cn(
+        "me-auto text-xs",
+        connectivity.kind === "unavailable" ? "text-destructive" : "text-muted-foreground",
+      )}
+    >
+      {line}
+    </p>
   );
 }

@@ -1272,6 +1272,17 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.teamListSharedOrganizations,
       staleTimeMs: 60_000,
     }),
+    teamConnectivity: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:team:connectivity",
+      tag: WS_METHODS.teamGetConnectivity,
+      staleTimeMs: 60_000,
+      revalidateOnRemount: true,
+    }),
+    refreshTeamConnectivity: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:refresh-connectivity",
+      tag: WS_METHODS.teamGetConnectivity,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
     addTeamSharedOrganization: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:team:add-shared-organization",
       tag: WS_METHODS.teamAddSharedOrganization,

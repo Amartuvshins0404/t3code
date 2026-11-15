@@ -30,6 +30,11 @@ import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretReso
 import { buildUnavailableProviderSnapshot } from "./unavailableProviderSnapshot.ts";
 import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
 import type { AnyProviderDriver, ProviderInstance } from "@t3tools/provider-core/server/driver";
+import type {
+  ProviderAdapterDriverCreateError,
+  ProviderAdapterDriverCreateInput,
+} from "@t3tools/provider-core/server/adapterDriver";
+import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 export class ProviderInstanceRegistry extends Context.Service<
   ProviderInstanceRegistry,
@@ -42,8 +47,45 @@ export class ProviderInstanceRegistry extends Context.Service<
     /** streamChanges subscribes on consumption; use subscribeChanges before forking to avoid missing the next publish. */
     readonly streamChanges: Stream.Stream<void>;
     readonly subscribeChanges: Effect.Effect<PubSub.Subscription<void>, never, Scope.Scope>;
+    readonly buildDetachedAdapter?: (
+      input: DetachedAdapterInput,
+    ) => Effect.Effect<
+      ProviderAdapter.ProviderAdapterV2["Service"],
+      DetachedAdapterUnavailableError,
+      Scope.Scope
+    >;
   }
 >()("t3/provider/ProviderInstanceRegistry") {}
+
+export interface DetachedAdapterInput {
+  readonly instanceId: ProviderInstanceId;
+  readonly environment: (
+    driver: ProviderDriverKind,
+    environment: ResolvedProviderInstanceEnvironment,
+  ) => ResolvedProviderInstanceEnvironment;
+  readonly config: (driver: ProviderDriverKind, config: unknown) => unknown;
+}
+
+export class DetachedAdapterUnavailableError extends Schema.TaggedError<DetachedAdapterUnavailableError>()(
+  "DetachedAdapterUnavailableError",
+  { instanceId: ProviderInstanceId, detail: Schema.String },
+) {
+  override get message(): string {
+    return `Provider instance ${this.instanceId} cannot run this turn: ${this.detail}`;
+  }
+}
+
+export type DetachedAdapterFactory<R> = (
+  driver: ProviderDriverKind,
+) =>
+  | ((
+      input: ProviderAdapterDriverCreateInput<unknown>,
+    ) => Effect.Effect<
+      ProviderAdapter.ProviderAdapterV2["Service"],
+      ProviderAdapterDriverCreateError,
+      R | Scope.Scope
+    >)
+  | undefined;
 
 interface InstanceSecrets {
   readonly environment: ResolvedProviderInstanceEnvironment;
@@ -456,6 +498,7 @@ export const makeProviderInstanceRegistry = Effect.fn(
   readonly configMap: ProviderInstanceConfigMap;
   /** A reason to show instead of running a driver, such as an administrator's policy. */
   readonly blockedReason?: BlockedReason | undefined;
+  readonly detachedAdapter?: DetachedAdapterFactory<R> | undefined;
 }): Effect.fn.Return<
   {
     readonly registry: ProviderInstanceRegistry["Service"];
@@ -570,7 +613,45 @@ export const makeProviderInstanceRegistry = Effect.fn(
     }).pipe(Effect.provideContext(driverContext), Effect.forkScoped);
   }
 
+  const detachedAdapter = input.detachedAdapter;
+  const buildDetachedAdapter = Effect.fn("ProviderInstanceRegistry.buildDetachedAdapter")(
+    function* (request: DetachedAdapterInput) {
+      const unavailable = (detail: string) =>
+        new DetachedAdapterUnavailableError({ instanceId: request.instanceId, detail });
+      const live = (yield* Ref.get(entries)).get(request.instanceId);
+      if (live === undefined || !live.instance.enabled) {
+        return yield* unavailable("the provider instance is not running on this machine.");
+      }
+      const driver = driversById.get(live.entry.driver);
+      const create = detachedAdapter?.(live.entry.driver);
+      if (driver === undefined || create === undefined) {
+        return yield* unavailable("this provider cannot be routed.");
+      }
+      const decoder = Schema.decodeUnknownEffect(driver.configSchema);
+      const decoded = yield* decoder(
+        request.config(live.entry.driver, live.entry.config ?? driver.defaultConfig()),
+      ).pipe(Effect.mapError(() => unavailable("the routed provider config is invalid.")));
+      const scope = yield* Scope.Scope;
+      return yield* create({
+        instanceId: request.instanceId,
+        displayName: live.entry.displayName,
+        accentColor: live.entry.accentColor,
+        environment: request.environment(live.entry.driver, live.secrets.environment),
+        enabled: true,
+        config:
+          live.secrets.config.length === 0
+            ? decoded
+            : withSettingsSecrets(decoded, live.secrets.config),
+      }).pipe(
+        Effect.provideService(Scope.Scope, scope),
+        Effect.provideContext(driverContext),
+        Effect.mapError(() => unavailable("the routed provider could not start.")),
+      );
+    },
+  );
+
   const registry: ProviderInstanceRegistry["Service"] = {
+    buildDetachedAdapter,
     getInstance: (id) => Ref.get(entries).pipe(Effect.map((map) => map.get(id)?.instance)),
     listInstances: Ref.get(entries).pipe(
       Effect.map(
@@ -601,6 +682,7 @@ export const layer = <R>(input: {
   readonly drivers: ReadonlyArray<AnyProviderDriver<R>>;
   readonly configMap: ProviderInstanceConfigMap;
   readonly blockedReason?: BlockedReason | undefined;
+  readonly detachedAdapter?: DetachedAdapterFactory<R> | undefined;
 }): Layer.Layer<
   ProviderInstanceRegistry | ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator,
   never,

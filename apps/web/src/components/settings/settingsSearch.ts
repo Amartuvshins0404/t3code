@@ -1316,6 +1316,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     cloudOnly: true,
   },
   {
+    id: "team-connectivity",
+    title: "Team connection",
+    to: "/settings/team",
+    searchTerms: [
+      "team connectivity connection cli proxy cliproxy team key access key shared threads accounts",
+    ],
+    cloudOnly: true,
+  },
+  {
     id: "connections-environment",
     title: "This machine",
     to: "/settings/access",

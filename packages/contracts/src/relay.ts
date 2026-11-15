@@ -623,6 +623,7 @@ export class RelayTeamsUnavailableError extends Schema.TaggedError<RelayTeamsUna
 export const RelayTeamAccessDeniedReason = Schema.Literals([
   "not_team_member",
   "environment_link_not_found",
+  "not_team_admin",
 ]);
 export type RelayTeamAccessDeniedReason = typeof RelayTeamAccessDeniedReason.Type;
 
@@ -636,9 +637,14 @@ export class RelayTeamAccessDeniedError extends Schema.TaggedError<RelayTeamAcce
   { httpApiStatus: 403 },
 ) {
   override get message(): string {
-    return this.reason === "not_team_member"
-      ? "You are not a member of this team"
-      : "No active link to this environment was found";
+    switch (this.reason) {
+      case "not_team_member":
+        return "You are not a member of this team";
+      case "not_team_admin":
+        return "Only a team owner or admin can do this";
+      case "environment_link_not_found":
+        return "No active link to this environment was found";
+    }
   }
 }
 
@@ -809,6 +815,64 @@ export const RelayListTeamEnvironmentsResponse = Schema.Struct({
   environments: Schema.Array(RelayTeamEnvironmentRecord),
 });
 export type RelayListTeamEnvironmentsResponse = typeof RelayListTeamEnvironmentsResponse.Type;
+
+export const RelayTeamConnectivityUrl = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(2048),
+  Schema.makeFilter((value) => {
+    try {
+      const url = new URL(value);
+      return (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash
+      );
+    } catch {
+      return false;
+    }
+  }),
+);
+export type RelayTeamConnectivityUrl = typeof RelayTeamConnectivityUrl.Type;
+
+export const RelayTeamConnectivityClientKey = TrimmedNonEmptyString.check(Schema.isMaxLength(4096));
+export type RelayTeamConnectivityClientKey = typeof RelayTeamConnectivityClientKey.Type;
+
+export const RelayTeamConnectivityRecord = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  url: RelayTeamConnectivityUrl,
+  version: TrimmedNonEmptyString,
+  updatedAt: TrimmedNonEmptyString,
+  updatedBy: TeamPerson,
+});
+export type RelayTeamConnectivityRecord = typeof RelayTeamConnectivityRecord.Type;
+
+export const RelayTeamConnectivityResponse = Schema.Struct({
+  connectivity: Schema.NullOr(RelayTeamConnectivityRecord),
+});
+export type RelayTeamConnectivityResponse = typeof RelayTeamConnectivityResponse.Type;
+
+export const RelayTeamConnectivitySetRequest = Schema.Struct({
+  url: RelayTeamConnectivityUrl,
+  clientKey: RelayTeamConnectivityClientKey,
+});
+export type RelayTeamConnectivitySetRequest = typeof RelayTeamConnectivitySetRequest.Type;
+
+export const RelayEnvironmentTeamConnectivityRecord = Schema.Struct({
+  organizationId: TrimmedNonEmptyString,
+  url: RelayTeamConnectivityUrl,
+  clientKey: RelayTeamConnectivityClientKey,
+  version: TrimmedNonEmptyString,
+});
+export type RelayEnvironmentTeamConnectivityRecord =
+  typeof RelayEnvironmentTeamConnectivityRecord.Type;
+
+export const RelayEnvironmentTeamConnectivityResponse = Schema.Struct({
+  sharedOrganizationIds: Schema.Array(TrimmedNonEmptyString),
+  teams: Schema.Array(RelayEnvironmentTeamConnectivityRecord),
+});
+export type RelayEnvironmentTeamConnectivityResponse =
+  typeof RelayEnvironmentTeamConnectivityResponse.Type;
 
 export const RelayEnvironmentConnectRequest = Schema.Struct({
   deviceId: Schema.optional(
@@ -1255,6 +1319,25 @@ const RelayClientGroup = HttpApiGroup.make("client")
       success: RelayListTeamEnvironmentsResponse,
       error: RelayTeamErrors,
     }).annotate(OpenApi.Summary, "List the environments shared with a team"),
+    HttpApiEndpoint.get("getTeamConnectivity", "/v1/teams/:organizationId/connectivity", {
+      headers: RelayBearerRequestHeaders,
+      params: RelayTeamParams,
+      success: RelayTeamConnectivityResponse,
+      error: RelayTeamErrors,
+    }).annotate(OpenApi.Summary, "Read a team's provider connectivity without its key"),
+    HttpApiEndpoint.put("setTeamConnectivity", "/v1/teams/:organizationId/connectivity", {
+      headers: RelayBearerRequestHeaders,
+      params: RelayTeamParams,
+      payload: RelayTeamConnectivitySetRequest,
+      success: RelayTeamConnectivityRecord,
+      error: RelayTeamErrors,
+    }).annotate(OpenApi.Summary, "Set a team's provider connectivity"),
+    HttpApiEndpoint.delete("removeTeamConnectivity", "/v1/teams/:organizationId/connectivity", {
+      headers: RelayBearerRequestHeaders,
+      params: RelayTeamParams,
+      success: RelayOkResponse,
+      error: RelayTeamErrors,
+    }).annotate(OpenApi.Summary, "Remove a team's provider connectivity"),
     HttpApiEndpoint.get("getT3ChatLink", "/v1/client/t3chat-link", {
       headers: RelayBearerRequestHeaders,
       success: RelayT3ChatLinkResponse,
@@ -1389,6 +1472,18 @@ const RelayServerGroup = HttpApiGroup.make("server")
     }).annotate(
       OpenApi.Summary,
       "Deliver webhook requests held while the environment was offline now",
+    ),
+    HttpApiEndpoint.get(
+      "readEnvironmentTeamConnectivity",
+      "/v1/environments/:environmentId/team-connectivity",
+      {
+        params: Schema.Struct({ environmentId: EnvironmentId }),
+        success: RelayEnvironmentTeamConnectivityResponse,
+        error: [RelayAuthInvalidError, RelayTeamsUnavailableError, RelayInternalError],
+      },
+    ).annotate(
+      OpenApi.Summary,
+      "Read the provider connectivity of every team this environment is shared with",
     ),
   )
   .annotate(OpenApi.Description, "Environment-authenticated activity publication.")

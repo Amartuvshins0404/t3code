@@ -15,6 +15,8 @@ import {
   type RelayEnvironmentLinkResponse,
   type RelayEnvironmentStatusResponse,
   type RelayEnvironmentTeamShareRecord,
+  type RelayTeamConnectivityRecord,
+  type RelayTeamConnectivitySetRequest,
   type RelayTeamEnvironmentRecord,
   RelayExchangeDpopAccessTokenEndpoint,
   RelayGetEnvironmentStatusEndpoint,
@@ -106,6 +108,9 @@ export const ManagedRelayRequestAction = Schema.Literals([
   "list environment team shares",
   "share environment with team",
   "unshare environment with team",
+  "read team connectivity",
+  "set team connectivity",
+  "remove team connectivity",
 ]);
 export type ManagedRelayRequestAction = typeof ManagedRelayRequestAction.Type;
 
@@ -129,6 +134,9 @@ export const ManagedRelayRequestActivity = Schema.Literals([
   "Relay environment team share listing",
   "Relay environment team sharing",
   "Relay environment team unsharing",
+  "Relay team connectivity lookup",
+  "Relay team connectivity update",
+  "Relay team connectivity removal",
 ]);
 export type ManagedRelayRequestActivity = typeof ManagedRelayRequestActivity.Type;
 
@@ -291,6 +299,20 @@ export class ManagedRelayClient extends Context.Service<
     readonly unshareEnvironmentWithTeam: (input: {
       readonly identityToken: string;
       readonly environmentId: RelayClientEnvironmentRecord["environmentId"];
+      readonly organizationId: string;
+    }) => Effect.Effect<RelayOkResponse, ManagedRelayClientError>;
+    readonly getTeamConnectivity: (input: {
+      readonly identityToken: string;
+      readonly organizationId: string;
+    }) => Effect.Effect<RelayTeamConnectivityRecord | null, ManagedRelayClientError>;
+    readonly setTeamConnectivity: (
+      input: {
+        readonly identityToken: string;
+        readonly organizationId: string;
+      } & RelayTeamConnectivitySetRequest,
+    ) => Effect.Effect<RelayTeamConnectivityRecord, ManagedRelayClientError>;
+    readonly removeTeamConnectivity: (input: {
+      readonly identityToken: string;
       readonly organizationId: string;
     }) => Effect.Effect<RelayOkResponse, ManagedRelayClientError>;
     readonly listDevices: (input: {
@@ -460,6 +482,9 @@ function disabledManagedRelayClient(relayUrl: string): ManagedRelayClient["Servi
     unshareEnvironmentWithTeam: unavailable(
       "clientRuntime.managedRelay.unshareEnvironmentWithTeam",
     ),
+    getTeamConnectivity: unavailable("clientRuntime.managedRelay.getTeamConnectivity"),
+    setTeamConnectivity: unavailable("clientRuntime.managedRelay.setTeamConnectivity"),
+    removeTeamConnectivity: unavailable("clientRuntime.managedRelay.removeTeamConnectivity"),
     listDevices: unavailable("clientRuntime.managedRelay.listDevices"),
     createEnvironmentLinkChallenge: unavailable(
       "clientRuntime.managedRelay.createEnvironmentLinkChallenge",
@@ -832,6 +857,53 @@ export const make = Effect.fn("ManagedRelayClient.make")(function* (
           );
       },
       Effect.withSpan("clientRuntime.managedRelay.unshareEnvironmentWithTeam"),
+      withRelayClientTracing,
+    ),
+    getTeamConnectivity: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.client
+          .getTeamConnectivity({
+            headers: bearerHeaders(input.identityToken),
+            params: { organizationId: input.organizationId },
+          })
+          .pipe(
+            Effect.map((response) => response.connectivity),
+            Effect.mapError(relayRequestError("read team connectivity")),
+            timeoutRelayRequest("Relay team connectivity lookup"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.getTeamConnectivity"),
+      withRelayClientTracing,
+    ),
+    setTeamConnectivity: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.client
+          .setTeamConnectivity({
+            headers: bearerHeaders(input.identityToken),
+            params: { organizationId: input.organizationId },
+            payload: { url: input.url, clientKey: input.clientKey },
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("set team connectivity")),
+            timeoutRelayRequest("Relay team connectivity update"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.setTeamConnectivity"),
+      withRelayClientTracing,
+    ),
+    removeTeamConnectivity: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.client
+          .removeTeamConnectivity({
+            headers: bearerHeaders(input.identityToken),
+            params: { organizationId: input.organizationId },
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("remove team connectivity")),
+            timeoutRelayRequest("Relay team connectivity removal"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.removeTeamConnectivity"),
       withRelayClientTracing,
     ),
     listDevices: Effect.fnUntraced(
