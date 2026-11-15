@@ -101,7 +101,7 @@ export function awaitNewTeamProject(awaited: AwaitedTeamProject): void {
 }
 
 export function closeTeamDialog(): void {
-  useTeamUiStore.setState({ dialog: null });
+  useTeamUiStore.setState({ dialog: null, awaitedProject: null });
 }
 
 export function requestWorkspaceSwitcher(): void {
