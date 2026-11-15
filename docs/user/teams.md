@@ -48,6 +48,30 @@ Give **Steer** on a full-access thread only to people you would let use your mac
 Each message shows who sent it. Avatars in the thread header and the sidebar show who has the thread
 open, and a line above the message box shows who is typing.
 
+## Whose accounts a shared thread uses
+
+A shared thread runs on the owner's Claude and Codex accounts, whoever sends the message, unless the
+team connects its own [CLIProxyAPI](./usage.md#connect-a-cliproxyapi-hub) hub.
+
+To connect one, a team owner or admin opens **Settings → Team → Connectivity**, chooses **Connect**,
+and enters the hub's address and one of its client access keys. The key goes to T3 Connect and no
+screen shows it again. Members see the address and who set it. An admin can **Replace** or
+**Remove** it.
+
+Then every thread shared with the team that uses Claude or Codex runs through the team's hub, for
+the owner's and teammates' messages alike. Other providers stay on the owner's accounts. Stop
+sharing the thread and its next message is back on the owner's accounts.
+
+- The share dialog and the header badge say what the thread runs on. Teammates see it under the
+  message box.
+- **Settings → Team → Connectivity** lists each of your machines shared with the team, with
+  **Ready** or why it is not.
+- The machine must run a recent T3 Code. An older one shows **Update this machine to use the team
+  connection** and keeps using your accounts.
+- If the team has a connection but the machine cannot get the key, for example while T3 Connect is
+  unreachable, messages in team threads fail until it is back. They never fall back to your
+  accounts.
+
 ## Stop sharing
 
 - One thread: select the badge in the thread header, or use **Stop sharing thread** in the command

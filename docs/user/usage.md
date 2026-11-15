@@ -175,7 +175,8 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 To see pooled accounts, open **Settings → Providers → Add provider**, choose **CLI Proxy**, and
 choose **Add**, or choose **Set up** next to CLI Proxy on the Welcome page. T3 connects one proxy
-at a time; connecting another replaces it.
+of your own at a time; connecting another replaces it. A team can also connect its own proxy for
+threads shared with it; see [Teams](./teams.md#whose-accounts-a-shared-thread-uses).
 
 - On a Mac with Homebrew, choose **Install and connect**. T3 installs and starts CLIProxyAPI and
   connects it for you. A new install only accepts connections from the same computer.
