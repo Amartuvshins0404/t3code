@@ -72,12 +72,23 @@ const supportedRuntimeModesByInstance = new Map<ProviderInstanceId, ReadonlyArra
   [grokInstanceId, ["approval-required", "auto", "full-access"]],
   [antigravityInstanceId, ["approval-required", "auto-accept-edits", "full-access"]],
 ]);
+const claudeInstanceId = ProviderInstanceId.make("claudeAgent");
+const oldClaudeInstanceId = ProviderInstanceId.make("claude-old");
+const unknownClaudeInstanceId = ProviderInstanceId.make("claude-unknown");
+const claudeVersionsByInstance = new Map<ProviderInstanceId, string | null>([
+  [claudeInstanceId, "2.1.248"],
+  [oldClaudeInstanceId, "2.1.247"],
+  [unknownClaudeInstanceId, null],
+]);
 const providerInstanceFor = (instanceId: ProviderInstanceId) =>
   ({
-    driverKind: ProviderDriverKind.make(instanceId),
+    driverKind: ProviderDriverKind.make(
+      claudeVersionsByInstance.has(instanceId) ? "claudeAgent" : instanceId,
+    ),
     snapshot: {
       getSnapshot: Effect.succeed({
         supportedRuntimeModes: supportedRuntimeModesByInstance.get(instanceId),
+        version: claudeVersionsByInstance.get(instanceId) ?? null,
       } as ServerProvider),
     },
   }) as ProviderInstance;
@@ -194,7 +205,6 @@ it.layer(
   );
 });
 
-const claudeInstanceId = ProviderInstanceId.make("claudeAgent");
 const agentSecrets = new Map([
   ["team-shared-organizations", JSON.stringify(["org-on", "org-off"])],
   [
@@ -234,7 +244,7 @@ it.layer(
     },
   });
 
-  it.effect("refuses a turn while the agent is off or on a model that is not Claude", () =>
+  it.effect("refuses a turn while the agent is off, not on Claude, or on an old Claude Code", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;
       const now = yield* DateTime.now;
@@ -252,6 +262,8 @@ it.layer(
           );
       assert.equal(yield* refusal("org-off", claudeInstanceId), "agent_off");
       assert.equal(yield* refusal("org-on", providerInstanceId), "agent_provider_unsupported");
+      assert.equal(yield* refusal("org-on", oldClaudeInstanceId), "agent_claude_outdated");
+      assert.equal(yield* refusal("org-on", unknownClaudeInstanceId), "agent_claude_outdated");
     }),
   );
 

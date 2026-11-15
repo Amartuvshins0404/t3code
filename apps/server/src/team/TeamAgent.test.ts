@@ -46,6 +46,7 @@ const ask = (
     state,
     existingProjectIds: new Set([web, api]),
     modelDriver: claude,
+    modelVersion: "2.1.248",
     runningAgentTurns: 0,
     ...overrides,
   });
@@ -112,6 +113,8 @@ describe("decideTeamAgentAsk", () => {
       { modelDriver: ProviderDriverKind.make("codex") },
       "agent_provider_unsupported",
     ],
+    ["a Claude Code older than 2.1.248", { modelVersion: "2.1.247" }, "agent_claude_outdated"],
+    ["a Claude Code of unknown version", { modelVersion: null }, "agent_claude_outdated"],
     ["a third question while two are running", { runningAgentTurns: 2 }, "agent_busy"],
   ])("refuses %s with its reason", (_label, overrides, reason) => {
     expect(refusal(ask(overrides))).toBe(reason);
@@ -180,17 +183,30 @@ describe("teamAgentStatuses", () => {
   const projects = [{ projectId: web, title: "Web" }];
 
   it("shows a teammate only their own team's agent and never the model", () => {
-    expect(teamAgentStatuses({ state, member: teammate, projects })).toEqual({
+    expect(
+      teamAgentStatuses({
+        state,
+        member: teammate,
+        projects,
+        claudeOutdatedOrganizationIds: new Set(),
+      }),
+    ).toEqual({
       agents: [
         { organizationId: "org-a", enabled: true, projects: [{ projectId: web, title: "Web" }] },
       ],
     });
   });
 
-  it("shows the owner every shared team with its model", () => {
-    const statuses = teamAgentStatuses({ state, member: undefined, projects });
+  it("shows the owner every shared team with its model and whether Claude Code is too old", () => {
+    const statuses = teamAgentStatuses({
+      state,
+      member: undefined,
+      projects,
+      claudeOutdatedOrganizationIds: new Set(["org-a"]),
+    });
     expect(statuses.agents.map((agent) => agent.organizationId)).toEqual(["org-a", "org-b"]);
     expect(statuses.agents[0]?.modelSelection).toEqual(modelSelection);
+    expect(statuses.agents.map((agent) => agent.claudeOutdated === true)).toEqual([true, false]);
   });
 });
 

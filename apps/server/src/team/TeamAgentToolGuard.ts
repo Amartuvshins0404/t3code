@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 
 export const TEAM_AGENT_FILE_TOOLS = ["Read", "Glob", "Grep"] as const;
 
@@ -75,6 +76,15 @@ export const TEAM_AGENT_FILE_MENTION_MESSAGE =
   "Agent conversations do not take @ file mentions. Write the path without @ and the agent will read it.";
 
 export const hasTeamAgentFileMention = (text: string) => FILE_MENTION.test(text);
+
+const TEAM_AGENT_MIN_CLAUDE_VERSION = "2.1.248";
+
+export const TEAM_AGENT_CLAUDE_OUTDATED_MESSAGE = `This agent needs Claude Code ${TEAM_AGENT_MIN_CLAUDE_VERSION} or newer on its owner's machine.`;
+
+export const claudeVersionServesTeamAgent = (version: string | null | undefined) =>
+  version != null &&
+  parseSemver(version) !== null &&
+  compareSemverVersions(version, TEAM_AGENT_MIN_CLAUDE_VERSION) >= 0;
 
 export const TeamAgentReadableRoots = Schema.Struct({
   type: Schema.Literal("readOnly"),

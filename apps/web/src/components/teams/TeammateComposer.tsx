@@ -67,7 +67,11 @@ export function TeammateComposer({
   if (agentOff) {
     return (
       <div className="flex flex-col gap-1 px-4 py-3">
-        <p className="text-sm text-muted-foreground">{ownerName}&apos;s agent is off.</p>
+        <p className="text-sm text-muted-foreground">
+          {agentState.kind === "answered" && agentState.agent?.claudeOutdated === true
+            ? `${ownerName} needs to update Claude Code for their agent.`
+            : `${ownerName}'s agent is off.`}
+        </p>
         <TeammateConnectivityLine threadRef={threadRef} ownerName={ownerName} />
       </div>
     );

@@ -121,6 +121,7 @@ export const TeamAgentStatus = Schema.Struct({
   enabled: Schema.Boolean,
   projects: Schema.Array(TeamAgentProject),
   modelSelection: Schema.optional(ModelSelection),
+  claudeOutdated: Schema.optional(Schema.Boolean),
 });
 export type TeamAgentStatus = typeof TeamAgentStatus.Type;
 
@@ -161,6 +162,7 @@ export class TeamAccessError extends Schema.TaggedError<TeamAccessError>()("Team
     "agent_off",
     "agent_project_not_allowed",
     "agent_provider_unsupported",
+    "agent_claude_outdated",
     "agent_busy",
     "internal",
   ]),

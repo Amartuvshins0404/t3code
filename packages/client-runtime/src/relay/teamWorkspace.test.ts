@@ -136,6 +136,16 @@ describe("a person's agent", () => {
     ],
     ["offline", [machine("m1", "2026-01-01", { kind: "offline" })], "offline"],
     ["needs an update", [machine("m1", "2026-01-01", { kind: "outdated" })], "needs_update"],
+    [
+      "agent on but Claude Code too old",
+      [
+        machine("m1", "2026-01-01", {
+          kind: "answered",
+          agent: { ...agent(true), claudeOutdated: true },
+        }),
+      ],
+      "needs_update",
+    ],
     ["still connecting", [machine("m1", "2026-01-01", { kind: "connecting" })], "loading"],
     ["still checking", [machine("m1", "2026-01-01", { kind: "checking" })], "loading"],
     [

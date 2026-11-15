@@ -140,7 +140,9 @@ function MyAgentControls({
     .filter((project) => draft.projectIds.includes(project.id))
     .map((project) => project.title);
   const description = draft.enabled
-    ? `On. Answers about ${pickedTitles.join(", ") || "your projects"}.`
+    ? current?.claudeOutdated === true
+      ? `On, but Claude Code on ${machine.label} needs 2.1.248 or newer before it can answer.`
+      : `On. Answers about ${pickedTitles.join(", ") || "your projects"}.`
     : entries.length === 0
       ? `Add a Claude provider on ${machine.label} to turn it on.`
       : draft.projectIds.length === 0
