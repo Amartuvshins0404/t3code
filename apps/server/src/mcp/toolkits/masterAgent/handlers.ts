@@ -2,9 +2,13 @@ import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import * as MasterAgent from "../../../masterAgent/MasterAgent.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import { summarizeProjectBoard } from "../../../project/projectBoard.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
 import { masterAgentMemoryEntryBytes } from "../../../persistence/MasterAgentStore.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import { unavailable } from "../../threadAccess.ts";
 import { MasterAgentToolkit } from "./tools.ts";
 
 const toFailure = (error: { readonly _tag: string; readonly message: string }) =>
@@ -48,6 +52,38 @@ export const layer = McpToolAccess.toLayer(MasterAgentToolkit, {
         entries,
         usedBytes: entries.reduce((total, entry) => total + masterAgentMemoryEntryBytes(entry), 0),
         limitBytes: MasterAgent.MASTER_AGENT_MEMORY_MAX_BYTES,
+      };
+    }),
+  ),
+  t3_project_board: McpToolAccess.readsAsCaller(() =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const projects = yield* ProjectService.ProjectService;
+      const masterAgent = yield* MasterAgent.MasterAgent;
+      const [snapshot, shells, masterThreadId] = yield* Effect.all([
+        threads.getShellSnapshot({ location: "active" }).pipe(Effect.mapError(unavailable)),
+        projects.listShells().pipe(Effect.mapError(unavailable)),
+        masterAgent.threadId.pipe(Effect.orElseSucceed(() => null)),
+      ]);
+      const board = summarizeProjectBoard({
+        projects: shells,
+        threads: snapshot.threads,
+        hiddenThreadId: masterThreadId,
+      });
+      return {
+        projects: board.map(({ project, counts, needsYou }) => ({
+          projectId: project.id,
+          title: project.title,
+          working: counts.working,
+          needsYou: counts["needs-you"],
+          inChecks: counts["in-checks"],
+          done: counts.done,
+          needsYouThreads: needsYou.map((item) => ({
+            ...item,
+            link: McpInvocationContext.threadLinkFor(scope, item.threadId, item.title),
+          })),
+        })),
       };
     }),
   ),

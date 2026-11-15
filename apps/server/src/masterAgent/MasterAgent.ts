@@ -14,6 +14,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
@@ -28,6 +29,7 @@ import * as ServerSettings from "../serverSettings.ts";
 const MASTER_AGENT_THREAD_TITLE = "Agent";
 export const MASTER_AGENT_MEMORY_MAX_BYTES = 32_768;
 const MASTER_AGENT_MEMORY_KEY_MAX_LENGTH = 80;
+const isThreadLaunchError = Schema.is(ThreadLaunch.ThreadLaunchError);
 
 export class MasterAgentEnsureError extends Schema.TaggedError<MasterAgentEnsureError>()(
   "MasterAgentEnsureError",
@@ -168,34 +170,47 @@ const make = Effect.gen(function* () {
     const { projectId } = yield* managedFolders.ensureScratchProject.pipe(
       Effect.mapError(fail("scratch-project")),
     );
-    let threadId = yield* reservedThreadId;
+    const threadId = yield* reservedThreadId;
     const shell = yield* threads
       .getThreadShell(threadId)
       .pipe(Effect.mapError(fail("read-thread")));
-    if (shell !== null && shell.deletedAt === null) {
+    if (shell !== null) {
       if (shell.autoSettleDisabledAt == null) yield* keepUnsettled(threadId);
       return { projectId: shell.projectId, threadId };
     }
-    if (shell !== null) {
-      threadId = yield* store
-        .replaceThreadId({ previous: threadId, next: yield* newThreadId })
-        .pipe(Effect.mapError(fail("thread-id")));
-    }
     const { selection, runtimeMode } = yield* resolveSelection(projectId);
-    const launched = yield* launches
-      .launch({
-        commandId: CommandId.make(`master-agent:${threadId}`),
-        threadId,
-        projectId,
-        title: MASTER_AGENT_THREAD_TITLE,
-        modelSelection: selection,
-        runtimeMode,
-        interactionMode: "default",
-        workspaceStrategy: { type: "root" },
-        createdBy: "system",
-        creationSource: "server",
-      })
-      .pipe(Effect.mapError(fail("launch")));
+    const launch = (id: ThreadId) =>
+      launches
+        .launch({
+          commandId: CommandId.make(`master-agent:${id}`),
+          threadId: id,
+          projectId,
+          title: MASTER_AGENT_THREAD_TITLE,
+          modelSelection: selection,
+          runtimeMode,
+          interactionMode: "default",
+          workspaceStrategy: { type: "root" },
+          createdBy: "system",
+          creationSource: "server",
+        })
+        .pipe(Effect.mapError(fail("launch")));
+    // No shell, yet the id is taken: a deleted thread holds it, so the agent moves to a new id.
+    const launched = yield* launch(threadId).pipe(
+      Effect.catchIf(
+        (error) =>
+          isThreadLaunchError(error.cause) &&
+          Predicate.isTagged(error.cause.cause, "OrchestratorThreadAlreadyExistsError"),
+        () =>
+          newThreadId.pipe(
+            Effect.flatMap((next) =>
+              store
+                .replaceThreadId({ previous: threadId, next })
+                .pipe(Effect.mapError(fail("thread-id"))),
+            ),
+            Effect.flatMap(launch),
+          ),
+      ),
+    );
     yield* keepUnsettled(launched.threadId);
     return { projectId: launched.projection.thread.projectId, threadId: launched.threadId };
   }).pipe(ensureLock.withPermits(1), Effect.withSpan("MasterAgent.ensure"));

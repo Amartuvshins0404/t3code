@@ -323,7 +323,7 @@ const layerProjectPlantProvided = ProjectPlant.layer.pipe(
     Layer.mergeAll(layerProjectService, layerThreadLaunchProvided, layerThreadManagementProvided),
   ),
 );
-const layerMasterAgentProvided = MasterAgent.layer.pipe(
+export const layerMasterAgent = MasterAgent.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       MasterAgentStore.layer,
@@ -415,7 +415,7 @@ export const layerProduction = Layer.mergeAll(
   layerThreadLaunchProvided,
   layerScheduledTaskProvided,
   layerScratchThreadPromotionProvided,
-  layerMasterAgentProvided,
+  layerMasterAgent,
   layerProjectPlantProvided,
   layerSecretRequestsProvided,
   GuestShareService.layer.pipe(

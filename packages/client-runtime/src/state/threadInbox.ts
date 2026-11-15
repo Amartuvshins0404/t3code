@@ -1,8 +1,12 @@
 // @effect-diagnostics globalTimers:off - Shelf placement timers run in web and native clients, outside an Effect runtime.
-import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
+import type { EnvironmentThreadShell } from "./models.ts";
 import { toSortableTimestamp } from "./threadSort.ts";
 import { effectiveSnoozed } from "./threadSettled.ts";
 
+import { isThreadWorking, threadAttentionReason } from "@t3tools/shared/projectBoard";
+
+export { isThreadWorking };
+export type { ThreadAttentionReason } from "@t3tools/shared/projectBoard";
 type WorkingThreadInput = Pick<
   EnvironmentThreadShell,
   | "hasActionableProposedPlan"
@@ -13,45 +17,6 @@ type WorkingThreadInput = Pick<
   | "latestRun"
   | "runtime"
 >;
-
-export function isThreadWorking(thread: WorkingThreadInput): boolean {
-  if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
-  if (thread.pendingSubagentRequest != null) return false;
-  if (!threadRuntimeIsActive(thread.runtime) && thread.runtime?.status !== "idle") return false;
-  const run = thread.latestRun;
-  const runSettled =
-    run !== null &&
-    run.status !== "preparing" &&
-    run.status !== "queued" &&
-    run.status !== "starting" &&
-    run.status !== "running" &&
-    run.status !== "waiting" &&
-    thread.runtime?.activeRunId !== run.runId;
-  return !(thread.interactionMode === "plan" && thread.hasActionableProposedPlan && runSettled);
-}
-
-type AttentionThreadInput = WorkingThreadInput &
-  Partial<Pick<EnvironmentThreadShell, "pendingGuestMessageCount">>;
-
-export type ThreadAttentionReason =
-  | "approval"
-  | "question"
-  | "subagent-request"
-  | "guest-message"
-  | "plan"
-  | "error"
-  | "failed-run";
-
-export function threadAttentionReason(thread: AttentionThreadInput): ThreadAttentionReason | null {
-  if (thread.hasPendingApprovals) return "approval";
-  if (thread.hasPendingUserInput) return "question";
-  if (thread.pendingSubagentRequest != null) return "subagent-request";
-  if ((thread.pendingGuestMessageCount ?? 0) > 0) return "guest-message";
-  if (thread.interactionMode === "plan" && thread.hasActionableProposedPlan) return "plan";
-  if (thread.runtime?.lastError != null) return "error";
-  if (thread.latestRun?.status === "failed") return "failed-run";
-  return null;
-}
 
 /**
  * A thread its own client is launching reads as preparing until its first run lands.

@@ -289,6 +289,10 @@ Passes per case, main's runtime text (3 samples) → this branch's "Link every o
 
 After the change, the first reference to a file is an absolute link. The remaining failures come from two other kinds of span. Some repeat the file later as relative inline code (Sonnet's other-checkout failures). Others quote values rather than cite files, such as `main` set to `src/index.ts` or the import `./ws`. Chat still turns those spans into pills.
 
+## Master agent cases
+
+`cases/master-agent.ndjson` checks the owner's one constant agent thread: it saves standing rules to memory, reads `t3_project_board` before it reports how work stands, and starts project work in a project thread instead of editing files. `world.masterAgentMemory` makes the case thread the agent thread: T3's agent text and that memory reach both harnesses, and the memory and board tools are listed. Other cases see none of it.
+
 ## Where T3's text lives
 
 - `packages/provider-core/src/server/runtimeInstructions.ts`

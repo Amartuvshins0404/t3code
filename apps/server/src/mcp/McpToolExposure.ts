@@ -4,14 +4,18 @@ import * as Effect from "effect/Effect";
 export const TOOL_SEARCH = "tool_search";
 
 /** Listed only to the agent thread, so search never offers them elsewhere. */
-const MEMORY_TOOLS: ReadonlySet<string> = new Set(["agent_memory_read", "agent_memory_write"]);
+const AGENT_THREAD_TOOLS: ReadonlySet<string> = new Set([
+  "agent_memory_read",
+  "agent_memory_write",
+  "t3_project_board",
+]);
 
 /** What a deferring client lists before it searches. Pi's extension declares the same three. */
 const DIRECT_TOOLS: ReadonlySet<string> = new Set([
   "orchestrator_capabilities",
   "delegate_task",
   "task_status",
-  ...MEMORY_TOOLS,
+  ...AGENT_THREAD_TOOLS,
   TOOL_SEARCH,
 ]);
 
@@ -70,7 +74,7 @@ export const make = (
         .split(/[^a-z0-9_]+/u)
         .filter(Boolean);
       const found = tools()
-        .filter((tool) => tool.name !== TOOL_SEARCH && !MEMORY_TOOLS.has(tool.name))
+        .filter((tool) => tool.name !== TOOL_SEARCH && !AGENT_THREAD_TOOLS.has(tool.name))
         .map((tool) => ({ tool, score: score(tool, terms) }))
         .filter((match) => match.score > 0)
         .sort((a, b) => b.score - a.score)

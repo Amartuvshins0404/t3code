@@ -1255,7 +1255,7 @@ const layerMasterAgentVisibility = McpServer.visibility(
   }),
 ).layer;
 
-const layerMasterAgentToolkit = toolkitRegistration(
+export const layerMasterAgentToolkit = toolkitRegistration(
   MasterAgentToolkit,
   MasterAgentHandlers.layer,
 ).pipe(Layer.provide(layerMasterAgentVisibility));

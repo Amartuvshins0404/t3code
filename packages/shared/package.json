@@ -431,6 +431,10 @@
       "types": "./src/orchestrationV2PendingBackgroundWork.ts",
       "import": "./src/orchestrationV2PendingBackgroundWork.ts"
     },
+    "./projectBoard": {
+      "types": "./src/projectBoard.ts",
+      "import": "./src/projectBoard.ts"
+    },
     "./hostClassification": {
       "types": "./src/hostClassification.ts",
       "import": "./src/hostClassification.ts"

@@ -1,9 +1,10 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { NonNegativeInt, OrchestratorMcpFailure, ProjectId, ThreadId } from "@t3tools/contracts";
 import { Tool, Toolkit } from "effect/ai";
 import * as Schema from "effect/Schema";
 
 import * as MasterAgent from "../../../masterAgent/MasterAgent.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const dependencies = [
@@ -26,7 +27,6 @@ const MemoryUsage = {
 const AgentMemoryReadTool = Tool.make("agent_memory_read", {
   description:
     "Read your saved memory: every key with its content. It is also given to you at session start.",
-  parameters: Schema.Struct({}),
   success: Schema.Struct({ entries: Schema.Array(MemoryEntry), ...MemoryUsage }),
   failure: OrchestratorMcpFailure,
   dependencies,
@@ -55,4 +55,43 @@ const AgentMemoryWriteTool = Tool.make("agent_memory_write", {
   // Saving is unprompted, so Claude Code must not hide it behind ToolSearch.
   .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
 
-export const MasterAgentToolkit = Toolkit.make(AgentMemoryReadTool, AgentMemoryWriteTool);
+const ProjectBoardTool = Tool.make("t3_project_board", {
+  description:
+    "How work stands in every project, as the Projects page shows it: thread counts for Working, Needs you, In checks and Done, and each thread that needs the user, longest waiting first.",
+  success: Schema.Struct({
+    projects: Schema.Array(
+      Schema.Struct({
+        projectId: ProjectId,
+        title: Schema.String,
+        working: NonNegativeInt,
+        needsYou: NonNegativeInt,
+        inChecks: NonNegativeInt,
+        done: NonNegativeInt,
+        needsYouThreads: Schema.Array(
+          Schema.Struct({
+            threadId: ThreadId,
+            title: Schema.String,
+            link: Schema.String,
+            reason: Schema.String,
+            waitingSince: Schema.NullOr(Schema.String),
+            pullRequestUrl: Schema.NullOr(Schema.String),
+          }),
+        ),
+      }),
+    ),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: [...dependencies, ProjectService.ProjectService],
+})
+  .annotate(Tool.Title, "Read the projects board")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+export const MasterAgentToolkit = Toolkit.make(
+  AgentMemoryReadTool,
+  AgentMemoryWriteTool,
+  ProjectBoardTool,
+);

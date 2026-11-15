@@ -84,7 +84,13 @@ import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
+import * as MasterAgent from "../masterAgent/MasterAgent.ts";
 import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
+import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -126,6 +132,7 @@ const layerCheckpointStoreTest = CheckpointStore.layer.pipe(
 );
 const layerGitWorkflowTest = Layer.mock(GitWorkflow.GitWorkflowService)({
   pruneWorktrees: () => Effect.void,
+  repositoryRoot: () => Effect.succeed(null),
   createWorktree: () => Effect.succeed({} as never),
 });
 const layerProjectServiceTest = Layer.mock(ProjectService.ProjectService)({
@@ -438,7 +445,37 @@ const layerProjectDeletionTest = Layer.mergeAll(
   RuntimeLayer.layerEventSink,
   ThreadCommandExecutor.layer,
   MasterAgentStore.layer,
+  RuntimeLayer.layerMasterAgent,
 ).pipe(
+  // The agent thread launches with no message, so nothing it needs runs a turn or a checkout.
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mock(ProviderRegistry.ProviderRegistry)({
+        getProviders: Effect.succeed([
+          {
+            instanceId: modelSelection.instanceId,
+            driver,
+            enabled: true,
+            installed: true,
+            version: "1.0.0",
+            status: "ready",
+            auth: { status: "authenticated" },
+            checkedAt: "2026-11-15T00:00:00.000Z",
+            models: [
+              { slug: modelSelection.model, name: "GPT", isCustom: false, capabilities: null },
+            ],
+            slashCommands: [],
+            skills: [],
+          },
+        ]),
+      }),
+      Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+      Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
+      Layer.mock(TerminalManager.TerminalManager)({}),
+      Layer.mock(TextGeneration.TextGeneration)({}),
+      Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),
+    ),
+  ),
   Layer.provide(
     Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({
       peek: () =>
@@ -653,6 +690,113 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
         assert.deepEqual(yield* devices.sessionsForThread(otherThreadId), otherSessions);
         assert.isTrue((yield* devices.state).devices[0]?.booted);
       }),
+  );
+
+  it.effect("opens one agent thread, however often and concurrently it is asked", () =>
+    Effect.gen(function* () {
+      const masterAgent = yield* MasterAgent.MasterAgent;
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const opened = yield* Effect.all(
+        Array.from({ length: 4 }, () => masterAgent.ensure),
+        {
+          concurrency: "unbounded",
+        },
+      );
+      const again = yield* masterAgent.ensure;
+
+      assert.deepEqual(new Set([...opened, again].map((result) => result.threadId)).size, 1);
+      assert.strictEqual(again.threadId, yield* masterAgent.threadId);
+      const shell = yield* threads.getThreadShell(again.threadId);
+      assert.strictEqual(shell?.title, "Agent");
+      assert.strictEqual(shell?.projectId, again.projectId);
+      assert.isNotNull(shell?.autoSettleDisabledAt);
+    }),
+  );
+
+  it.effect("refuses to archive or delete the agent thread or the project holding it", () =>
+    Effect.gen(function* () {
+      const masterAgent = yield* MasterAgent.MasterAgent;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projects = yield* ProjectService.ProjectService;
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const { projectId, threadId } = yield* masterAgent.ensure;
+
+      for (const type of ["thread.archive", "thread.delete"] as const) {
+        const error = yield* orchestrator
+          .dispatch({ type, commandId: CommandId.make(`agent-protect:${type}`), threadId })
+          .pipe(Effect.flip);
+        assert.strictEqual(error._tag, "OrchestratorMasterThreadProtectedError");
+      }
+      const deletion = yield* projects
+        .delete({ commandId: CommandId.make("agent-protect:project"), projectId, force: true })
+        .pipe(Effect.flip);
+      assert.strictEqual(deletion._tag, "ProjectInvalidError");
+
+      const shell = yield* threads.getThreadShell(threadId);
+      assert.isNull(shell?.archivedAt);
+      assert.isNull(shell?.deletedAt);
+    }),
+  );
+
+  it.effect("opens a new agent thread when the stored one was deleted", () =>
+    Effect.gen(function* () {
+      const masterAgent = yield* MasterAgent.MasterAgent;
+      const store = yield* MasterAgentStore.MasterAgentStore;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const stale = yield* masterAgent.ensure;
+      const replacement = ThreadId.make("agent-deleted-before-protection");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("agent-stale-create"),
+        createdBy: "user",
+        creationSource: "web",
+        threadId: replacement,
+        projectId: stale.projectId,
+        title: "Old agent",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("agent-stale-delete"),
+        threadId: replacement,
+      });
+      yield* store.replaceThreadId({ previous: stale.threadId, next: replacement });
+
+      const reopened = yield* masterAgent.ensure;
+
+      assert.notStrictEqual(reopened.threadId, replacement);
+      assert.strictEqual(yield* masterAgent.threadId, reopened.threadId);
+      assert.isNull((yield* threads.getThreadShell(reopened.threadId))?.deletedAt);
+    }),
+  );
+
+  it.effect("keeps agent memory within its size cap and frees room on delete", () =>
+    Effect.gen(function* () {
+      const masterAgent = yield* MasterAgent.MasterAgent;
+      const fill = "x".repeat(MasterAgent.MASTER_AGENT_MEMORY_MAX_BYTES - "fill".length);
+      yield* masterAgent.writeMemory({ key: "fill", content: fill });
+
+      const full = yield* masterAgent.writeMemory({ key: "more", content: "y" }).pipe(Effect.flip);
+      assert.strictEqual(full._tag, "MasterAgentMemoryFullError");
+      assert.include(full.message, "agent_memory_write");
+      assert.deepEqual(
+        (yield* masterAgent.listMemory).map((entry) => entry.key),
+        ["fill"],
+      );
+
+      yield* masterAgent.writeMemory({ key: "fill", content: "  " });
+      const saved = yield* masterAgent.writeMemory({ key: "more", content: "y" });
+      assert.strictEqual(saved.usedBytes, "more".length + 1);
+      assert.deepEqual(
+        (yield* masterAgent.listMemory).map((entry) => [entry.key, entry.content]),
+        [["more", "y"]],
+      );
+    }),
   );
 
   it.effect("waits for an in-flight thread update before planning deletion", () =>

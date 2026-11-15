@@ -511,6 +511,7 @@ export const make = Effect.gen(function* () {
     if (projectThreads.length > 0 && input.force !== true) {
       return yield* new ProjectNotEmptyError({ projectId });
     }
+    if (projectThreads.length === 0) return;
     const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
       Effect.mapError(
         (cause) => new ProjectOperationError({ operation: "list-threads", projectId, cause }),
