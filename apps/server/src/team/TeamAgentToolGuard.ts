@@ -69,16 +69,12 @@ const TEAM_AGENT_GREP_SECRET_EXCLUSION = `!{${SECRET_NAMES.map(anyCaseGlob).join
 const SECRET_REFUSAL =
   "Secret files such as .env, keys, credentials and .git or .ssh folders are never readable here.";
 
-const FILE_MENTION = /(?:^|[\s([{<"'`])@(\S+)/g;
+const FILE_MENTION = /(?:^|[\s([{<"'`])@(?:~|\.\.?\/|["'`])/;
 
 export const TEAM_AGENT_FILE_MENTION_MESSAGE =
   "Agent conversations do not take @ file mentions. Write the path without @ and the agent will read it.";
 
-export const hasTeamAgentFileMention = (text: string) =>
-  [...text.matchAll(FILE_MENTION)].some(([, token = ""]) => {
-    const target = token.replace(/^["'`]/, "");
-    return target.startsWith("~") || target.includes("/") || target.includes(".");
-  });
+export const hasTeamAgentFileMention = (text: string) => FILE_MENTION.test(text);
 
 export const TeamAgentReadableRoots = Schema.Struct({
   type: Schema.Literal("readOnly"),

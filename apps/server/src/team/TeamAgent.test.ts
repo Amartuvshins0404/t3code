@@ -93,8 +93,18 @@ describe("decideTeamAgentAsk", () => {
       "not_allowed_for_teammates",
     ],
     [
-      "a quoted @ file mention",
+      "a bracketed @ file mention",
       { input: { text: 'Compare ("@./src/auth.ts")' } },
+      "not_allowed_for_teammates",
+    ],
+    [
+      "an @ mention of a parent folder",
+      { input: { text: "Read @../secrets/notes.md" } },
+      "not_allowed_for_teammates",
+    ],
+    [
+      "a quoted @ file mention",
+      { input: { text: 'Summarise @"my file.txt"' } },
       "not_allowed_for_teammates",
     ],
     [
@@ -107,12 +117,18 @@ describe("decideTeamAgentAsk", () => {
     expect(refusal(ask(overrides))).toBe(reason);
   });
 
-  it.each(["Did @amaraa move it into core?", "Mail a@b.com about the migration."])(
-    "answers %j, which only looks like a mention",
-    (text) => {
-      expect(Result.isSuccess(ask({ input: { text } }))).toBe(true);
-    },
-  );
+  it.each([
+    "Did @amaraa move it into core?",
+    "Mail a@b.com about the migration.",
+    "Which @effect/platform version do we use?",
+    "Do we still need @types/node and @angular/core?",
+    "Where does @/components resolve?",
+    "What changed in @v1.2?",
+    "Is @media.print still used?",
+    "Why is @Injectable() on the service?",
+  ])("answers %j, which only looks like a mention", (text) => {
+    expect(Result.isSuccess(ask({ input: { text } }))).toBe(true);
+  });
 
   it("answers while only one other question is running", () => {
     expect(Result.isSuccess(ask({ runningAgentTurns: 1 }))).toBe(true);
