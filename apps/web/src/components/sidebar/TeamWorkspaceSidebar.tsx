@@ -25,6 +25,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from "../ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./SidebarChrome";
 
@@ -153,7 +154,11 @@ function TeamPersonSection({
   const { person, self } = entry;
   const ready = status.kind === "ready";
   const name = self ? "You" : person.name;
-  const ask = () => openAskAgentDialog(teamId, person);
+  const { isMobile, setOpenMobile } = useSidebar();
+  const ask = () => {
+    if (isMobile) setOpenMobile(false);
+    openAskAgentDialog(teamId, person);
+  };
   const label = STATUS_LABELS[status.kind];
   const identity = (
     <>
