@@ -76,7 +76,7 @@ function useAwaitedProject(): {
 } | null {
   const awaited = useTeamUiStore((state) => state.awaitedProject);
   const projects = useProjects();
-  if (awaited === null) return null;
+  if (awaited === null || !awaited.addStarted) return null;
   const known = new Set<string>(awaited.knownProjectIds);
   const added = projects.find(
     (project) =>
