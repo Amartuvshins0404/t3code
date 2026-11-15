@@ -835,9 +835,7 @@ export const RelayTeamConnectivityUrl = TrimmedNonEmptyString.check(
 );
 export type RelayTeamConnectivityUrl = typeof RelayTeamConnectivityUrl.Type;
 
-export const RelayTeamConnectivityClientKey = TrimmedNonEmptyString.check(
-  Schema.isMaxLength(4096),
-);
+export const RelayTeamConnectivityClientKey = TrimmedNonEmptyString.check(Schema.isMaxLength(4096));
 export type RelayTeamConnectivityClientKey = typeof RelayTeamConnectivityClientKey.Type;
 
 export const RelayTeamConnectivityRecord = Schema.Struct({
