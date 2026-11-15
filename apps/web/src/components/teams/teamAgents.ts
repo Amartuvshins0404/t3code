@@ -36,7 +36,9 @@ const machineAgentStateAtom = Atom.family((key: string) => {
   const [environmentId, organizationId] = JSON.parse(key) as [EnvironmentId, string];
   return Atom.make((get): TeamWorkspace.AgentMachineState => {
     const phase = get(environmentPresentations.presentationAtom(environmentId))?.connection.phase;
-    if (phase === "offline" || phase === "error") return { kind: "offline" };
+    if (phase === "offline" || phase === "reconnecting" || phase === "error") {
+      return { kind: "offline" };
+    }
     if (phase === "unsupported") return { kind: "outdated" };
     if (phase !== "connected") return { kind: "connecting" };
     if (!get(teammateConnectionAtom(environmentId))) {
