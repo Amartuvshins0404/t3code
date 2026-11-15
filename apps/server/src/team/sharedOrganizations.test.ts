@@ -10,7 +10,7 @@ import { readTeamSharingState, writeTeamSharingState } from "./sharedOrganizatio
 const amaraaModeSharedOrganizationIds = Schema.fromJsonString(Schema.Array(Schema.String));
 
 const memorySecrets = (initial: Record<string, string> = {}) => {
-  const values = new Map(
+  const values = new Map<string, Uint8Array>(
     Object.entries(initial).map(([name, value]) => [name, new TextEncoder().encode(value)]),
   );
   const secrets = {
@@ -41,7 +41,7 @@ it.effect(
         agents: { "org-a": setting, "org-gone": setting },
       });
 
-      const olderApp = Schema.decodeUnknownSync(amaraaModeSharedOrganizationIds)(
+      const olderApp = yield* Schema.decodeUnknownEffect(amaraaModeSharedOrganizationIds)(
         raw("team-shared-organizations"),
       );
       expect(olderApp).toEqual(["org-a", "org-b"]);

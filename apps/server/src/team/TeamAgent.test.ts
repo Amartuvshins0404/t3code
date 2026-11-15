@@ -1,3 +1,5 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Path has no glob matcher to check the Grep exclusion.
+import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProjectId,
@@ -247,12 +249,11 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
   it.effect("keeps secret files out of every Grep", () =>
     withProject(({ project }) =>
       Effect.gen(function* () {
-        const path = yield* Path.Path;
         const decision = yield* decide("Grep", { pattern: "TOKEN" }, project);
         if (!decision.allow) throw new Error("expected the Grep to run");
         const glob = String(decision.updatedInput?.glob);
         expect(glob.startsWith("!")).toBe(true);
-        const excluded = (name: string) => path.matchesGlob(name, glob.slice(1));
+        const excluded = (name: string) => NodePath.matchesGlob(name, glob.slice(1));
         expect([".env.local", ".npmrc", ".git", "signing.p12", "auth.ts"].map(excluded)).toEqual([
           true,
           true,

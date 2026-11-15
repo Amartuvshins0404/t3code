@@ -54,12 +54,14 @@ export const readTeamSharingState = Effect.fn("TeamSharing.readTeamSharingState"
     yield* readSecret(secrets, TEAM_AGENT_SETTINGS_SECRET),
     decodeStoredAgents,
   );
-  return "organizationIds" in stored
-    ? {
-        organizationIds: stored.organizationIds,
-        agents: Option.getOrElse(storedAgents, () => stored.agents),
-      }
-    : { organizationIds: stored, agents: Option.getOrElse(storedAgents, () => ({})) };
+  const state: TeamSharingState =
+    "organizationIds" in stored
+      ? {
+          organizationIds: stored.organizationIds,
+          agents: Option.getOrElse(storedAgents, () => stored.agents),
+        }
+      : { organizationIds: stored, agents: Option.getOrElse(storedAgents, () => ({})) };
+  return state;
 });
 
 export const writeTeamSharingState = Effect.fn("TeamSharing.writeTeamSharingState")(function* (

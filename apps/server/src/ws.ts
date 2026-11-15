@@ -1498,42 +1498,36 @@ export const layerWsRpc = (
       const resolveClientCommand = (clientCommand: OrchestrationV2Command) => {
         const command = withoutClientMemberAttribution(clientCommand);
         if (teamMember === undefined) return Effect.succeed(command);
-        return (
-          command.type === "message.dispatch" || command.type === "run.interrupt"
-            ? threadTeamShare(command.threadId)
-            : Effect.undefined
-        ).pipe(
-          Effect.flatMap((teamShare) =>
-            (teamShare?.agent === undefined
-              ? Effect.undefined
-              : teamAgent
-                  .followUpState(command.threadId, teamShare.organizationId)
-                  .pipe(Effect.orElseSucceed(() => ({ enabled: false, runningTurnsElsewhere: 0 })))
-            ).pipe(Effect.map((agent) => ({ teamShare, agent }))),
-          ),
-          Effect.flatMap(({ teamShare, agent }) => {
-            const decision = decideTeamMemberCommand({
-              command,
-              teamShare,
-              member: teamMember,
-              ...(agent === undefined ? {} : { agent }),
-            });
-            return Result.isSuccess(decision)
-              ? Effect.succeed(decision.success)
-              : Effect.fail(
-                  new OrchestrationV2DispatchCommandError({
-                    commandId: command.commandId,
-                    commandType: command.type,
-                    message: decision.failure.message,
-                    detail:
-                      decision.failure.requiredPermission !== undefined &&
-                      TEAM_AGENT_REFUSAL_DETAILS.has(decision.failure.requiredPermission)
-                        ? decision.failure.requiredPermission
-                        : decision.failure.message,
-                  }),
-                );
-          }),
-        );
+        return Effect.gen(function* () {
+          const threadId =
+            command.type === "message.dispatch" || command.type === "run.interrupt"
+              ? command.threadId
+              : undefined;
+          const teamShare = threadId === undefined ? undefined : yield* threadTeamShare(threadId);
+          const agent =
+            threadId === undefined || teamShare?.agent === undefined
+              ? undefined
+              : yield* teamAgent
+                  .followUpState(threadId, teamShare.organizationId)
+                  .pipe(Effect.orElseSucceed(() => ({ enabled: false, runningTurnsElsewhere: 0 })));
+          const decision = decideTeamMemberCommand({
+            command,
+            teamShare,
+            member: teamMember,
+            ...(agent === undefined ? {} : { agent }),
+          });
+          if (Result.isSuccess(decision)) return decision.success;
+          const { message, requiredPermission } = decision.failure;
+          return yield* new OrchestrationV2DispatchCommandError({
+            commandId: command.commandId,
+            commandType: command.type,
+            message,
+            detail:
+              requiredPermission !== undefined && TEAM_AGENT_REFUSAL_DETAILS.has(requiredPermission)
+                ? requiredPermission
+                : message,
+          });
+        });
       };
       const untilUnsharedFromTeam = <A, E, R>(
         threadId: ThreadId,
