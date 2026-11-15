@@ -1,5 +1,7 @@
 import type { RelayTeamEnvironmentRecord } from "@t3tools/contracts/relay";
 import {
+  type EnvironmentId,
+  type TeamAgentStatus,
   TeamConnectivityDriver,
   type TeamConnectivityOrganizationStatus,
   type ThreadTeamShare,
@@ -55,11 +57,62 @@ export function workspaceListsThread(
   scope: WorkspaceScope,
   thread: {
     readonly environmentId: string;
-    readonly teamShare?: Pick<ThreadTeamShare, "organizationId"> | null | undefined;
+    readonly teamShare?: Pick<ThreadTeamShare, "organizationId" | "agent"> | null | undefined;
   },
 ): boolean {
   if (!workspaceListsEnvironment(scope, thread.environmentId)) return false;
-  return scope.kind === "personal" || thread.teamShare?.organizationId === scope.teamId;
+  if (scope.kind === "personal") return thread.teamShare?.agent === undefined;
+  return thread.teamShare?.organizationId === scope.teamId;
+}
+
+export type AgentMachineState =
+  | { readonly kind: "connecting" }
+  | { readonly kind: "offline" }
+  | { readonly kind: "outdated" }
+  | { readonly kind: "checking" }
+  | { readonly kind: "answered"; readonly agent: TeamAgentStatus | null };
+
+export interface AgentMachine {
+  readonly environmentId: EnvironmentId;
+  readonly sharedAt: string;
+  readonly state: AgentMachineState;
+}
+
+export type PersonAgentStatus =
+  | {
+      readonly kind: "ready";
+      readonly environmentId: EnvironmentId;
+      readonly agent: TeamAgentStatus;
+    }
+  | { readonly kind: "off" }
+  | { readonly kind: "offline" }
+  | { readonly kind: "no_machine" }
+  | { readonly kind: "needs_update" }
+  | { readonly kind: "loading" };
+
+export function agentIsReady(agent: TeamAgentStatus | null): agent is TeamAgentStatus {
+  return agent !== null && agent.enabled && agent.projects.length > 0;
+}
+
+export function personAgentStatus(machines: ReadonlyArray<AgentMachine>): PersonAgentStatus {
+  if (machines.length === 0) return { kind: "no_machine" };
+  const oldestFirst = [...machines].sort((left, right) =>
+    left.sharedAt.localeCompare(right.sharedAt),
+  );
+  for (const machine of oldestFirst) {
+    if (machine.state.kind === "answered" && agentIsReady(machine.state.agent)) {
+      return {
+        kind: "ready",
+        environmentId: machine.environmentId,
+        agent: machine.state.agent,
+      };
+    }
+  }
+  const kinds = new Set(machines.map((machine) => machine.state.kind));
+  if (kinds.has("connecting") || kinds.has("checking")) return { kind: "loading" };
+  if (kinds.has("answered")) return { kind: "off" };
+  if (kinds.has("outdated")) return { kind: "needs_update" };
+  return { kind: "offline" };
 }
 
 export type ThreadComposerMode = "owner" | "steer" | "view" | "unshared";
