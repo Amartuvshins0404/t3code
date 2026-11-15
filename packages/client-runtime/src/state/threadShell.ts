@@ -125,7 +125,7 @@ export function createEnvironmentThreadShellAtoms(input: {
   readonly hiddenThreadTagsAtom: (
     environmentId: EnvironmentId,
   ) => Atom.Atom<ReadonlyArray<string> | null>;
-  readonly masterAgentThreadIdAtom?: (environmentId: EnvironmentId) => Atom.Atom<ThreadId | null>;
+  readonly masterAgentThreadIdAtom: (environmentId: EnvironmentId) => Atom.Atom<ThreadId | null>;
 }) {
   // Point reads and aggregate lists share values without keeping an atom alive
   // for every listed thread. Replaced source objects can be collected.
@@ -551,7 +551,6 @@ export function createEnvironmentThreadShellAtoms(input: {
 
   const masterAgentThreadIdsAtom = Atom.make((get): ReadonlyMap<EnvironmentId, ThreadId> => {
     const ids = new Map<EnvironmentId, ThreadId>();
-    if (input.masterAgentThreadIdAtom === undefined) return ids;
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const threadId = get(input.masterAgentThreadIdAtom(environmentId));
       if (threadId !== null) ids.set(environmentId, threadId);
