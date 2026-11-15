@@ -688,6 +688,7 @@ describe("environment team connectivity", () => {
     readonly shares: ReadonlyArray<ReturnType<typeof shareOf>>;
     readonly ownerTeams: ReadonlyArray<string>;
     readonly membershipAvailable?: boolean;
+    readonly ownerLinked?: boolean;
   }) =>
     Effect.gen(function* () {
       const store = connectivityStore();
@@ -738,7 +739,9 @@ describe("environment team connectivity", () => {
               Layer.mock(EnvironmentLinks.EnvironmentLinks, {
                 getForUser: ({ userId, environmentId }) =>
                   Effect.succeed(
-                    userId === "owner" && environmentId === ownerLink.environmentId
+                    input.ownerLinked !== false &&
+                      userId === "owner" &&
+                      environmentId === ownerLink.environmentId
                       ? ownerLink
                       : null,
                   ),
@@ -807,6 +810,10 @@ describe("environment team connectivity", () => {
         status: 200,
         body: { sharedOrganizationIds: [], teams: [] },
       });
+
+      expect(
+        yield* read({ shares: [shareOf("org-1")], ownerTeams: ["org-1"], ownerLinked: false }),
+      ).toMatchObject({ status: 200, body: { sharedOrganizationIds: [], teams: [] } });
 
       const otherMachine = yield* read({
         callerEnvironmentId: "environment-2",
