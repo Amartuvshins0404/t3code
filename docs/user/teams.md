@@ -59,11 +59,14 @@ To ask, select a person whose agent is ready in the team sidebar, or use **Ask <
 the command palette. Type the question and press Enter. A new conversation opens and the answer
 streams in. It is listed under that person for the whole team: anyone in the team can read it and
 ask a follow-up. The person sees every question asked of their agent. A question cannot start
-with `/`.
+with `/` or name a file with `@`, such as `@src/auth.ts`. Write the path without `@` and the
+agent reads it.
 
 The agent only reads. It can read the code and the past threads of the projects its owner picked.
-It cannot change files, run commands that change anything, start threads or answer for its owner.
-It sees nothing from other projects.
+It never reads secret files such as `.env` files, keys, credentials or the `.git` folder, nor
+T3 Code's own data, and it skips threads shared with another team. It cannot change files, run
+commands that change anything, start threads or answer for its owner. It sees nothing from other
+projects. An agent answers at most two questions at a time, follow-ups included.
 
 A person's status in the sidebar says why you cannot ask: **Agent off**, **Offline**, **No machine
 yet**, or **Needs an update** when their machine runs an older T3 Code.
