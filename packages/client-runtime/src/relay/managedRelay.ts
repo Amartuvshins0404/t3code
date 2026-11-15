@@ -46,7 +46,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as HttpClientError from "effect/http/HttpClientError";
 import type * as HttpMethod from "effect/http/HttpMethod";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
-import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
+import { networkBlockingHint } from "../errors/network.ts";
 import { relayRequestFailureDetail } from "./errorPresentation.ts";
 
 export interface ManagedRelayDpopProofInput {
@@ -141,7 +141,7 @@ export class ManagedRelayRequestTimeoutError extends Schema.TaggedError<ManagedR
   },
 ) {
   override get message(): string {
-    return `${this.activity} timed out. ${NETWORK_BLOCKING_HINT}`;
+    return `${this.activity} timed out. ${networkBlockingHint()}`;
   }
 }
 
@@ -168,7 +168,7 @@ export class ManagedRelayRequestFailedError extends Schema.TaggedError<ManagedRe
   },
 ) {
   override get message(): string {
-    if (this.transportFailed) return `Could not ${this.action}. ${NETWORK_BLOCKING_HINT}`;
+    if (this.transportFailed) return `Could not ${this.action}. ${networkBlockingHint()}`;
     const detail = relayRequestFailureDetail(this);
     return detail ? `Could not ${this.action}: ${detail}` : `Could not ${this.action}.`;
   }

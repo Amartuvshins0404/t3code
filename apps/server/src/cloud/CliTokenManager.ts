@@ -7,6 +7,7 @@ import {
   createCloudAuth,
   isCloudAuthError,
 } from "@t3tools/client-runtime/cloud-auth";
+import { getConnectName } from "@t3tools/shared/appName";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -43,7 +44,7 @@ export class CloudCliCredentialRemovalError extends Schema.TaggedError<CloudCliC
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Could not remove the stored T3 Connect CLI credential.";
+    return `Could not remove the stored ${getConnectName()} CLI credential.`;
   }
 }
 
@@ -60,8 +61,8 @@ export class CloudCliCredentialRefreshError extends Schema.TaggedError<CloudCliC
 
   override get message(): string {
     return this.requiresLogin
-      ? "The T3 Connect CLI sign-in expired. Run `t3 connect login` to authorize again."
-      : "Could not refresh the T3 Connect CLI credential.";
+      ? `The ${getConnectName()} CLI sign-in expired. Run \`t3 connect login\` to authorize again.`
+      : `Could not refresh the ${getConnectName()} CLI credential.`;
   }
 }
 
@@ -72,7 +73,7 @@ export class CloudCliCredentialReadError extends Schema.TaggedError<CloudCliCred
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Could not read the stored T3 Connect CLI credential.";
+    return `Could not read the stored ${getConnectName()} CLI credential.`;
   }
 }
 
@@ -81,7 +82,7 @@ export class CloudCliAuthorizationError extends Schema.TaggedError<CloudCliAutho
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Could not authorize the T3 Connect CLI.";
+    return `Could not authorize the ${getConnectName()} CLI.`;
   }
 }
 
@@ -90,7 +91,7 @@ export class CloudCliAuthorizationTimeoutError extends Schema.TaggedError<CloudC
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Timed out waiting for T3 Connect authorization.";
+    return `Timed out waiting for ${getConnectName()} authorization.`;
   }
 }
 
@@ -99,7 +100,7 @@ export class CloudCliAuthorizationDeniedError extends Schema.TaggedError<CloudCl
   {},
 ) {
   override get message(): string {
-    return "T3 Connect authorization was denied in the browser.";
+    return `${getConnectName()} authorization was denied in the browser.`;
   }
 }
 

@@ -3,6 +3,10 @@ export function formatAppBaseName(ownerName: string | null | undefined): string 
   return name.length > 0 ? `${name} Mode` : "Mode";
 }
 
+export function formatConnectName(appBaseName: string): string {
+  return `${appBaseName} Connect`;
+}
+
 export function resolveAppMonogram(ownerName: string | null | undefined): string {
   const [first] = ownerName?.trim() ?? "";
   return (first ?? "M").toLocaleUpperCase();

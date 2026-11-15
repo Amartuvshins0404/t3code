@@ -9,6 +9,7 @@ import {
   Connectivity,
   Wakeups,
 } from "@t3tools/client-runtime/connection";
+import { getConnectName } from "@t3tools/client-runtime/app-name";
 import { managedRelayAccountChanges, managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -164,7 +165,7 @@ const layerCapabilities = Layer.effectContext(
           if (session === null) {
             return yield* new ConnectionBlockedError({
               reason: "authentication",
-              detail: "Sign in to T3 Connect to connect this environment.",
+              detail: `Sign in to ${getConnectName()} to connect this environment.`,
             });
           }
           const token = yield* session.readIdentityToken().pipe(
@@ -179,7 +180,7 @@ const layerCapabilities = Layer.effectContext(
           if (token === null) {
             return yield* new ConnectionBlockedError({
               reason: "authentication",
-              detail: "The T3 Connect session is unavailable.",
+              detail: `The ${getConnectName()} session is unavailable.`,
             });
           }
           return token;

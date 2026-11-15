@@ -1,4 +1,4 @@
-import { getAppBaseName } from "@t3tools/shared/appName";
+import { getAppBaseName, getConnectName } from "@t3tools/shared/appName";
 import { RelayProtectedError } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -29,7 +29,7 @@ export function relayRequestError(cause: unknown): RelayRequestError {
     ? cause
     : new RelayRequestError({
         rejection: "unavailable",
-        description: `Could not complete the T3 Connect relay request. ${isHttpClientError(cause) ? `The relay request failed (${cause.reason._tag}).` : "The relay returned an unexpected response."} Check this machine's network connection and relay availability, then retry.`,
+        description: `Could not complete the ${getConnectName()} relay request. ${isHttpClientError(cause) ? `The relay request failed (${cause.reason._tag}).` : "The relay returned an unexpected response."} Check this machine's network connection and relay availability, then retry.`,
       });
 }
 
@@ -63,7 +63,7 @@ export function relayRetryAfterMillis(error: unknown): number | undefined {
 function recoveryHint(error: RelayProtectedError): string {
   switch (error._tag) {
     case "RelayEnvironmentLinkLimitExceededError":
-      return `Unlink an unused environment in T3 Connect, then restart ${getAppBaseName()} on this machine.`;
+      return `Unlink an unused environment in ${getConnectName()}, then restart ${getAppBaseName()} on this machine.`;
     case "RelayAuthInvalidError":
       return `Run \`t3 connect login\` to check this machine's authorization. If the stored credential was revoked, sign out with \`t3 connect logout\`, then run \`t3 connect\` again. Restart ${getAppBaseName()} after signing in.`;
     case "RelayEnvironmentLinkProofExpiredError":
@@ -84,8 +84,8 @@ export const filterRelayResponse = Effect.fn("cloud.filter_relay_response")(func
   const ray = response.headers["cf-ray"];
   const requestId = ray && /^[a-zA-Z0-9-]{1,128}$/.test(ray) ? ` Cloudflare Ray ID: ${ray}.` : "";
   const description = Option.isSome(decoded)
-    ? `T3 Connect: ${decoded.value.message}. ${recoveryHint(decoded.value)} Trace ID: ${decoded.value.traceId}.`
-    : `T3 Connect relay returned HTTP ${response.status} without a recognized error response. Check relay access and any proxy or firewall restrictions, then restart ${getAppBaseName()}.${requestId}`;
+    ? `${getConnectName()}: ${decoded.value.message}. ${recoveryHint(decoded.value)} Trace ID: ${decoded.value.traceId}.`
+    : `${getConnectName()} relay returned HTTP ${response.status} without a recognized error response. Check relay access and any proxy or firewall restrictions, then restart ${getAppBaseName()}.${requestId}`;
 
   // Only a schema-decoded expired-proof 401 is retryable for clock skew; every other 401 is permanent.
   if (

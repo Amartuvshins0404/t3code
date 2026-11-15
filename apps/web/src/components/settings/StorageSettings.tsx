@@ -14,6 +14,7 @@ import {
 import { formatBytes } from "../../lib/formatBytes";
 import { environmentAtomList, environmentIdsKey } from "../../state/environmentAtomList";
 import { serverEnvironment } from "../../state/server";
+import { useAppBaseName } from "../../state/appBranding";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useNowMinute } from "../../hooks/useNowMinute";
@@ -54,6 +55,7 @@ export function WorktreesDirectoryRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const mixed = useScopedSettingsMixed(["worktreesDirectory"]);
+  const appBaseName = useAppBaseName();
   const edited = useRef(false);
   const draft = useRef("");
   if (
@@ -68,9 +70,7 @@ export function WorktreesDirectoryRow() {
   return (
     <SettingsRow
       {...searchableSetting("storage-worktrees-location")}
-      description={
-        "Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder."
-      }
+      description={`Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the ${appBaseName} home folder.`}
       serverScoped
       settingKeys={["worktreesDirectory"]}
       resetAction={

@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { usesChatGptSharing } from "@t3tools/shared/usageLimits";
 import { useState } from "react";
+import { useAppBaseName } from "../../state/appBranding";
 import { environmentPresentations } from "../../state/presentation";
 import { OpenAI } from "../Icons";
 import { Button } from "../ui/button";
@@ -30,6 +31,7 @@ export function ChatGptWelcomeCoordinator() {
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const providersByEnvironment = useAtomValue(environmentPresentations.providersByEnvironmentAtom);
   const [acknowledged, setAcknowledged] = useState(readAcknowledgedProfiles);
+  const appBaseName = useAppBaseName();
   const profiles = [...presentations].flatMap(([environmentId, presentation]) =>
     presentation.connection.phase !== "connected"
       ? []
@@ -66,7 +68,7 @@ export function ChatGptWelcomeCoordinator() {
           <OpenAI className="mb-2 size-8" aria-hidden="true" />
           <DialogTitle>Your ChatGPT plan is connected</DialogTitle>
           <DialogDescription>
-            Eligible usage in T3 Code uses your ChatGPT plan. Manage your shared usage and any
+            Eligible usage in {appBaseName} uses your ChatGPT plan. Manage your shared usage and any
             credit settings in ChatGPT.
           </DialogDescription>
           <p className="text-xs text-muted-foreground">

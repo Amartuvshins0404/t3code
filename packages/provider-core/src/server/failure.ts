@@ -10,6 +10,7 @@ import type {
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
+import { getAppBaseName } from "@t3tools/shared/appName";
 import * as DateTime from "effect/DateTime";
 import * as Cause from "effect/Cause";
 
@@ -141,8 +142,7 @@ function curatedCauseMessages(cause: unknown): {
         }
         case "ContextHandoffDeliveryUncertainError":
           return {
-            known:
-              "T3 could not confirm whether conversation history reached the provider. Retry the turn to recover the session.",
+            known: `${getAppBaseName()} could not confirm whether conversation history reached the provider. Retry the turn to recover the session.`,
             category: categoryMessage(),
           };
         case "ProviderAdapterProtocolError": {

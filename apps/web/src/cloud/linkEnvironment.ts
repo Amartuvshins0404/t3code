@@ -20,7 +20,7 @@ import {
   type RelayEnvironmentLinkResponse,
   type RelayManagedEndpointProviderKind,
 } from "@t3tools/contracts/relay";
-import { getAppBaseName } from "@t3tools/client-runtime/app-name";
+import { getAppBaseName, getConnectName } from "@t3tools/client-runtime/app-name";
 import { EnvironmentRegistry, EnvironmentSupervisor } from "@t3tools/client-runtime/connection";
 import { request, runStream } from "@t3tools/client-runtime/rpc";
 import { ManagedRelay, relayRequestFailureDetail } from "@t3tools/client-runtime/relay";
@@ -272,7 +272,7 @@ export const checkCloudReachability: (input: {
         url: (urls) => urls.checkReachability(),
         request: ({ client, headers }) => client.checkReachability({ headers }),
       },
-      "Could not check T3 Connect.",
+      `Could not check ${getConnectName()}.`,
     );
   });
 
@@ -331,7 +331,7 @@ export const unlinkEnvironmentFromCloud: (input: {
       .pipe(
         Effect.mapError(
           decodedRelayClientError(
-            "Disconnected locally, but T3 Connect did not confirm it removed this environment",
+            `Disconnected locally, but ${getConnectName()} did not confirm it removed this environment`,
           ),
         ),
       );

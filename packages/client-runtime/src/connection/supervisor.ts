@@ -28,7 +28,7 @@ import {
 } from "./model.ts";
 import * as RpcSession from "../rpc/session.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
-import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
+import { networkBlockingHint } from "../errors/network.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
 import {
   connectionRouteId,
@@ -286,7 +286,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     (route) => route.target._tag === "RelayConnectionTarget",
   );
   const setupTimeoutDetail = `${target.label} did not respond during connection setup.${
-    usesRelay ? ` ${NETWORK_BLOCKING_HINT}` : ""
+    usesRelay ? ` ${networkBlockingHint()}` : ""
   }`;
   yield* annotateTarget(target);
 

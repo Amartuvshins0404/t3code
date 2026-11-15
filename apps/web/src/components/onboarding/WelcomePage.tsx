@@ -93,7 +93,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { managedTelemetryOffMessage, useManagedPolicy } from "../../state/managedPolicy";
 import { useProjectScans } from "../../onboarding/useProjectScans";
 import { projectEnvironment } from "../../state/projects";
-import { useAppBaseName } from "../../state/appBranding";
+import { useAppBaseName, useConnectName } from "../../state/appBranding";
 import { serverEnvironment } from "../../state/server";
 import { OwnerLogoPicker, OwnerNameInput } from "../OwnerBranding";
 import { CodeSearchSetup, codeSearchStatusLabel, useCodeSearchStatus } from "../CodeSearchSetup";
@@ -340,9 +340,10 @@ export function WelcomePage({
 
 function TelemetryNotice({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const telemetryOff = managedTelemetryOffMessage(useManagedPolicy(environmentId));
+  const appBaseName = useAppBaseName();
   return (
     <p className="mt-auto pt-12 text-2xs leading-relaxed text-muted-foreground/70">
-      {telemetryOff ?? "T3 Code collects anonymous usage data to improve the app."}{" "}
+      {telemetryOff ?? `${appBaseName} collects anonymous usage data to improve the app.`}{" "}
       {telemetryOff === undefined ? "To opt out, see the" : "See the"}{" "}
       <a
         className="underline decoration-current/40 underline-offset-2 hover:text-muted-foreground"
@@ -1046,6 +1047,7 @@ function ProjectsSection({
 
 function PhoneSection({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const [open, setOpen] = useState(false);
+  const appBaseName = useAppBaseName();
   return (
     <WelcomeSection title="Phone">
       <Collapsible open={open} onOpenChange={setOpen}>
@@ -1054,7 +1056,7 @@ function PhoneSection({ environmentId }: { readonly environmentId: EnvironmentId
             <SmartphoneIcon className="size-4" />
           </RowIcon>
           <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
-            Use T3 Code on your phone
+            Use {appBaseName} on your phone
           </span>
           <CollapsibleTrigger render={<Button variant="ghost-muted" size="xs" />}>
             {open ? "Hide" : "Set up"}
@@ -1078,7 +1080,7 @@ function PhoneSection({ environmentId }: { readonly environmentId: EnvironmentId
                 size={124}
                 level="M"
                 marginSize={2}
-                title="T3 Code app for iPhone and Android"
+                title={`${appBaseName} app for iPhone and Android`}
               />
             </div>
           </div>
@@ -1099,6 +1101,7 @@ function PhoneStep({ step, children }: { readonly step: number; readonly childre
 
 function PhoneConnectLink({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const { isLoaded, isSignedIn, userId } = useCloudAuth();
+  const connectName = useConnectName();
   const linkState = useCloudLinkState(environmentId);
   const refreshLinkState = useEffectEvent(linkState.refresh);
   // The server rechecks the tunnel every 30 s; read its latest result while this panel is open.
@@ -1123,13 +1126,13 @@ function PhoneConnectLink({ environmentId }: { readonly environmentId: Environme
     </Button>
   );
   if (isSignedIn && link === null && linkState.isPending) {
-    return <p className="text-sm text-muted-foreground">Checking T3 Connect…</p>;
+    return <p className="text-sm text-muted-foreground">Checking {connectName}…</p>;
   }
   if (isSignedIn && linkState.error !== null) {
     return (
       <>
-        <p className="text-sm text-foreground">Could not check T3 Connect.</p>
-        {settingsLink("Check T3 Connect")}
+        <p className="text-sm text-foreground">Could not check {connectName}.</p>
+        {settingsLink(`Check ${connectName}`)}
       </>
     );
   }
@@ -1144,7 +1147,7 @@ function PhoneConnectLink({ environmentId }: { readonly environmentId: Environme
   if (isSignedIn && shared && reachability === undefined) {
     return (
       <p className="text-sm text-foreground">
-        T3 Connect is on for this computer. Sign in to the app with the same account.
+        {connectName} is on for this computer. Sign in to the app with the same account.
       </p>
     );
   }
@@ -1154,20 +1157,20 @@ function PhoneConnectLink({ environmentId }: { readonly environmentId: Environme
       <>
         <p className="text-sm text-foreground">
           {shared
-            ? "T3 Connect is on, but the app cannot reach this computer."
+            ? `${connectName} is on, but the app cannot reach this computer.`
             : "Signed in. Share this computer so the app can reach it."}
         </p>
-        {settingsLink(shared ? "Check T3 Connect" : "Set up T3 Connect")}
+        {settingsLink(shared ? `Check ${connectName}` : `Set up ${connectName}`)}
       </>
     );
   }
   return (
     <>
       <p className="text-sm text-foreground">
-        Sign in to T3 Connect here, then in the app with the same account.
+        Sign in to {connectName} here, then in the app with the same account.
       </p>
       <Button variant="outline" size="xs" disabled={!isLoaded} onClick={openCloudSignInDialog}>
-        Sign in to T3 Connect
+        Sign in to {connectName}
       </Button>
     </>
   );

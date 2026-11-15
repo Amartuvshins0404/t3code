@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import { RelayConnectionTarget } from "../connection/model.ts";
+import { getConnectName } from "../appName.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
 import { createRuntimeCommand } from "./runtime.ts";
@@ -28,7 +29,7 @@ export class ConnectMcpApprovalUnavailableError extends Schema.TaggedError<Conne
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Could not reach that environment through T3 Connect with this account.";
+    return `Could not reach that environment through ${getConnectName()} with this account.`;
   }
 }
 

@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Effect has no incremental digest.
 import * as EffectNodeStream from "@effect/platform-node/NodeStream";
+import { getAppBaseName } from "@t3tools/shared/appName";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -97,7 +98,7 @@ export class PreviewBrowserInstallError extends Schema.TaggedError<PreviewBrowse
   { detail: Schema.String, cause: Schema.optional(Schema.Defect()) },
 ) {
   override get message(): string {
-    return `T3 could not install its headless browser: ${this.detail} Try again.`;
+    return `${getAppBaseName()} could not install its headless browser: ${this.detail} Try again.`;
   }
 }
 const isInstallError = Schema.is(PreviewBrowserInstallError);
@@ -110,7 +111,7 @@ export class PreviewBrowserInstallingError extends Schema.TaggedError<PreviewBro
     const progress = this.unpacking
       ? "unpacking"
       : `${megabytes(this.downloadedBytes)} of ${megabytes(this.totalBytes)} MB downloaded`;
-    return `T3 is installing its headless browser (${progress}). Try again in a minute.`;
+    return `${getAppBaseName()} is installing its headless browser (${progress}). Try again in a minute.`;
   }
 }
 
@@ -119,7 +120,7 @@ export class PreviewBrowserUnsupportedError extends Schema.TaggedError<PreviewBr
   { platform: Schema.String, arch: Schema.String },
 ) {
   override get message(): string {
-    return `T3's headless browser is not available on ${this.platform}-${this.arch}: Chrome for Testing has no headless shell for it.`;
+    return `${getAppBaseName()}'s headless browser is not available on ${this.platform}-${this.arch}: Chrome for Testing has no headless shell for it.`;
   }
 }
 
@@ -298,8 +299,10 @@ export const makePreviewBrowser = Effect.fn("PreviewBrowser.make")(function* (
       }
     },
     Effect.scoped,
-    Effect.mapError(
-      wrapFailure("Could not unpack the browser. Check free disk space in T3's home directory."),
+    Effect.mapError((cause) =>
+      wrapFailure(
+        `Could not unpack the browser. Check free disk space in ${getAppBaseName()}'s home directory.`,
+      )(cause),
     ),
   );
 
@@ -350,7 +353,9 @@ export const makePreviewBrowser = Effect.fn("PreviewBrowser.make")(function* (
       );
       return path.join(installRoot, release.version, executableName);
     },
-    Effect.mapError(wrapFailure("Could not save the browser in T3's home directory.")),
+    Effect.mapError((cause) =>
+      wrapFailure(`Could not save the browser in ${getAppBaseName()}'s home directory.`)(cause),
+    ),
   );
 
   const join = (release: PreviewBrowserRelease) =>

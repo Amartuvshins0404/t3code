@@ -1,4 +1,4 @@
-import { getAppBaseName } from "@t3tools/client-runtime/app-name";
+import { getAppBaseName, getConnectName } from "@t3tools/client-runtime/app-name";
 import type { RelayAgentActivityAggregateState } from "@t3tools/contracts/relay";
 
 import type { AgentActivityProps } from "./AgentActivity";
@@ -20,9 +20,9 @@ export function agentActivityWidgetTimeline(source: AgentActivityWidgetSource, n
       title: getAppBaseName(),
       subtitle:
         source.kind === "signed-out"
-          ? "Sign in to T3 Connect to see agents"
+          ? `Sign in to ${getConnectName()} to see agents`
           : source.kind === "unavailable"
-            ? "Couldn't reach T3 Connect"
+            ? `Couldn't reach ${getConnectName()}`
             : source.kind === "loading"
               ? "Loading agents…"
               : "No active agents",

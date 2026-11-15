@@ -1,4 +1,4 @@
-import { getAppBaseName } from "@t3tools/shared/appName";
+import { getAppBaseName, getConnectName } from "@t3tools/shared/appName";
 import { AuthMcpClientAccess, EnvironmentId, type PeerLinkSummary } from "@t3tools/contracts";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
@@ -87,7 +87,7 @@ const environmentLinkCommand = Command.make("link", {
   ...authLocationFlags,
   url: Argument.String("url").pipe(
     Argument.withDescription(
-      "Where the other environment answers: its T3 Connect, Tailscale, LAN or loopback address.",
+      `Where the other environment answers: its ${getConnectName()}, Tailscale, LAN or loopback address.`,
     ),
   ),
   alternateUrl: Flag.String("url").pipe(

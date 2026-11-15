@@ -1,3 +1,4 @@
+import { getAppBaseName } from "@t3tools/shared/appName";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -627,7 +628,7 @@ export class BootServiceInstallError extends Schema.TaggedError<BootServiceInsta
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Could not set up the T3 Code background service.";
+    return `Could not set up the ${getAppBaseName()} background service.`;
   }
 }
 
@@ -644,11 +645,11 @@ type BootServiceProblem = typeof BootServiceProblem.Type;
 export function formatBootServiceProblem(problem: BootServiceProblem): string {
   switch (problem) {
     case "user-manager-unavailable":
-      return "Cannot reach the systemd user manager. Run `systemctl --user status` in a login session for the service user. Install your distribution's systemd user-session support if it is missing; do not run T3 with sudo.";
+      return `Cannot reach the systemd user manager. Run \`systemctl --user status\` in a login session for the service user. Install your distribution's systemd user-session support if it is missing; do not run ${getAppBaseName()} with sudo.`;
     case "linger-unavailable":
       return 'Cannot check whether this user can run services after logout. Run `loginctl show-user "$(id -un)" --property=Linger` and check that systemd-logind is available.';
     case "linger-disabled":
-      return 'Lingering is disabled. T3 Code will stop when your last login session ends and will not start at boot. Run `sudo loginctl enable-linger "$(id -un)"` on this machine, then retry the service command as your normal user.';
+      return `Lingering is disabled. ${getAppBaseName()} will stop when your last login session ends and will not start at boot. Run \`sudo loginctl enable-linger "$(id -un)"\` on this machine, then retry the service command as your normal user.`;
     case "service-disabled":
       return "The service is not enabled to start automatically. Run `t3 service install` to repair it.";
     case "service-stopped":
@@ -702,7 +703,7 @@ export class BootServiceOtherBaseDirError extends Schema.TaggedError<BootService
   },
 ) {
   override get message(): string {
-    return `The T3 Code service on this machine serves ${this.installedBaseDir}, not ${this.baseDir}. Pass ${formatBootServiceBaseDirOption(this.installedBaseDir)} to manage it, or run \`t3 service uninstall ${formatBootServiceBaseDirOption(this.installedBaseDir)}\` first to move it; both data directories are kept.`;
+    return `The ${getAppBaseName()} service on this machine serves ${this.installedBaseDir}, not ${this.baseDir}. Pass ${formatBootServiceBaseDirOption(this.installedBaseDir)} to manage it, or run \`t3 service uninstall ${formatBootServiceBaseDirOption(this.installedBaseDir)}\` first to move it; both data directories are kept.`;
   }
 
   // A refusal the user fixes by rerunning, so the CLI prints the message, not a stack trace.

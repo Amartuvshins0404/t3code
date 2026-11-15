@@ -8,7 +8,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { mapManagedRelayError, mapRemoteDpopEnvironmentError } from "./errors.ts";
 import { DPOP_UNKNOWN_HINT } from "../relay/errorPresentation.ts";
 import { ManagedRelayRequestFailedError } from "../relay/managedRelay.ts";
-import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
+import { networkBlockingHint } from "../errors/network.ts";
 import { RemoteEnvironmentAuthFetchError, RemoteEnvironmentAuthTimeoutError } from "../rpc/http.ts";
 
 describe("mapManagedRelayError", () => {
@@ -50,13 +50,13 @@ describe("mapManagedRelayError", () => {
     expect(mapConnectRefusal("managed_endpoint_allocation_not_ready")).toMatchObject({
       _tag: "ConnectionTransientError",
       reason: "endpoint-unavailable",
-      detail: "The environment's T3 Connect tunnel is still being set up.",
+      detail: "The environment's Mode Connect tunnel is still being set up.",
       traceId: "trace-connect-refused",
     });
     expect(mapConnectRefusal("endpoint_provider_not_managed")).toMatchObject({
       _tag: "ConnectionBlockedError",
       reason: "permission",
-      detail: expect.stringContaining("turn T3 Connect on"),
+      detail: expect.stringContaining("turn Mode Connect on"),
     });
     expect(mapConnectRefusal(undefined)).toMatchObject({
       _tag: "ConnectionBlockedError",
@@ -101,7 +101,7 @@ describe("mapRemoteDpopEnvironmentError", () => {
     const mapped = mapRemoteDpopEnvironmentError(error);
     expect(mapped).toMatchObject({
       _tag: "ConnectionTransientError",
-      detail: `${error.message} ${NETWORK_BLOCKING_HINT}`,
+      detail: `${error.message} ${networkBlockingHint()}`,
     });
   });
 });

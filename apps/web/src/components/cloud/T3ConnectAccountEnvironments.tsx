@@ -13,6 +13,7 @@ import {
   useManagedRelayEnvironments,
 } from "../../cloud/managedRelayState";
 import { relayFailureReason } from "../../cloud/relayFailureReason";
+import { useConnectName } from "../../state/appBranding";
 import { relayEnvironmentDiscovery } from "../../state/relay";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -45,6 +46,7 @@ function T3ConnectEnvironmentRow(props: {
   readonly onDeregister: (environment: RelayClientEnvironmentRecord) => void;
 }) {
   const { environment } = props;
+  const connectName = useConnectName();
   return (
     <AccountPageRow icon={<ServerIcon className="size-4" />}>
       <Collapsible open={props.confirmationOpen} onOpenChange={props.onConfirmationChange}>
@@ -80,7 +82,7 @@ function T3ConnectEnvironmentRow(props: {
                 “{environment.label}” will be removed from this account.
               </p>
               <p className="mt-4 max-w-xl text-xs leading-4.5 text-muted-foreground">
-                T3 Connect access will be revoked, any managed tunnel will be removed, and a host
+                {connectName} access will be revoked, any managed tunnel will be removed, and a host
                 space will become available. Local connections on your devices are not changed.
               </p>
               <div className="mt-4 flex justify-end gap-2">
@@ -111,6 +113,7 @@ function T3ConnectEnvironmentRow(props: {
 
 export function T3ConnectAccountEnvironments() {
   const environmentsState = useManagedRelayEnvironments();
+  const connectName = useConnectName();
   const deregisterEnvironment = useAtomCommand(deregisterManagedRelayEnvironmentCommand, {
     reportFailure: false,
   });
@@ -153,7 +156,7 @@ export function T3ConnectAccountEnvironments() {
       toastManager.add({
         type: "success",
         title: "Server deregistered",
-        description: "T3 Connect access was revoked and a host space is now available.",
+        description: `${connectName} access was revoked and a host space is now available.`,
       });
       return;
     }
@@ -204,7 +207,7 @@ export function T3ConnectAccountEnvironments() {
 
   return (
     <AccountPage
-      title="T3 Connect"
+      title={connectName}
       description="Environments registered to your account. Connections on this device are managed in Settings."
       action={
         <AccountPageRefreshButton
@@ -218,7 +221,7 @@ export function T3ConnectAccountEnvironments() {
         {environmentsState.error ? (
           <div className="mb-4 border-t border-destructive/35 py-3 text-xs" role="alert">
             <p className="font-medium text-destructive-foreground">
-              Could not load T3 Connect environments
+              Could not load {connectName} environments
             </p>
             <p className="mt-1 text-xs text-muted-foreground">{environmentsState.error}</p>
           </div>
@@ -250,10 +253,10 @@ export function T3ConnectAccountEnvironments() {
                 <ServerIcon />
               </EmptyMedia>
               <EmptyHeader>
-                <EmptyTitle>No T3 Connect environments</EmptyTitle>
+                <EmptyTitle>No {connectName} environments</EmptyTitle>
                 <EmptyDescription>
-                  Link an environment from its local Settings to make it available through T3
-                  Connect.
+                  Link an environment from its local Settings to make it available through{" "}
+                  {connectName}.
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>

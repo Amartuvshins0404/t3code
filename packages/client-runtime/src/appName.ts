@@ -1,1 +1,1 @@
-export { getAppBaseName, setAppBaseName } from "@t3tools/shared/appName";
+export { getAppBaseName, getConnectName, setAppBaseName } from "@t3tools/shared/appName";

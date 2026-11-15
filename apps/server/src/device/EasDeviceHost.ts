@@ -29,6 +29,7 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { getAppBaseName } from "@t3tools/shared/appName";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
@@ -487,7 +488,7 @@ export const make = Effect.fn("EasDeviceHost.make")(function* (config: EasDevice
     context: DeviceHost.DeviceOpenContext | undefined,
     startedIn: number,
   ) {
-    const name = `T3 Code · ${config.label} · ${(yield* Random.nextIntBetween(0, 0xffffff)).toString(16).padStart(6, "0")}`;
+    const name = `${getAppBaseName()} · ${config.label} · ${(yield* Random.nextIntBetween(0, 0xffffff)).toString(16).padStart(6, "0")}`;
     // The credential comes first: without one, the answer is how to sign in,
     // not that the limit is reached.
     const expo = yield* api;

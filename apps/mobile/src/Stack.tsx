@@ -12,6 +12,7 @@ import {
   useNavigation,
 } from "@react-navigation/native";
 import { createNativeStackScreen } from "@react-navigation/native-stack";
+import { getAppBaseName, getConnectName } from "@t3tools/client-runtime/app-name";
 import type { ReactNode } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions } from "react-native";
 import { useResolveClassNames } from "uniwind";
@@ -350,12 +351,12 @@ const SETTINGS_SCREENS = {
   SettingsAuth: createNativeStackScreen({
     screen: SettingsAuthRouteScreen,
     linking: "settings/auth",
-    options: modalRoute({ header: "solid", title: "T3 Account" }),
+    options: () => modalRoute({ header: "solid", title: `${getAppBaseName()} account` }),
   }),
   SettingsWaitlist: createNativeStackScreen({
     screen: SettingsAuthRouteScreen,
     linking: "settings/waitlist",
-    options: modalRoute({ header: "solid", title: "T3 Account" }),
+    options: () => modalRoute({ header: "solid", title: `${getAppBaseName()} account` }),
   }),
 };
 
@@ -717,12 +718,13 @@ const RootStackConfig = createWorkspaceStackNavigator({
     ConnectOnboarding: createNativeStackScreen({
       screen: ConnectOnboardingRouteScreen,
       linking: "connect-onboarding",
-      options: sheetRoute({
-        title: "Set up T3 Connect",
-        header: "solid",
-        detent: 0.6,
-        androidMaxDetent: 0.95,
-      }),
+      options: () =>
+        sheetRoute({
+          title: `Set up ${getConnectName()}`,
+          header: "solid",
+          detent: 0.6,
+          androidMaxDetent: 0.95,
+        }),
     }),
     Connections: createNativeStackScreen({
       screen: ConnectionsRouteScreen,

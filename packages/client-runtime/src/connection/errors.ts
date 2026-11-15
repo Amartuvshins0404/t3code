@@ -3,7 +3,7 @@ import type { RelayProtectedError } from "@t3tools/contracts/relay";
 import type { ManagedRelayClientError } from "../relay/managedRelay.ts";
 import { dpopFailureMessage, relayProtectedErrorMessage } from "../relay/errorPresentation.ts";
 import type { RemoteEnvironmentAuthError } from "../authorization/remote.ts";
-import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
+import { networkBlockingHint } from "../errors/network.ts";
 import {
   ConnectionBlockedError,
   type ConnectionAttemptError,
@@ -184,7 +184,7 @@ export function mapRemoteEnvironmentError(
   error: RemoteEnvironmentAuthError,
   connectionMethod: ClientConnectionMethod = "direct",
 ): ConnectionAttemptError {
-  const networkHint = connectionMethod === "relay" ? ` ${NETWORK_BLOCKING_HINT}` : "";
+  const networkHint = connectionMethod === "relay" ? ` ${networkBlockingHint()}` : "";
   // Over T3 Connect the relay already reached the host, so a request that never
   // arrives was blocked between this device and the tunnel.
   const unreachableHop = connectionMethod === "relay" ? "tunnel" : "server";

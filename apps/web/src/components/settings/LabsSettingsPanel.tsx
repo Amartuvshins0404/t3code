@@ -12,7 +12,7 @@ import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
 import { firstManagedDenial, usePrimaryManagedPolicy } from "~/state/managedPolicy";
-import { useAppBaseName } from "~/state/appBranding";
+import { useAppBaseName, useConnectName } from "~/state/appBranding";
 
 /** Features still settling in. */
 export function LabsSettingsPanel() {
@@ -78,12 +78,13 @@ function BoringSidebarMultilineRow() {
 /** Signed out of T3 Connect, the row offers to sign in instead of its switch. */
 function GuestLinksRowWithSignIn() {
   const { isSignedIn } = useCloudAuth();
+  const connectName = useConnectName();
   // `isSignedIn` is undefined until auth loads.
   if (isSignedIn !== false) return <GuestLinksRow />;
   return (
     <SettingsRow
       {...searchableSetting("guest-links")}
-      description="Share a thread with a guest who watches it live in a browser and sends messages you approve. Sign in to T3 Connect to use guest links."
+      description={`Share a thread with a guest who watches it live in a browser and sends messages you approve. Sign in to ${connectName} to use guest links.`}
       control={
         <Button size="sm" variant="outline" onClick={openCloudSignInDialog}>
           Sign in
@@ -98,6 +99,7 @@ function GuestLinksRow() {
   const updateSettings = useUpdateScopedSettings();
   const scope = useOptionalSettingsScope();
   const primaryPolicy = usePrimaryManagedPolicy();
+  const connectName = useConnectName();
   // Guests arrive through T3 Connect, so a policy that turns Connect off turns this off too.
   const connectDenial = firstManagedDenial(
     scope
@@ -115,7 +117,7 @@ function GuestLinksRow() {
       description={
         <>
           Share a thread with a guest who watches it live in a browser and sends messages you
-          approve. Needs T3 Connect: sign in and link this machine in{" "}
+          approve. Needs {connectName}: sign in and link this machine in{" "}
           <Link to="/settings/access" className="underline underline-offset-2">
             Sharing & access
           </Link>
@@ -235,6 +237,7 @@ function FastWorktreeCheckoutRow() {
   const { scope, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const appBaseName = useAppBaseName();
   if (
     scope.kind === "project" ||
     scope.kind === "checkout" ||
@@ -250,7 +253,7 @@ function FastWorktreeCheckoutRow() {
       serverScoped
       {...searchableSetting("worktree-fast-checkout")}
       settingKeys={["fastWorktreeCheckout"]}
-      description="On a Mac, clone new worktrees from a checkout cached in the T3 home folder instead of writing every file. Uses Git’s normal checkout when it can’t. Turning it off deletes the cache."
+      description={`On a Mac, clone new worktrees from a checkout cached in the ${appBaseName} home folder instead of writing every file. Uses Git’s normal checkout when it can’t. Turning it off deletes the cache.`}
       control={
         <ScopedSwitch
           settingKeys={["fastWorktreeCheckout"]}

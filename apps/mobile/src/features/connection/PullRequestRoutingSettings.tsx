@@ -13,6 +13,7 @@ import { Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { environmentCatalog } from "../../connection/catalog";
+import { useAppBranding } from "../../state/appBranding";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "../settings/components/SettingsSection";
 
@@ -41,6 +42,7 @@ export function PullRequestRoutingSettings() {
   const update = useAtomCommand(environmentCatalog.setPullRequestRoutingPermission);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { connectName } = useAppBranding();
   if (catalog.entries.size === 0) return null;
 
   return (
@@ -65,7 +67,7 @@ export function PullRequestRoutingSettings() {
                     {entry.target.label}
                   </Text>
                   <Text className="text-xs text-foreground-muted" numberOfLines={1}>
-                    {connectionCatalogDisplayUrl(entry) ?? "T3 Connect"}
+                    {connectionCatalogDisplayUrl(entry) ?? connectName}
                   </Text>
                 </View>
                 <Text className="text-sm text-foreground-muted">

@@ -15,6 +15,7 @@ import {
   useManagedRelayTeamEnvironments,
 } from "~/cloud/managedRelayState";
 import { serverEnvironment } from "~/state/server";
+import { useConnectName } from "~/state/appBranding";
 import { useAtomCommand } from "~/state/use-atom-command";
 import {
   MyMachineRow,
@@ -86,6 +87,7 @@ function relayMachine(
 
 function TeamShareThreadDialog({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const navigate = useNavigate();
+  const connectName = useConnectName();
   const current = useThreadTeamShare(threadRef);
   const teamsState = useCloudTeamsState();
   const teams = teamsState.status === "signedOut" ? [] : teamsState.teams;
@@ -119,7 +121,7 @@ function TeamShareThreadDialog({ threadRef }: { readonly threadRef: ScopedThread
     team === null
       ? null
       : machine === null
-        ? "Turn on T3 Connect for this machine in Settings → Connections to share it with a team."
+        ? `Turn on ${connectName} for this machine in Settings → Connections to share it with a team.`
         : machineState.kind === "outdated" || machineState.kind === "offline"
           ? machineShareHint(machineState, team.name)
           : null;
@@ -320,6 +322,7 @@ function TeamShareThreadDialog({ threadRef }: { readonly threadRef: ScopedThread
 
 function TeamShareMachineDialog({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const navigate = useNavigate();
+  const connectName = useConnectName();
   const teamsState = useCloudTeamsState();
   const teams = teamsState.status === "signedOut" ? [] : teamsState.teams;
   const machine = relayMachine(useManagedRelayEnvironments().data, environmentId);
@@ -341,7 +344,8 @@ function TeamShareMachineDialog({ environmentId }: { readonly environmentId: Env
             <p className="text-sm text-muted-foreground">Checking…</p>
           ) : machine === null ? (
             <p className="text-sm text-muted-foreground">
-              Turn on T3 Connect for this machine in Settings → Connections to share it with a team.
+              Turn on {connectName} for this machine in Settings → Connections to share it with a
+              team.
             </p>
           ) : (
             <div className="grid">

@@ -4,7 +4,7 @@ import { isElectron, isSecretsFeatureEnabled } from "~/env";
 import { isMacPlatform, isWindowsPlatform, normalizeSearchText } from "~/lib/utils";
 import { STATIC_KEYBINDING_COMMANDS, type KeybindingCommand } from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { getAppBaseName } from "@t3tools/client-runtime/app-name";
+import { getAppBaseName, getConnectName } from "@t3tools/client-runtime/app-name";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
   sourceControlClients,
@@ -1271,7 +1271,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "t3-connect",
     localEnvironmentOnly: true,
-    title: "T3 Connect",
+    get title() {
+      return getConnectName();
+    },
     to: "/settings/access",
     targetId: "connections-environment",
     searchTerms: ["managed tunnel cloud other devices remote tunnels limit t3 chat"],

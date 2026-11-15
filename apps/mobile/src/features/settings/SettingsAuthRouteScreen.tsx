@@ -16,6 +16,7 @@ import { ListSection } from "../../components/ui/ListSection";
 import { Notice } from "../../components/ui/Notice";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { SheetHeader } from "../../components/ui/SheetHeader";
+import { useAppBranding } from "../../state/appBranding";
 import { getCloudAuth, useCloudAuth } from "../cloud/cloudAuth";
 import { useManagedRelayEnvironments } from "../cloud/managedRelayState";
 import { RegisteredServersSection } from "../cloud/RegisteredServersSection";
@@ -28,6 +29,7 @@ export function SettingsAuthRouteScreen() {
 
 function ConfiguredSettingsAuthRouteScreen({ auth }: { readonly auth: CloudAuth }) {
   const { isLoaded, user } = useCloudAuth();
+  const { baseName } = useAppBranding();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const environments = useManagedRelayEnvironments();
@@ -35,7 +37,7 @@ function ConfiguredSettingsAuthRouteScreen({ auth }: { readonly auth: CloudAuth 
   return (
     <>
       <SheetHeader
-        title="T3 Account"
+        title={`${baseName} account`}
         accessibilityLabel="Close account"
         onClose={() => navigation.goBack()}
       />
@@ -68,6 +70,7 @@ function SignInSection({ auth }: { readonly auth: CloudAuth }) {
   const [pending, setPending] = useState<CloudSignInMethod | null>(null);
   const [error, setError] = useState<string | null>(null);
   const attempt = useRef<AbortController | null>(null);
+  const { connectName } = useAppBranding();
 
   const signIn = (method: CloudSignInMethod) => {
     attempt.current?.abort();
@@ -92,7 +95,7 @@ function SignInSection({ auth }: { readonly auth: CloudAuth }) {
   return (
     <>
       <ListSection
-        title="Sign in to T3 Connect"
+        title={`Sign in to ${connectName}`}
         footer={
           pending
             ? "Finish signing in in the browser."

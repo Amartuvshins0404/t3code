@@ -1,6 +1,7 @@
 import { CircleUserRoundIcon, LogInIcon } from "lucide-react";
 
 import { useCloudAuth } from "../../cloud/cloudAuth";
+import { useConnectName } from "../../state/appBranding";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
 import { openCloudSignInDialog } from "../../cloud/cloudSignInPrompt";
@@ -8,6 +9,7 @@ import { openT3ConnectAccountPage } from "./T3ConnectAccountDialog";
 
 export function T3ConnectSidebarAccount() {
   const { isLoaded, isSignedIn, user } = useCloudAuth();
+  const connectName = useConnectName();
   if (!hasCloudPublicConfig() || !isLoaded) return null;
 
   return (
@@ -25,7 +27,7 @@ export function T3ConnectSidebarAccount() {
         ) : (
           <SidebarMenuButton onClick={openCloudSignInDialog}>
             <LogInIcon />
-            <span>Sign in to T3 Connect</span>
+            <span>Sign in to {connectName}</span>
           </SidebarMenuButton>
         )}
       </SidebarMenuItem>

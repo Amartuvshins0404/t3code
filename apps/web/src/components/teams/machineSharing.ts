@@ -1,3 +1,4 @@
+import { getConnectName } from "@t3tools/client-runtime/app-name";
 import { TeamWorkspace, managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import {
   type AtomCommand,
@@ -28,7 +29,7 @@ function refreshAfterChange(environmentId: EnvironmentId, organizationId: string
 
 function relayAccountId(): string {
   const accountId = appAtomRegistry.get(managedRelaySessionAtom)?.accountId;
-  if (!accountId) throw new Error("Sign in to T3 Connect to share a machine.");
+  if (!accountId) throw new Error(`Sign in to ${getConnectName()} to share a machine.`);
   return accountId;
 }
 
@@ -126,7 +127,9 @@ export function machineShareFailureMessage(
   if (result.failed === "relay") {
     return (
       detail ??
-      (sharing ? "T3 Connect could not share the machine." : "T3 Connect could not stop the share.")
+      (sharing
+        ? `${getConnectName()} could not share the machine.`
+        : `${getConnectName()} could not stop the share.`)
     );
   }
   const machine = sharing

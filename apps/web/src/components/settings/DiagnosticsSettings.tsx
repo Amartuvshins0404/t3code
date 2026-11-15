@@ -1,5 +1,6 @@
 import { ProcessSignalActions } from "./ProcessSignalActions";
 import { resolveUsageAccess } from "@t3tools/client-runtime/state/usage-access";
+import { useAppBaseName } from "../../state/appBranding";
 import { environmentSession } from "../../state/session";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
@@ -719,6 +720,7 @@ export function DiagnosticsSettingsPanel() {
 
 function DiagnosticsSettingsBody() {
   const { environment } = useSettingsScope();
+  const appBaseName = useAppBaseName();
   const environmentId = environment?.environmentId ?? null;
   const canMaintainEnvironment = useEnvironmentScope(environmentId, AuthEnvironmentMaintainScope);
   const observability = environment?.serverConfig?.observability;
@@ -884,7 +886,7 @@ function DiagnosticsSettingsBody() {
         toastManager.add({
           type: "info",
           title: "Process already exited",
-          description: "The process is not a child of the T3 Server. It might already have exited.",
+          description: `The process is not a child of the ${appBaseName} server. It might already have exited.`,
         });
         return;
       }
@@ -1007,7 +1009,7 @@ function DiagnosticsSettingsBody() {
           <StatBlock
             label="CPU Time"
             value={resourceData ? formatCpuTime(resourceData.totalCpuSecondsApprox) : "..."}
-            tooltip="Approximate active CPU time for the T3 server root process and its descendants during the selected window. It grows only while sampled processes use CPU and older samples leave as the window moves."
+            tooltip={`Approximate active CPU time for the ${appBaseName} server root process and its descendants during the selected window. It grows only while sampled processes use CPU and older samples leave as the window moves.`}
           />
           <StatBlock
             label="Samples"

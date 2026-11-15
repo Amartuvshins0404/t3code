@@ -22,11 +22,13 @@ export type MobileThemeAppearance = ThemeAppearance;
 export type MobileThemeMode = MobileThemeAppearance | "system";
 export type MobileThemeIds = Readonly<Record<MobileThemeAppearance, MobileThemeId>>;
 
-export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
+export const mobileThemeOptions = (
+  appBaseName: string,
+): ReadonlyArray<{
   readonly id: MobileThemeId;
   readonly label: string;
-}> = [
-  { id: DEFAULT_MOBILE_THEME_ID, label: "T3 Code" },
+}> => [
+  { id: DEFAULT_MOBILE_THEME_ID, label: appBaseName },
   { id: "material-you", label: "Material You" },
   ...BUILT_IN_THEMES.map((theme) => ({ id: theme.id as MobileThemeId, label: theme.label })),
 ];
