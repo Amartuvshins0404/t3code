@@ -1181,13 +1181,11 @@ describe("ProviderInstanceRegistry detached adapters", () => {
         ),
       ).toBe("DetachedAdapterUnavailableError");
     }).pipe(
-      Effect.provide(
-        Layer.succeed(SecretResolver.SecretResolver, {
-          label: (provider) => Effect.succeed(provider),
-          read: () => Effect.succeed([]),
-          invalidate: () => Effect.void,
-        }),
-      ),
+      Effect.provideService(SecretResolver.SecretResolver, {
+        label: (provider) => Effect.succeed(provider),
+        read: () => Effect.succeed([]),
+        invalidate: () => Effect.void,
+      }),
       Effect.scoped,
     );
   });
