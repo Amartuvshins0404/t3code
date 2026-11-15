@@ -3703,16 +3703,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     const current = thread.teamShare ?? null;
+    if (current?.agent !== undefined) return;
     const now = yield* DateTime.now;
     const teamShare =
       command.type === "thread.team-share.clear"
         ? null
-        : current?.organizationId === command.organizationId && current.access === command.access
+        : current?.organizationId === command.organizationId &&
+            current.access === command.access &&
+            command.agent === undefined
           ? current
           : {
               organizationId: command.organizationId,
               access: command.access,
               sharedAt: DateTime.formatIso(now),
+              ...(command.agent === undefined ? {} : { agent: command.agent }),
             };
     if (teamShare === current) return;
     yield* emit(

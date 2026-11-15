@@ -153,7 +153,7 @@ function publishTeamDetail(teamId: string, next: TeamDetailState) {
 
 function loadTeamDetail(teamId: string) {
   const teams = getCloudTeams();
-  if (!teams) return;
+  if (!teams || teamId === "") return;
   teams.get(teamId).then(
     (detail) => publishTeamDetail(teamId, { status: "ready", detail }),
     (cause: unknown) => {

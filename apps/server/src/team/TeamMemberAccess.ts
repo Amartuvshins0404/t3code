@@ -22,6 +22,8 @@ import {
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 
+import { hasTeamAgentFileMention, TEAM_AGENT_FILE_MENTION_MESSAGE } from "./TeamAgentToolGuard.ts";
+
 const TEAM_MEMBER_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.serverProbe,
   ORCHESTRATION_V2_WS_METHODS.subscribeShell,
@@ -35,6 +37,8 @@ const TEAM_MEMBER_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.teamReportPresence,
   WS_METHODS.teamSubscribePresence,
   WS_METHODS.teamGetConnectivity,
+  WS_METHODS.teamGetAgents,
+  WS_METHODS.teamAskAgent,
 ]);
 
 const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
@@ -43,6 +47,8 @@ const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.teamReportPresence,
   WS_METHODS.teamSubscribePresence,
   WS_METHODS.teamGetConnectivity,
+  WS_METHODS.teamGetAgents,
+  WS_METHODS.teamAskAgent,
 ]);
 
 const TEAM_MEMBER_HTTP_ENDPOINTS: ReadonlySet<string> = new Set([
@@ -142,10 +148,18 @@ const STEER_DISPATCH_MODES: ReadonlySet<string> = new Set([
   "steer_active",
 ]);
 
+export const TEAM_AGENT_MAX_RUNNING_TURNS = 2;
+
+export const TEAM_AGENT_BUSY_MESSAGE =
+  "This agent is answering other questions. Try again in a moment.";
+
+export const TEAM_AGENT_REFUSAL_DETAILS: ReadonlySet<string> = new Set(["agent_off", "agent_busy"]);
+
 export function decideTeamMemberCommand(input: {
   readonly command: OrchestrationV2Command;
   readonly teamShare: ThreadTeamShare | null | undefined;
   readonly member: TeamMemberIdentity;
+  readonly agent?: { readonly enabled: boolean; readonly runningTurnsElsewhere: number };
 }): Result.Result<OrchestrationV2Command, EnvironmentAuthorizationError> {
   const { command, member } = input;
   if (command.type !== "message.dispatch" && command.type !== "run.interrupt") {
@@ -190,6 +204,31 @@ export function decideTeamMemberCommand(input: {
         "Teammates cannot send slash commands. Start the message with a word.",
         AuthOrchestrationOperateScope,
       ),
+    );
+  }
+  if (input.teamShare?.agent !== undefined && hasTeamAgentFileMention(command.text)) {
+    return Result.fail(refusal(TEAM_AGENT_FILE_MENTION_MESSAGE, AuthOrchestrationOperateScope));
+  }
+  if (input.teamShare?.agent !== undefined && input.agent?.enabled !== true) {
+    return Result.fail(
+      new EnvironmentAuthorizationError({
+        message: "This agent is off, so it does not take new messages.",
+        requiredScope: AuthOrchestrationOperateScope,
+        requiredPermission: "agent_off",
+      }),
+    );
+  }
+  if (
+    input.teamShare?.agent !== undefined &&
+    input.agent !== undefined &&
+    input.agent.runningTurnsElsewhere >= TEAM_AGENT_MAX_RUNNING_TURNS
+  ) {
+    return Result.fail(
+      new EnvironmentAuthorizationError({
+        message: TEAM_AGENT_BUSY_MESSAGE,
+        requiredScope: AuthOrchestrationOperateScope,
+        requiredPermission: "agent_busy",
+      }),
     );
   }
   return Result.succeed({

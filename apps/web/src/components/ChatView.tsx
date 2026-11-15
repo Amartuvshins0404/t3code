@@ -264,6 +264,7 @@ import {
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { TeammateComposer } from "./teams/TeammateComposer";
+import { AgentConversationLine } from "./teams/AgentConversationLine";
 import { TeamPresenceReporter, ThreadTypingLine } from "./teams/TeamThreadPresence";
 import { useThreadTeamShare } from "./teams/teamShareAvailability";
 import { useIsTeammateEnvironment } from "../cloud/teamWorkspace";
@@ -3583,6 +3584,9 @@ export default function ChatView(props: ChatViewProps) {
                                   ) : null
                                 }
                               />
+                            ) : null}
+                            {composerMounted && isServerThread ? (
+                              <AgentConversationLine threadRef={routeThreadRef} />
                             ) : null}
                             {!composerMounted ? null : composerMode !== "owner" &&
                               isServerThread &&

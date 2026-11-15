@@ -1111,3 +1111,111 @@ it.effect(
     );
   },
 );
+
+it.effect("an agent conversation never reads or finds another team's threads", () => {
+  const share = (organizationId: string, agent: boolean) => ({
+    organizationId,
+    access: "steer" as const,
+    sharedAt: "2026-11-15T00:00:00.000Z",
+    ...(agent ? { agent: { startedBy: { userId: "user-ana", name: "Ana" } } } : {}),
+  });
+  const shells = new Map<ThreadId, OrchestrationV2ThreadShell>(
+    (
+      [
+        [threadId, share("org-a", true)],
+        [ThreadId.make("owner-thread"), undefined],
+        [ThreadId.make("team-a-thread"), share("org-a", false)],
+        [ThreadId.make("team-b-agent"), share("org-b", true)],
+        [ThreadId.make("team-b-thread"), share("org-b", false)],
+      ] as const
+    ).map(([id, teamShare]) => [
+      id,
+      {
+        ...McpToolAccessTestkit.liveThreadShell(id, { activeRunId: null }),
+        ...(teamShare === undefined ? {} : { teamShare }),
+      },
+    ]),
+  );
+  return Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const call = (name: string, args: Record<string, unknown>) =>
+      server
+        .callTool({ name, arguments: args })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+    const reads = yield* Effect.forEach(
+      ["owner-thread", "team-a-thread", "team-b-agent", "team-b-thread"],
+      (id) => call("t3_thread_read", { threadId: id }),
+    );
+    expect(reads.map((result) => declaredFailure(result)?.code ?? "read")).toEqual([
+      "read",
+      "read",
+      "capability_denied",
+      "capability_denied",
+    ]);
+    const found = yield* call("t3_thread_search", { query: "auth" });
+    expect(
+      (found.structuredContent as { matches: Array<{ threadId: string }> }).matches.map(
+        (match) => match.threadId,
+      ),
+    ).toEqual(["owner-thread", "team-a-thread"]);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        layerOrchestratorToolkit.pipe(
+          Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+          Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
+          Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
+          Layer.provide(Layer.mock(RemoteDelegation.RemoteDelegation)({})),
+          Layer.provide(ServerSettings.layerTest()),
+          Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
+          Layer.provide(Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({})),
+        ),
+        McpHttpServer.layerThreadToolkit.pipe(
+          Layer.provide(
+            Layer.mock(ThreadSearch.ThreadSearch)({
+              searchThreads: () =>
+                Effect.succeed({
+                  matches: [...shells.values()]
+                    .filter((shell) => shell.id !== threadId)
+                    .map((shell) => ({
+                      threadId: shell.id,
+                      projectId: shell.projectId,
+                      title: shell.title,
+                      source: "title" as const,
+                    })),
+                }),
+            }),
+          ),
+          Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+        ),
+      ).pipe(
+        Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: (id) => Effect.succeed(shells.get(id) ?? null),
+            getThreadRecords: (id) =>
+              Effect.succeed(
+                McpToolAccessTestkit.idleThreadProjection(
+                  shells.get(id) ?? McpToolAccessTestkit.liveThreadShell(id),
+                ) as never,
+              ),
+            getProjectThreadRecords: ({ threadId: id }) =>
+              Effect.succeed(
+                McpToolAccessTestkit.idleThreadProjection(
+                  shells.get(id) ?? McpToolAccessTestkit.liveThreadShell(id),
+                ),
+              ),
+            getTimelinePage: () => Effect.succeed({ items: [], totalItems: 0, hasMore: false }),
+          }),
+        ),
+        Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
+        Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
+        Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
+      ),
+    ),
+  );
+});

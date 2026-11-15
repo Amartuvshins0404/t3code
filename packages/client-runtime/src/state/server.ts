@@ -1283,6 +1283,24 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.teamGetConnectivity,
       concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
+    teamAgents: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:team:agents",
+      tag: WS_METHODS.teamGetAgents,
+      staleTimeMs: 60_000,
+      revalidateOnRemount: true,
+    }),
+    setTeamAgent: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:set-agent",
+      tag: WS_METHODS.teamSetAgent,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => `${environmentId}:${input.organizationId}`,
+      },
+    }),
+    askTeamAgent: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:team:ask-agent",
+      tag: WS_METHODS.teamAskAgent,
+    }),
     addTeamSharedOrganization: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:team:add-shared-organization",
       tag: WS_METHODS.teamAddSharedOrganization,

@@ -56,6 +56,7 @@ import {
   makeProviderFailure,
 } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
+import { hasTeamAgentFileMention } from "../team/TeamAgentToolGuard.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import {
@@ -561,6 +562,25 @@ export const layer: Layer.Layer<
           });
         },
       );
+      const agentTextRefusal =
+        projection.thread.teamShare?.agent === undefined
+          ? undefined
+          : message.text.trimStart().startsWith("/")
+            ? ("agent_slash_command" as const)
+            : hasTeamAgentFileMention(message.text)
+              ? ("agent_file_mention" as const)
+              : undefined;
+      if (agentTextRefusal !== undefined) {
+        yield* settleStartFailure({
+          signal: "team-agent-refused",
+          title: "The agent cannot answer",
+          error: new RuntimePolicy.RuntimePolicyTeamAgentRefusedError({
+            threadId: projection.thread.id,
+            reason: agentTextRefusal,
+          }),
+        });
+        return;
+      }
       if (message.attachments.length === 0 && message.text.trimStart().startsWith("/")) {
         const isEmptyCompaction =
           message.text.trim().toLowerCase() === "/compact" && !projection.hasConversation;
@@ -756,6 +776,15 @@ export const layer: Layer.Layer<
         .pipe(Effect.result);
       if (resolvedPolicy._tag === "Failure") {
         const error = resolvedPolicy.failure;
+        if (error._tag === "RuntimePolicyTeamAgentRefusedError") {
+          yield* settleStartFailure({
+            signal: "team-agent-refused",
+            title: "The agent cannot answer",
+            error,
+            message: error.message,
+          });
+          return;
+        }
         if (error._tag !== "RuntimePolicyAboveCeilingError") return yield* error;
         yield* settleStartFailure({
           signal: "runtime-mode-above-ceiling",

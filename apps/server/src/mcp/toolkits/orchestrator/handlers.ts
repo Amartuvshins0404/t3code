@@ -6,7 +6,13 @@ import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
 import * as PeerLinks from "../../../peer/PeerLinks.ts";
 import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
-import { readCaller } from "../../threadAccess.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import {
+  outsideTeamAgentProject,
+  readCaller,
+  teamAgentReadsAnotherTeam,
+  teamAgentReadsOutsideProject,
+} from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
@@ -157,6 +163,23 @@ const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      if (scope.thread !== undefined) {
+        const threads = yield* ThreadManagementService.ThreadManagementService;
+        const caller = yield* threads
+          .getThreadShell(scope.thread.threadId)
+          .pipe(Effect.orElseSucceed(() => null));
+        if (caller?.teamShare?.agent !== undefined) {
+          const target = yield* threads
+            .getThreadShell(input.threadId)
+            .pipe(Effect.orElseSucceed(() => null));
+          if (
+            teamAgentReadsOutsideProject(caller, target?.projectId) ||
+            teamAgentReadsAnotherTeam(caller, target)
+          ) {
+            return yield* outsideTeamAgentProject();
+          }
+        }
+      }
       return yield* service.readThread(scope, input);
     }),
   ),

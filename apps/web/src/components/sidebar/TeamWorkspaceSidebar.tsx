@@ -1,20 +1,22 @@
 import type { CloudTeamSummary } from "@t3tools/client-runtime/cloud-auth";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/models";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { TeamWorkspace } from "@t3tools/client-runtime/relay";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import type { RelayTeamEnvironmentRecord } from "@t3tools/contracts/relay";
+import type { TeamPerson } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { EyeIcon, MonitorIcon, SquarePenIcon } from "lucide-react";
+import { EyeIcon, MessageCircleIcon, SquarePenIcon, UsersIcon } from "lucide-react";
 
-import { refreshTeamMachines, useTeamMachines } from "~/cloud/teamWorkspace";
+import { refreshTeamMachines } from "~/cloud/teamWorkspace";
 import { isElectron } from "~/env";
 import { useThreadRouteTarget } from "~/hooks/useThreadRouteTarget";
-import { useProjects, useQuietThreadShells } from "~/state/entities";
-import { useEnvironment } from "~/state/environments";
+import { useQuietThreadShells } from "~/state/entities";
+import {
+  TEAM_AGENT_SECTION_ID,
+  type TeamPersonEntry,
+  useTeamAgentStatuses,
+  useTeamPeople,
+} from "../teams/teamAgents";
 import { PresenceAvatars, usePresencePeople, useSelfUserId } from "../teams/teamPresence";
+import { openAskAgentDialog } from "../teams/teamUiStore";
 import { Avatar } from "../ui/avatar";
 import { Button } from "../ui/button";
 import {
@@ -23,89 +25,60 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from "../ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./SidebarChrome";
 
-interface TeamThreadGroup {
-  readonly projectId: string;
-  readonly title: string;
-  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+const EMPTY_PEOPLE: ReadonlyArray<TeamPersonEntry> = [];
+
+function personThreads(
+  scope: TeamWorkspace.WorkspaceScope,
+  entry: TeamPersonEntry,
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+): ReadonlyArray<EnvironmentThreadShell> {
+  const environmentIds = new Set<string>(entry.machines.map((machine) => machine.environmentId));
+  return threads
+    .filter(
+      (thread) =>
+        thread.archivedAt === null &&
+        environmentIds.has(thread.environmentId) &&
+        TeamWorkspace.workspaceListsThread(scope, {
+          environmentId: thread.environmentId,
+          teamShare: thread.source.teamShare,
+        }),
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-function groupSharedThreads(input: {
-  readonly scope: TeamWorkspace.WorkspaceScope;
-  readonly environmentId: EnvironmentId;
-  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
-  readonly projects: ReadonlyArray<EnvironmentProject>;
-}): ReadonlyArray<TeamThreadGroup> {
-  const groups = new Map<string, EnvironmentThreadShell[]>();
-  for (const thread of input.threads) {
-    if (thread.environmentId !== input.environmentId || thread.archivedAt !== null) continue;
-    if (
-      !TeamWorkspace.workspaceListsThread(input.scope, {
-        environmentId: thread.environmentId,
-        teamShare: thread.source.teamShare,
-      })
-    ) {
-      continue;
-    }
-    const list = groups.get(thread.projectId) ?? [];
-    list.push(thread);
-    groups.set(thread.projectId, list);
-  }
-  return [...groups.entries()]
-    .map(([projectId, threads]) => ({
-      projectId,
-      title:
-        input.projects.find(
-          (project) => project.environmentId === input.environmentId && project.id === projectId,
-        )?.title ?? "Project",
-      threads: threads.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
-    }))
-    .toSorted((left, right) => left.title.localeCompare(right.title));
-}
-
-function machineStatus(
-  machine: RelayTeamEnvironmentRecord,
-  phase: string | null,
-  error: string | null,
-): string | null {
-  switch (phase) {
-    case null:
-    case "available":
-    case "connecting":
-      return "Connecting";
-    case "reconnecting":
-      return "Reconnecting";
-    case "offline":
-      return "Offline";
-    case "unsupported":
-      return machine.isOwner ? "Update this machine to share with a team" : "Needs an update";
-    case "error":
-      return machine.isOwner ? (error ?? "Can't connect") : "Not available right now";
-    default:
-      return null;
-  }
-}
+const STATUS_LABELS: Readonly<Record<TeamWorkspace.PersonAgentStatus["kind"], string | null>> = {
+  ready: "Agent ready",
+  off: "Agent off",
+  offline: "Offline",
+  no_machine: "No machine yet",
+  needs_update: "Needs an update",
+  loading: null,
+};
 
 export function TeamWorkspaceSidebar({ team }: { readonly team: CloudTeamSummary }) {
-  const state = useTeamMachines();
+  const state = useTeamPeople();
   const machines = state.status === "personal" ? [] : state.machines;
+  const people = state.status === "personal" ? EMPTY_PEOPLE : state.people;
   const threads = useQuietThreadShells();
-  const projects = useProjects();
+  const statuses = useTeamAgentStatuses(
+    team.id,
+    people.map((entry) => entry.person.userId),
+    machines,
+  );
   const scope: TeamWorkspace.WorkspaceScope = {
     kind: "team",
     teamId: team.id,
     environmentIds: new Set(machines.map((machine) => machine.environmentId)),
   };
-  const groupsByMachine = new Map(
-    machines.map((machine) => [
-      machine.environmentId,
-      groupSharedThreads({ scope, environmentId: machine.environmentId, threads, projects }),
-    ]),
+  const threadsByPerson = new Map(
+    people.map((entry) => [entry.person.userId, personThreads(scope, entry, threads)]),
   );
-  const sharedThreadCount = [...groupsByMachine.values()].reduce(
-    (count, groups) => count + groups.reduce((sum, group) => sum + group.threads.length, 0),
+  const sharedThreadCount = [...threadsByPerson.values()].reduce(
+    (count, list) => count + list.length,
     0,
   );
 
@@ -115,20 +88,33 @@ export function TeamWorkspaceSidebar({ team }: { readonly team: CloudTeamSummary
       <SidebarContent className="min-h-full">
         <SidebarGroup>
           <div className="flex flex-col gap-3">
-            {state.status !== "personal" && machines.length === 0 ? (
-              <TeamMachinesEmpty status={state.status} teamId={team.id} teamName={team.name} />
-            ) : (
-              machines.map((machine) => (
-                <TeamMachineSection
-                  key={machine.environmentId}
-                  machine={machine}
-                  groups={groupsByMachine.get(machine.environmentId) ?? []}
-                />
-              ))
-            )}
+            {state.status === "loading" && people.length === 0 ? (
+              <p className="px-2.5 py-2 text-muted-foreground text-xs">Loading the team…</p>
+            ) : null}
+            {people.map((entry) => (
+              <TeamPersonSection
+                key={entry.person.userId}
+                teamId={team.id}
+                entry={entry}
+                status={statuses.get(entry.person.userId) ?? { kind: "loading" }}
+                threads={threadsByPerson.get(entry.person.userId) ?? []}
+              />
+            ))}
+            {state.status === "failed" ? (
+              <div className="flex flex-col items-start gap-2 px-2.5 py-2 text-muted-foreground text-xs">
+                <span>Could not load the team&apos;s machines.</span>
+                <Button size="xs" variant="outline" onClick={() => refreshTeamMachines(team.id)}>
+                  Retry
+                </Button>
+              </div>
+            ) : null}
+            {state.status === "ready" && machines.length === 0 ? (
+              <TeamNoMachines teamName={team.name} />
+            ) : null}
             {machines.length > 0 && sharedThreadCount === 0 ? (
               <p className="px-2.5 text-muted-foreground text-xs">
-                Nothing shared yet. Open a thread and choose Share with team.
+                Nothing shared yet. Ask someone&apos;s agent, or open a thread and choose Share with
+                team.
               </p>
             ) : null}
           </div>
@@ -139,33 +125,12 @@ export function TeamWorkspaceSidebar({ team }: { readonly team: CloudTeamSummary
   );
 }
 
-function TeamMachinesEmpty({
-  status,
-  teamId,
-  teamName,
-}: {
-  readonly status: "loading" | "ready" | "failed";
-  readonly teamId: string;
-  readonly teamName: string;
-}) {
+function TeamNoMachines({ teamName }: { readonly teamName: string }) {
   const navigate = useNavigate();
-  if (status === "loading") {
-    return <p className="px-2.5 py-2 text-muted-foreground text-xs">Loading team machines…</p>;
-  }
-  if (status === "failed") {
-    return (
-      <div className="flex flex-col items-start gap-2 px-2.5 py-2 text-muted-foreground text-xs">
-        <span>Could not load the team&apos;s machines.</span>
-        <Button size="xs" variant="outline" onClick={() => refreshTeamMachines(teamId)}>
-          Retry
-        </Button>
-      </div>
-    );
-  }
   return (
     <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-muted-foreground text-xs">
-      <MonitorIcon aria-hidden className="size-5" />
-      <span>No machine is shared with {teamName} yet.</span>
+      <UsersIcon aria-hidden className="size-5" />
+      <span>No one has shared a machine with {teamName} yet.</span>
       <Button size="xs" variant="outline" onClick={() => void navigate({ to: "/settings/team" })}>
         Share a machine with the team
       </Button>
@@ -173,53 +138,74 @@ function TeamMachinesEmpty({
   );
 }
 
-function TeamMachineSection({
-  machine,
-  groups,
+function TeamPersonSection({
+  teamId,
+  entry,
+  status,
+  threads,
 }: {
-  readonly machine: RelayTeamEnvironmentRecord;
-  readonly groups: ReadonlyArray<TeamThreadGroup>;
+  readonly teamId: string;
+  readonly entry: TeamPersonEntry;
+  readonly status: TeamWorkspace.PersonAgentStatus;
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
 }) {
-  const environment = useEnvironment(machine.environmentId);
+  const navigate = useNavigate();
   const selfUserId = useSelfUserId();
-  const status = machineStatus(
-    machine,
-    environment?.connection.phase ?? null,
-    environment?.connection.error ?? null,
+  const { person, self } = entry;
+  const ready = status.kind === "ready";
+  const name = self ? "You" : person.name;
+  const { isMobile, setOpenMobile } = useSidebar();
+  const ask = () => {
+    if (isMobile) setOpenMobile(false);
+    openAskAgentDialog(teamId, person);
+  };
+  const label = STATUS_LABELS[status.kind];
+  const identity = (
+    <>
+      <Avatar name={person.name} src={person.image ?? null} seed={person.userId} size="sm" />
+      <span className="flex min-w-0 flex-1 flex-col text-start">
+        <span className="truncate font-medium text-sidebar-foreground text-sm">{name}</span>
+        {label ? <span className="truncate text-muted-foreground text-xs">{label}</span> : null}
+      </span>
+    </>
   );
-  const connected = usePresencePeople(machine.environmentId, {
-    threadId: null,
-    selfUserId,
-    selfIsOwner: machine.isOwner,
-    owner: machine.owner,
-  });
   return (
-    <section aria-label={machine.label} className="flex flex-col gap-1">
+    <section aria-label={name} className="flex flex-col gap-1">
       <div className="flex min-h-8 items-center gap-2 px-2.5">
-        <Avatar
-          name={machine.owner.name}
-          src={machine.owner.image}
-          seed={machine.owner.userId}
-          size="sm"
-        />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-medium text-sidebar-foreground text-sm">
-            {machine.label}
-          </span>
-          <span className="truncate text-muted-foreground text-xs">
-            {machine.isOwner ? "Your machine" : machine.owner.name}
-            {status ? ` · ${status}` : ""}
-          </span>
-        </div>
-        <PresenceAvatars people={connected} />
+        {ready ? (
+          <button
+            type="button"
+            aria-label={self ? "Ask your agent" : `Ask ${person.name}'s agent`}
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"
+            onClick={ask}
+          >
+            {identity}
+          </button>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-2">{identity}</div>
+        )}
+        {ready ? (
+          <Button size="xs" variant="ghost" tabIndex={-1} onClick={ask}>
+            Ask
+          </Button>
+        ) : self && status.kind === "off" ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => void navigate({ to: "/settings/team", hash: TEAM_AGENT_SECTION_ID })}
+          >
+            Turn on
+          </Button>
+        ) : null}
       </div>
-      {groups.length > 0 ? (
+      {threads.length > 0 ? (
         <SidebarMenuSub>
-          {groups.map((group) => (
-            <TeamProjectGroup
-              key={group.projectId}
-              group={group}
-              machine={machine}
+          {threads.map((thread) => (
+            <TeamThreadRow
+              key={`${thread.environmentId}:${thread.id}`}
+              thread={thread}
+              owner={person}
+              selfIsOwner={self}
               selfUserId={selfUserId}
             />
           ))}
@@ -229,49 +215,20 @@ function TeamMachineSection({
   );
 }
 
-function TeamProjectGroup({
-  group,
-  machine,
-  selfUserId,
-}: {
-  readonly group: TeamThreadGroup;
-  readonly machine: RelayTeamEnvironmentRecord;
-  readonly selfUserId: string | null;
-}) {
-  return (
-    <>
-      <li className="truncate px-2 pt-1 text-muted-foreground text-xs">{group.title}</li>
-      {group.threads.map((thread) => (
-        <TeamThreadRow
-          key={thread.id}
-          environmentId={thread.environmentId}
-          threadId={thread.id}
-          title={thread.title}
-          access={thread.source.teamShare?.access ?? "view"}
-          machine={machine}
-          selfUserId={selfUserId}
-        />
-      ))}
-    </>
-  );
-}
-
 function TeamThreadRow({
-  environmentId,
-  threadId,
-  title,
-  access,
-  machine,
+  thread,
+  owner,
+  selfIsOwner,
   selfUserId,
 }: {
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-  readonly title: string;
-  readonly access: "view" | "steer";
-  readonly machine: RelayTeamEnvironmentRecord;
+  readonly thread: EnvironmentThreadShell;
+  readonly owner: TeamPerson;
+  readonly selfIsOwner: boolean;
   readonly selfUserId: string | null;
 }) {
   const route = useThreadRouteTarget();
+  const { environmentId, id: threadId } = thread;
+  const share = thread.source.teamShare;
   const isActive =
     route?.kind === "server" &&
     route.threadRef.environmentId === environmentId &&
@@ -279,21 +236,29 @@ function TeamThreadRow({
   const viewers = usePresencePeople(environmentId, {
     threadId,
     selfUserId,
-    selfIsOwner: machine.isOwner,
-    owner: machine.owner,
+    selfIsOwner,
+    owner,
   });
+  const asker = share?.agent?.startedBy;
   return (
     <SidebarMenuSubItem>
       <SidebarMenuSubButton
         isActive={isActive}
         render={<Link to="/$environmentId/$threadId" params={{ environmentId, threadId }} />}
       >
-        {access === "view" ? (
-          <EyeIcon aria-label="View only" className="size-3.5 shrink-0" />
-        ) : (
+        {asker ? (
+          <MessageCircleIcon aria-label="Agent conversation" className="size-3.5 shrink-0" />
+        ) : share?.access === "steer" ? (
           <SquarePenIcon aria-label="Steer" className="size-3.5 shrink-0" />
+        ) : (
+          <EyeIcon aria-label="View only" className="size-3.5 shrink-0" />
         )}
-        <span className="min-w-0 flex-1 truncate">{title}</span>
+        <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+        {asker && asker.userId !== selfUserId && asker.userId !== owner.userId ? (
+          <span className="max-w-20 shrink-0 truncate text-muted-foreground text-xs">
+            {asker.name}
+          </span>
+        ) : null}
         <PresenceAvatars people={viewers} />
       </SidebarMenuSubButton>
     </SidebarMenuSubItem>

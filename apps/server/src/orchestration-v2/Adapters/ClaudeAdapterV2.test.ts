@@ -268,6 +268,46 @@ function makeClaudeTestTurnInput(input: {
 }
 
 describe("ClaudeAdapterV2 runtime query policy", () => {
+  it("keeps an agent conversation read-only and declines every prompt without anyone answering", async () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "team-agent-thread",
+      resume: false,
+      cwd: "/workspace",
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      allowedTools: ["Bash", "Write"],
+      settings: { ...DEFAULT_CLAUDE_SETTINGS, launchArgs: "--dangerously-skip-permissions" },
+      teamAgent: {
+        readableRoots: ["/workspace"],
+        ownerName: "Sam",
+        preToolUse: () => Promise.resolve({}),
+      },
+    });
+    assert.deepEqual(options.tools, ["Read", "Glob", "Grep"]);
+    assert.equal(options.permissionMode, "dontAsk");
+    assert.equal(options.verbatimPrompts, true);
+    assert.deepEqual(options.settingSources, []);
+    assert.equal(options.strictMcpConfig, true);
+    assert.isUndefined(options.allowDangerouslySkipPermissions);
+    assert.deepEqual(options.allowedTools, []);
+    assert.include(options.disallowedTools ?? [], "Read(**/.env*)");
+    assert.lengthOf(options.hooks?.PreToolUse ?? [], 1);
+
+    const signal = new AbortController().signal;
+    const answer = await options.canUseTool?.(
+      "Bash",
+      { command: "ls" },
+      { signal, toolUseID: "tool-1", requestId: "request-1", suggestions: [] },
+    );
+    assert.equal(answer?.behavior, "deny");
+    const elicitation = await options.onElicitation?.(
+      { serverName: "t3-code", message: "Pick one", mode: "form" },
+      { signal, requestId: "request-2" },
+    );
+    assert.equal(elicitation?.action, "decline");
+  });
+
   it.each([
     "-- --thinking-display omitted",
     "--thinking-display summarized -- --thinking-display omitted",
@@ -4225,6 +4265,80 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           disableBypassPermissionsMode: "disable",
           disableAutoMode: "disable",
         });
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
+    it.effect("opens an agent conversation's turn read-only, ignoring the owner's settings", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-claude-team-agent-" });
+        vi.mocked(ClaudeSdk.resolveSettings).mockResolvedValue({
+          effective: {},
+          provenance: {},
+          sources: [],
+        });
+        const harness = yield* makeWakeHarnessWithOptions({
+          settings: { ...DEFAULT_CLAUDE_SETTINGS, launchArgs: "--dangerously-skip-permissions" },
+        });
+        const turnInput = makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("attempt-team-agent"),
+          text: "Where is auth handled?",
+          attachments: [],
+          runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            cwd,
+            approvalPolicy: "never",
+            sandboxPolicy: {
+              type: "readOnly",
+              access: { type: "restricted", readableRoots: [cwd] },
+            },
+          }),
+        });
+        yield* harness.runtime.startTurn({
+          ...turnInput,
+          appThread: {
+            ...turnInput.appThread,
+            teamShare: {
+              organizationId: "org-a",
+              access: "steer",
+              sharedAt: "2026-11-15T00:00:00.000Z",
+              agent: { startedBy: { userId: "user-ana", name: "Ana" } },
+            },
+          },
+        });
+        const options = harness.getOpenedOptions()!;
+        assert.deepEqual(
+          {
+            tools: options.tools,
+            permissionMode: options.permissionMode,
+            settingSources: options.settingSources,
+            verbatimPrompts: options.verbatimPrompts,
+            skipsPermissions: options.allowDangerouslySkipPermissions,
+            readableRoots: options.additionalDirectories,
+          },
+          {
+            tools: ["Read", "Glob", "Grep"],
+            permissionMode: "dontAsk",
+            settingSources: [],
+            verbatimPrompts: true,
+            skipsPermissions: undefined,
+            readableRoots: [cwd],
+          },
+        );
+        assert.include(options.disallowedTools ?? [], "Read(**/.npmrc)");
       }).pipe(
         Effect.provide(
           Layer.mergeAll(

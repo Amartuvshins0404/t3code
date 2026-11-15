@@ -1322,6 +1322,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     cloudOnly: true,
   },
   {
+    id: "team-agent",
+    title: "My agent",
+    to: "/settings/team",
+    searchTerms: [
+      "team agent my agent ask teammate question read only projects model turn on off people",
+    ],
+    cloudOnly: true,
+  },
+  {
     id: "team-connectivity",
     title: "Team connection",
     to: "/settings/team",
