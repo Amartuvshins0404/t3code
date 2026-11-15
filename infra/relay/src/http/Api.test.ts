@@ -3,6 +3,7 @@ import {
   RelayClientAuth,
   RelayClientPrincipal,
   type RelayClientDeviceRecord,
+  type RelayTeamConnectivityRecord,
 } from "@t3tools/contracts/relay";
 import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
@@ -60,6 +61,7 @@ import * as HookInbox from "../hooks/HookInbox.ts";
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
 import * as EnvironmentTeamShares from "../environments/EnvironmentTeamShares.ts";
 import * as TeamMembership from "../auth/TeamMembership.ts";
+import * as TeamConnectivity from "../teams/TeamConnectivity.ts";
 import * as ManagedEndpointAllocations from "../environments/ManagedEndpointAllocations.ts";
 import * as ManagedEndpointProvider from "../environments/ManagedEndpointProvider.ts";
 import * as ManagedTunnelLimits from "../environments/ManagedTunnelLimits.ts";
@@ -128,6 +130,7 @@ describe("managed endpoint provisioning errors", () => {
           Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {}),
           Layer.mock(EnvironmentTeamShares.EnvironmentTeamShares, {}),
           TeamMembership.layerUnavailable,
+          Layer.mock(TeamConnectivity.TeamConnectivity, {}),
         ),
       ),
       Layer.provideMerge(
@@ -242,6 +245,7 @@ describe("device listing compatibility", () => {
           Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {}),
           Layer.mock(EnvironmentTeamShares.EnvironmentTeamShares, {}),
           TeamMembership.layerUnavailable,
+          Layer.mock(TeamConnectivity.TeamConnectivity, {}),
         ),
       ),
       Layer.provideMerge(
@@ -286,13 +290,63 @@ describe("device listing compatibility", () => {
   });
 });
 
+const connectivityStore = () => {
+  const rows = new Map<string, { record: RelayTeamConnectivityRecord; clientKey: string }>();
+  let version = 0;
+  const service = TeamConnectivity.TeamConnectivity.of({
+    get: ({ organizationId }) =>
+      Effect.sync(() => {
+        const row = rows.get(organizationId);
+        if (!row) return null;
+        const leaky = { ...row.record, clientKey: row.clientKey };
+        return leaky;
+      }),
+    set: ({ organizationId, url, clientKey, updatedBy }) =>
+      Effect.sync(() => {
+        version += 1;
+        const record = {
+          organizationId,
+          url,
+          version: `version-${version}`,
+          updatedAt: "2026-11-15T00:00:00.000Z",
+          updatedBy,
+        };
+        rows.set(organizationId, { record, clientKey: Redacted.value(clientKey) });
+        const leaky = { ...record, clientKey: Redacted.value(clientKey) };
+        return leaky;
+      }),
+    remove: ({ organizationId }) => Effect.sync(() => rows.delete(organizationId)),
+    listWithKeys: ({ organizationIds }) =>
+      Effect.sync(() =>
+        organizationIds.flatMap((organizationId) => {
+          const row = rows.get(organizationId);
+          return row
+            ? [
+                {
+                  organizationId,
+                  url: row.record.url,
+                  clientKey: Redacted.make(row.clientKey),
+                  version: row.record.version,
+                },
+              ]
+            : [];
+        }),
+      ),
+  });
+  return { rows, service };
+};
+
 describe("team shares", () => {
-  const teamMember = (userId: string, name: string) => ({
+  const teamMember = (
+    userId: string,
+    name: string,
+    role: "owner" | "admin" | "member" = "member",
+  ) => ({
     userId,
     name,
     organizationId: "org-1",
     organizationSlug: "team-one",
-    role: "member" as const,
+    role,
   });
   const ownerLink = {
     environmentId: EnvironmentId.make("environment-1"),
@@ -317,6 +371,7 @@ describe("team shares", () => {
     readonly membership: TeamMembership.TeamMembership["Service"];
     readonly linkedUserIds?: ReadonlyArray<string>;
     readonly shared?: Array<string>;
+    readonly connectivity?: TeamConnectivity.TeamConnectivity["Service"];
   }) => {
     const linked = new Set(input.linkedUserIds ?? []);
     const layerHandlers = RelayHttpApi.layerClientApi.pipe(
@@ -356,6 +411,9 @@ describe("team shares", () => {
             listForOrganization: () => Effect.succeed([{ share, link: ownerLink }]),
           }),
           Layer.succeed(TeamMembership.TeamMembership, input.membership),
+          input.connectivity
+            ? Layer.succeed(TeamConnectivity.TeamConnectivity, input.connectivity)
+            : Layer.mock(TeamConnectivity.TeamConnectivity, {}),
         ),
       ),
       Layer.provideMerge(
@@ -384,7 +442,7 @@ describe("team shares", () => {
 
   const send = (
     app: { readonly handler: (request: Request) => Promise<Response> },
-    method: "GET" | "POST" | "DELETE",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
   ) =>
@@ -505,6 +563,279 @@ describe("team shares", () => {
       expect(shared).toEqual([]);
     }).pipe(Effect.scoped),
   );
+
+  it.effect(
+    "only a team owner or admin changes connectivity, and no member read shows the key",
+    () =>
+      Effect.gen(function* () {
+        const path = "/v1/teams/org-1/connectivity";
+        const firstKey = "fake-team-key-first";
+        const secondKey = "fake-team-key-second";
+        const store = connectivityStore();
+        const membership = membershipOf([
+          teamMember("owner", "Ada", "owner"),
+          teamMember("lead", "Cy", "admin"),
+          teamMember("mate", "Bo"),
+        ]);
+        const app = (userId: string) =>
+          teamApp({ userId, membership, connectivity: store.service });
+        const mate = yield* app("mate");
+        const lead = yield* app("lead");
+        const owner = yield* app("owner");
+        const outsider = yield* app("outsider");
+
+        expect(
+          yield* send(mate, "PUT", path, {
+            url: "https://proxy.example.test",
+            clientKey: firstKey,
+          }),
+        ).toMatchObject({ status: 403, body: { reason: "not_team_admin" } });
+        expect(store.rows.size).toBe(0);
+
+        const set = yield* send(lead, "PUT", path, {
+          url: "https://proxy.example.test",
+          clientKey: firstKey,
+        });
+        expect(set).toMatchObject({
+          status: 200,
+          body: { organizationId: "org-1", updatedBy: { userId: "lead", name: "Cy" } },
+        });
+        expect(JSON.stringify(set.body)).not.toContain(firstKey);
+
+        expect(yield* send(mate, "DELETE", path)).toMatchObject({
+          status: 403,
+          body: { reason: "not_team_admin" },
+        });
+        expect(yield* send(outsider, "GET", path)).toMatchObject({
+          status: 403,
+          body: { reason: "not_team_member" },
+        });
+
+        const read = yield* send(mate, "GET", path);
+        expect(read).toMatchObject({
+          status: 200,
+          body: { connectivity: { url: "https://proxy.example.test", version: "version-1" } },
+        });
+        expect(JSON.stringify(read.body)).not.toContain(firstKey);
+
+        const replaced = yield* send(owner, "PUT", path, {
+          url: "https://proxy-2.example.test",
+          clientKey: secondKey,
+        });
+        expect(replaced).toMatchObject({ status: 200, body: { version: "version-2" } });
+        expect(JSON.stringify(replaced.body)).not.toContain(secondKey);
+        expect(store.rows.get("org-1")?.clientKey).toBe(secondKey);
+
+        expect(yield* send(owner, "DELETE", path)).toEqual({ status: 200, body: { ok: true } });
+        expect(yield* send(mate, "GET", path)).toEqual({
+          status: 200,
+          body: { connectivity: null },
+        });
+
+        const off = yield* teamApp({
+          userId: "owner",
+          membership: TeamMembership.unavailable,
+          connectivity: store.service,
+        });
+        for (const method of ["GET", "PUT", "DELETE"] as const) {
+          expect(
+            yield* send(
+              off,
+              method,
+              path,
+              method === "PUT"
+                ? { url: "https://proxy.example.test", clientKey: firstKey }
+                : undefined,
+            ),
+          ).toMatchObject({ status: 503, body: { code: "teams_unavailable" } });
+        }
+        expect(store.rows.size).toBe(0);
+      }).pipe(Effect.scoped),
+  );
+});
+
+describe("environment team connectivity", () => {
+  const teamKey = "fake-team-key-for-org-1";
+  const environmentPublicKey = "environment-public-key";
+  const ownerLink = {
+    environmentId: EnvironmentId.make("environment-1"),
+    label: "Owner Mac",
+    endpoint: {
+      httpBaseUrl: "https://environment-1.example.test/",
+      wsBaseUrl: "wss://environment-1.example.test/ws",
+      providerKind: "cloudflare_tunnel" as const,
+    },
+    environmentPublicKey,
+    linkedAt: "2026-11-01T00:00:00.000Z",
+  };
+  const shareOf = (organizationId: string) => ({
+    environmentId: ownerLink.environmentId,
+    organizationId,
+    ownerUserId: "owner",
+    sharedAt: "2026-11-02T00:00:00.000Z",
+  });
+  const member = (organizationId: string) => ({
+    userId: "owner",
+    name: "Ada",
+    organizationId,
+    organizationSlug: organizationId,
+    role: "owner" as const,
+  });
+
+  const read = (input: {
+    readonly callerEnvironmentId?: string;
+    readonly path?: string;
+    readonly shares: ReadonlyArray<ReturnType<typeof shareOf>>;
+    readonly ownerTeams: ReadonlyArray<string>;
+    readonly membershipAvailable?: boolean;
+  }) =>
+    Effect.gen(function* () {
+      const store = connectivityStore();
+      yield* store.service.set({
+        organizationId: "org-1",
+        url: "https://proxy.example.test",
+        clientKey: Redacted.make(teamKey),
+        updatedBy: { userId: "owner", name: "Ada" },
+      });
+      const membership =
+        input.membershipAvailable === false
+          ? TeamMembership.unavailable
+          : TeamMembership.TeamMembership.of({
+              available: true,
+              members: ({ organizationId, userIds }) =>
+                Effect.succeed(
+                  input.ownerTeams.includes(organizationId) && userIds.includes("owner")
+                    ? [member(organizationId)]
+                    : [],
+                ),
+            });
+      const layerAuth = Layer.succeed(RelayEnvironmentAuth, {
+        environmentBearer: (effect) =>
+          effect.pipe(
+            Effect.provideService(RelayEnvironmentPrincipal, {
+              environmentId: input.callerEnvironmentId ?? "environment-1",
+              environmentPublicKey,
+            }),
+          ),
+      });
+      const layerRoutes = HttpApiBuilder.layer(
+        HttpApi.make("RelayApi").add(RelayApi.groups.server),
+      ).pipe(
+        Layer.provide(
+          RelayHttpApi.layerServerApi.pipe(
+            HttpRouter.provideRequest(
+              Layer.mergeAll(
+                Layer.succeed(RelayConfiguration.RelayConfiguration, relaySettings),
+                Layer.mock(EnvironmentLinks.EnvironmentLinks, {}),
+                Layer.mock(ManagedEndpointAllocations.ManagedEndpointAllocations, {}),
+                Layer.mock(ManagedEndpointProvider.ManagedEndpointProvider, {}),
+              ),
+            ),
+            Layer.provide([
+              Layer.mock(AgentActivityPublisher.AgentActivityPublisher, {}),
+              Layer.mock(EnvironmentPublishSignatures.EnvironmentPublishSignatures, {}),
+              Layer.mock(HeldHooks.HeldHooks, {}),
+              Layer.mock(EnvironmentLinks.EnvironmentLinks, {
+                getForUser: ({ userId, environmentId }) =>
+                  Effect.succeed(
+                    userId === "owner" && environmentId === ownerLink.environmentId
+                      ? ownerLink
+                      : null,
+                  ),
+              }),
+              Layer.mock(EnvironmentTeamShares.EnvironmentTeamShares, {
+                listForEnvironment: ({ environmentId }) =>
+                  Effect.succeed(
+                    input.shares.filter((share) => share.environmentId === environmentId),
+                  ),
+              }),
+              Layer.succeed(TeamMembership.TeamMembership, membership),
+              Layer.succeed(TeamConnectivity.TeamConnectivity, store.service),
+            ]),
+          ),
+        ),
+        Layer.provide(layerAuth),
+        Layer.provide([NodeCryptoLayer.layerSignature, HttpServer.layerServices]),
+      );
+      const app = yield* Effect.acquireRelease(
+        Effect.sync(() => HttpRouter.toWebHandler(layerRoutes, { disableLogger: true })),
+        (handler) => Effect.promise(() => handler.dispose()),
+      );
+      const web = yield* Effect.promise(() =>
+        app.handler(
+          new Request(
+            `https://relay.test${input.path ?? "/v1/environments/environment-1/team-connectivity"}`,
+            { headers: { authorization: "Bearer environment-credential" } },
+          ),
+        ),
+      );
+      return {
+        status: web.status,
+        cacheControl: web.headers.get("cache-control"),
+        body: yield* Effect.promise(() => web.json()),
+      };
+    }).pipe(Effect.scoped);
+
+  it.effect("returns a team's key only to a machine validly shared with that team", () =>
+    Effect.gen(function* () {
+      const shared = yield* read({
+        shares: [shareOf("org-1"), shareOf("org-2")],
+        ownerTeams: ["org-1", "org-2"],
+      });
+      expect(shared).toEqual({
+        status: 200,
+        cacheControl: "no-store",
+        body: {
+          sharedOrganizationIds: ["org-1", "org-2"],
+          teams: [
+            {
+              organizationId: "org-1",
+              url: "https://proxy.example.test",
+              clientKey: teamKey,
+              version: "version-1",
+            },
+          ],
+        },
+      });
+
+      expect(yield* read({ shares: [], ownerTeams: ["org-1"] })).toMatchObject({
+        status: 200,
+        body: { sharedOrganizationIds: [], teams: [] },
+      });
+
+      expect(yield* read({ shares: [shareOf("org-1")], ownerTeams: [] })).toMatchObject({
+        status: 200,
+        body: { sharedOrganizationIds: [], teams: [] },
+      });
+
+      const otherMachine = yield* read({
+        callerEnvironmentId: "environment-2",
+        path: "/v1/environments/environment-2/team-connectivity",
+        shares: [shareOf("org-1")],
+        ownerTeams: ["org-1"],
+      });
+      expect(otherMachine).toMatchObject({
+        status: 200,
+        body: { sharedOrganizationIds: [], teams: [] },
+      });
+
+      const borrowedPath = yield* read({
+        callerEnvironmentId: "environment-2",
+        shares: [shareOf("org-1")],
+        ownerTeams: ["org-1"],
+      });
+      expect(borrowedPath.status).toBe(401);
+      expect(JSON.stringify(borrowedPath.body)).not.toContain(teamKey);
+
+      const off = yield* read({
+        shares: [shareOf("org-1")],
+        ownerTeams: ["org-1"],
+        membershipAvailable: false,
+      });
+      expect(off).toMatchObject({ status: 503, body: { code: "teams_unavailable" } });
+      expect(JSON.stringify(off.body)).not.toContain(teamKey);
+    }),
+  );
 });
 
 describe("Cloudflare rate-limit retry hint", () => {
@@ -547,6 +878,7 @@ describe("Cloudflare rate-limit retry hint", () => {
           Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {}),
           Layer.mock(EnvironmentTeamShares.EnvironmentTeamShares, {}),
           TeamMembership.layerUnavailable,
+          Layer.mock(TeamConnectivity.TeamConnectivity, {}),
         ),
       ),
       Layer.provideMerge(
@@ -1596,7 +1928,15 @@ describe("relay routing fallback", () => {
                 Layer.mock(ManagedEndpointProvider.ManagedEndpointProvider, {}),
               ),
             ),
-            Layer.provide([layerPublisher, layerSignatures, Layer.mock(HeldHooks.HeldHooks, {})]),
+            Layer.provide([
+              layerPublisher,
+              layerSignatures,
+              Layer.mock(HeldHooks.HeldHooks, {}),
+              Layer.mock(EnvironmentLinks.EnvironmentLinks, {}),
+              Layer.mock(EnvironmentTeamShares.EnvironmentTeamShares, {}),
+              TeamMembership.layerUnavailable,
+              Layer.mock(TeamConnectivity.TeamConnectivity, {}),
+            ]),
           ),
         ),
         Layer.provide(layerAuth),
