@@ -586,6 +586,7 @@ function codexReplayPreamble(input: {
   readonly prompt: string;
   readonly sentPrompt?: string;
   readonly effort?: string;
+  readonly modelProvider?: string;
 }): Array<CodexReplay.CodexAppServerReplayEntry> {
   return [
     {
@@ -626,7 +627,10 @@ function codexReplayPreamble(input: {
       frame: {
         id: 2,
         method: "thread/start",
-        params: { config: CodexAdapterV2.CODEX_THREAD_CONFIG },
+        params: {
+          ...(input.modelProvider === undefined ? {} : { modelProvider: input.modelProvider }),
+          config: CodexAdapterV2.CODEX_THREAD_CONFIG,
+        },
       },
     },
     {
@@ -1243,6 +1247,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     onUsageLimits?: CodexAdapterV2.CodexAdapterV2Options["onUsageLimits"],
     promptSuggestions: Effect.Effect<boolean> = Effect.succeed(false),
     onNotification: (method: string) => Effect.Effect<void> = () => Effect.void,
+    settings: CodexSettings = DEFAULT_CODEX_SETTINGS,
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1301,7 +1306,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       };
       const adapter = yield* CodexAdapterV2.makeCodexAdapterV2({
         instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
-        settings: DEFAULT_CODEX_SETTINGS,
+        settings,
         environment: {},
         clientFactory,
         ...(onUsageLimits ? { onUsageLimits } : {}),
@@ -3016,6 +3021,74 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ),
         ),
       ),
+  );
+
+  it.effect("resumes a thread on the provider its launch arguments choose", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const scenario = "codex-resume-launch-provider";
+        const nativeThreadId = `native-${scenario}-thread`;
+        const transcript = makeCodexReplayTranscript({
+          scenario,
+          entries: [
+            ...codexReplayPreamble({
+              nativeThreadId,
+              nativeTurnId: "unused-turn",
+              prompt: "unused-prompt",
+              modelProvider: "t3team",
+            }).slice(0, 5),
+            {
+              type: "expect_outbound",
+              label: "thread/resume",
+              frame: {
+                id: 3,
+                method: "thread/resume",
+                params: {
+                  threadId: nativeThreadId,
+                  excludeTurns: true,
+                  modelProvider: "t3team",
+                  config: CodexAdapterV2.CODEX_THREAD_CONFIG,
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "thread/resume",
+              frame: { id: 3, result: { thread: { id: nativeThreadId, updatedAt: 1782622450 } } },
+            },
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(
+          transcript,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            ...DEFAULT_CODEX_SETTINGS,
+            launchArgs: `-c model_provider=owner -c "model_provider=t3team"`,
+          },
+        );
+        const resumed = yield* harness.runtime.resumeThread({
+          providerThread: { ...harness.providerThread, appThreadId: null },
+          modelSelection: CODEX_TEST_MODEL_SELECTION,
+          runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+        });
+        assert.equal(resumed.nativeThreadRef?.nativeId, nativeThreadId);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    ),
   );
 
   it.effect("resumes a provider thread without requesting or decoding its history", () =>

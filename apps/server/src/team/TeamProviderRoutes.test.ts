@@ -15,10 +15,12 @@ import {
   type TeamConnectivityMemory,
   TeamConnectivityUnavailableError,
   teamConnectivityStatus,
+  teamProviderConfig,
   teamProviderEnvironment,
   turnProviderSessionId,
   withSharedOrganizations,
 } from "./TeamProviderRoutes.ts";
+import { codexAppServerArgs, codexLaunchArgModelProvider } from "../provider/codexLaunchArgs.ts";
 
 const FAKE_KEY = "fake-team-client-key-for-tests";
 const share = (organizationId: string) => ({
@@ -184,6 +186,27 @@ describe("what clients receive", () => {
     );
     expect(environment.find((variable) => variable.value === FAKE_KEY)?.sensitive).toBe(true);
     expect(environment.some((variable) => variable.value === "owner-key-not-real")).toBe(false);
+  });
+
+  it("starts Codex on the team proxy after the owner's own launch args", () => {
+    const config = teamProviderConfig(
+      "codex",
+      { launchArgs: "-c model_provider=owner" },
+      { url: "https://proxy.test/base" },
+    ) as { readonly launchArgs: string };
+    const argv = codexAppServerArgs(config.launchArgs);
+    const strays = argv.filter(
+      (arg, index) => arg !== "app-server" && arg !== "-c" && argv[index - 1] !== "-c",
+    );
+    const overrides = argv.filter((_, index) => argv[index - 1] === "-c");
+    expect(strays).toEqual([]);
+    expect(overrides.findLast((arg) => arg.startsWith("model_provider="))).toBe(
+      "model_provider=t3team",
+    );
+    expect(overrides).toContain("model_providers.t3team.base_url=https://proxy.test/base/v1");
+    expect(overrides).toContain("model_providers.t3team.env_key=T3_TEAM_PROXY_API_KEY");
+    expect(overrides).toContain("features.shell_snapshot=false");
+    expect(codexLaunchArgModelProvider(config.launchArgs)).toBe("t3team");
   });
 });
 

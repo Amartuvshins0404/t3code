@@ -140,7 +140,7 @@ export function TeamConnectivitySection({ team }: { readonly team: CloudTeamSumm
           <AlertDialogHeader>
             <AlertDialogTitle>Remove the team connection?</AlertDialogTitle>
             <AlertDialogDescription>
-              Shared threads go back to each owner's accounts on their next message.
+              Shared threads go back to each owner's accounts within a few minutes.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

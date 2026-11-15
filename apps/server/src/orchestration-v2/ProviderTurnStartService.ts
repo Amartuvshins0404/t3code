@@ -858,6 +858,22 @@ export const layer: Layer.Layer<
         });
         if (!repaired.committed) return;
       }
+      if (providerSessionId !== providerThread.providerSessionId) {
+        yield* providerSessions
+          .detach({
+            providerSessionId: providerThread.providerSessionId,
+            threadId: projection.thread.id,
+            detail: "The thread moved between the owner's and a team's provider connection.",
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Could not detach the thread's previous provider session", {
+                providerSessionId: providerThread.providerSessionId,
+                cause,
+              }),
+            ),
+          );
+      }
       const sessionResult = yield* Effect.result(
         providerSessions.open({
           threadId: projection.thread.id,

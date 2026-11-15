@@ -82,6 +82,7 @@ import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 
 import * as PortScanner from "../../preview/PortScanner.ts";
+import { teamProviderEnvironment } from "../../team/TeamProviderRoutes.ts";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { WorkflowAgentTranscriptReadObserver } from "../workflowAgentTranscript.ts";
 import * as ServerConfig from "../../config.ts";
@@ -1533,9 +1534,11 @@ describe("ClaudeAdapterV2 MCP elicitation acceptance", () => {
 const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(function* (
   binaryPath: string,
   environment: ResolvedProviderInstanceEnvironment = [],
+  hooks: { readonly pinProxyEnvironment?: boolean } = {},
 ) {
   const executablePaths: Array<string | undefined> = [];
   const taskToolEnvironment: Array<string | undefined> = [];
+  const flagEnvironments: Array<Readonly<Record<string, string>> | undefined> = [];
   const adapter = yield* ClaudeAdapterV2.createClaudeAdapterV2(
     {
       instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
@@ -1544,7 +1547,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       enabled: true,
       config: { ...DEFAULT_CLAUDE_SETTINGS, binaryPath },
     },
-    {},
+    hooks,
   ).pipe(
     Effect.provide(
       ServerConfig.layerTest(process.cwd(), {
@@ -1557,6 +1560,9 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
         Effect.sync(() => {
           executablePaths.push(input.options.pathToClaudeCodeExecutable);
           taskToolEnvironment.push(input.options.env?.CLAUDE_CODE_ENABLE_TODO_TOOLS);
+          flagEnvironments.push(
+            typeof input.options.settings === "object" ? input.options.settings.env : undefined,
+          );
           return {
             messages: Stream.never,
             offer: () => Effect.void,
@@ -1600,7 +1606,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       attachments: [],
     }),
   );
-  return { executablePaths, taskToolEnvironment };
+  return { executablePaths, taskToolEnvironment, flagEnvironments };
 });
 
 describe("ClaudeAdapterV2 executable path", () => {
@@ -1616,6 +1622,40 @@ describe("ClaudeAdapterV2 executable path", () => {
         );
 
         assert.deepEqual(executablePaths, [packageExe]);
+      }),
+    ).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          ProviderInstallationGate.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+});
+
+describe("ClaudeAdapterV2 team proxy", () => {
+  it.effect("pins the team proxy over the user's own Claude settings env", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const teamKey = "fake-team-proxy-key-for-tests";
+        const { flagEnvironments } = yield* captureSdkExecutablePaths(
+          "/opt/claude/bin/claude",
+          teamProviderEnvironment(
+            "claudeAgent",
+            [{ name: "ANTHROPIC_API_KEY", value: "fake-owner-key-for-tests", sensitive: true }],
+            { url: "https://team-proxy.test", clientKey: teamKey },
+          ),
+          { pinProxyEnvironment: true },
+        );
+        assert.deepInclude(flagEnvironments[0], {
+          ANTHROPIC_BASE_URL: "https://team-proxy.test",
+          ANTHROPIC_AUTH_TOKEN: teamKey,
+          ANTHROPIC_API_KEY: "",
+        });
       }),
     ).pipe(
       Effect.provide(

@@ -211,7 +211,7 @@ export const layer: Layer.Layer<
           return (input) =>
             ClaudeAdapterV2.createClaudeAdapterV2(
               input as ProviderAdapterDriverCreateInput<ClaudeSettings>,
-              {},
+              { pinProxyEnvironment: true },
             );
         }
         if (driver === "codex") {
