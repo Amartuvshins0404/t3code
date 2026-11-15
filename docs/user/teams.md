@@ -30,8 +30,10 @@ A shared thread shows a small badge in its header. Select it to change the level
 
 ## What teammates see and can do
 
-In the team workspace, each shared machine lists the threads shared with that team, grouped by
-project. A teammate sees the thread as it streams: messages, the agent's replies and its work.
+In the team workspace, the sidebar lists the team's people: you first, then everyone else by name,
+with their picture and whether their agent is ready. Under each person are the threads they shared
+with the team and the questions asked of their agent, newest first. A teammate sees a thread as it
+streams: messages, the agent's replies and its work.
 
 - With **View**, there is no message box. They see "View only" and the name of the owner to ask.
 - With **Steer**, they can send text messages. While the agent works, **Steer** sends the message
@@ -47,6 +49,37 @@ Give **Steer** on a full-access thread only to people you would let use your mac
 
 Each message shows who sent it. Avatars in the thread header and the sidebar show who has the thread
 open, and a line above the message box shows who is typing.
+
+## Ask a teammate's agent
+
+Each person's agent answers questions about their work, from their own machine. It is useful when
+you want to know how something was built or why, without waiting for the person.
+
+To ask, select a person whose agent is ready in the team sidebar, or use **Ask <name>'s agent** in
+the command palette. Type the question and press Enter. A new conversation opens and the answer
+streams in. It is listed under that person for the whole team: anyone in the team can read it and
+ask a follow-up. The person sees every question asked of their agent. A question cannot start
+with `/`.
+
+The agent only reads. It can read the code and the past threads of the projects its owner picked.
+It cannot change files, run commands that change anything, start threads or answer for its owner.
+It sees nothing from other projects.
+
+A person's status in the sidebar says why you cannot ask: **Agent off**, **Offline**, **No machine
+yet**, or **Needs an update** when their machine runs an older T3 Code.
+
+### Turn on your agent
+
+Your agent is off until you turn it on. Open **Settings → Team → My agent**, or **My agent** in the
+command palette. For each of your machines shared with the team, pick at least one project and a
+Claude or Codex model, then turn on the switch. The setting is per machine and per team. Agent
+conversations are shared with the team, so they run on the team's connection when it has one (see
+below).
+
+Turn the switch off and nobody can ask new questions or send follow-ups. Old conversations stay
+readable, and you can delete them like any thread. Agent conversations show only in the team
+workspace, not in Personal. Stop sharing the machine with the team and its agent setting for that
+team goes too.
 
 ## Whose accounts a shared thread uses
 
