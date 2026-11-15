@@ -11,6 +11,7 @@ import {
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2ThreadShell,
   type ProjectId,
+  type TeamConnectivityStatusInput,
   type TeamMemberIdentity,
   type TeamPresenceEntry,
   type TeamThreadAccess,
@@ -33,6 +34,7 @@ const TEAM_MEMBER_RPC_METHODS: ReadonlySet<string> = new Set([
   ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
   WS_METHODS.teamReportPresence,
   WS_METHODS.teamSubscribePresence,
+  WS_METHODS.teamGetConnectivity,
 ]);
 
 const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
@@ -40,6 +42,7 @@ const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
   ORCHESTRATION_V2_WS_METHODS.subscribeShell,
   WS_METHODS.teamReportPresence,
   WS_METHODS.teamSubscribePresence,
+  WS_METHODS.teamGetConnectivity,
 ]);
 
 const TEAM_MEMBER_HTTP_ENDPOINTS: ReadonlySet<string> = new Set([
@@ -85,6 +88,14 @@ export const sharedWithTeam = (
   teamShare != null &&
   teamShare.organizationId === organizationId &&
   (need === "view" || teamShare.access === "steer");
+
+export const teamConnectivityStatusRequest = (
+  input: TeamConnectivityStatusInput,
+  member: Pick<TeamMemberIdentity, "organizationId"> | null | undefined,
+) =>
+  member == null
+    ? { refresh: input.refresh === true }
+    : { refresh: false, organizationId: member.organizationId };
 
 export interface TeamMemberAuthorization {
   readonly organizationId: string;
