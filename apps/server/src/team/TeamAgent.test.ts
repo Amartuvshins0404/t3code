@@ -549,17 +549,29 @@ const teamThreads = Effect.gen(function* () {
     commandId: CommandId.make("stop-paused"),
     threadId: pausedTask,
   });
-  return { sharing, anaTask, hostTask, benTask, pausedTask };
+  const archivedTask = yield* sharedThread("thread-archived");
+  yield* orchestrator.dispatch({
+    type: "thread.archive",
+    commandId: CommandId.make("archive-archived"),
+    threadId: archivedTask,
+  });
+  yield* send(archivedTask, "host-archived", undefined, "start_immediately");
+  yield* send(archivedTask, "ana-archived", ana, "queue_after_active");
+  return { sharing, anaTask, hostTask, benTask, pausedTask, archivedTask };
 });
 
 it.effect(
   "removing a teammate stops the turns they started and cancels their queued messages, but not the host's or another teammate's",
   () =>
     Effect.gen(function* () {
-      const { sharing, anaTask, hostTask, benTask, pausedTask } = yield* teamThreads;
+      const { sharing, anaTask, hostTask, benTask, pausedTask, archivedTask } = yield* teamThreads;
       expect(yield* runStates(pausedTask)).toEqual([
         "host-paused:interrupted",
         "ana-paused:queued:held",
+      ]);
+      expect(yield* runStates(archivedTask)).toEqual([
+        "host-archived:starting",
+        "ana-archived:queued",
       ]);
 
       yield* sharing.revokeMemberAccess({ organizationId: "org-a", userId: ana.userId });
@@ -577,6 +589,10 @@ it.effect(
       expect(yield* runStates(pausedTask)).toEqual([
         "host-paused:interrupted",
         "ana-paused:cancelled:held",
+      ]);
+      expect(yield* runStates(archivedTask)).toEqual([
+        "host-archived:starting",
+        "ana-archived:cancelled",
       ]);
       expect((yield* answering).toSorted()).toEqual([hostTask, benTask].toSorted());
 
@@ -616,9 +632,9 @@ it.effect.each([
   },
 ])("$action stops every teammate's turn and leaves the host's running", ({ act }) =>
   Effect.gen(function* () {
-    const { sharing, anaTask, hostTask, benTask, pausedTask } = yield* teamThreads;
+    const { sharing, anaTask, hostTask, benTask, pausedTask, archivedTask } = yield* teamThreads;
 
-    yield* act(sharing, [anaTask, hostTask, benTask, pausedTask]);
+    yield* act(sharing, [anaTask, hostTask, benTask, pausedTask, archivedTask]);
 
     expect(yield* runStates(anaTask)).toEqual([
       "ana-task:interrupted",
@@ -629,6 +645,10 @@ it.effect.each([
     expect(yield* runStates(pausedTask)).toEqual([
       "host-paused:interrupted",
       "ana-paused:cancelled:held",
+    ]);
+    expect(yield* runStates(archivedTask)).toEqual([
+      "host-archived:starting",
+      "ana-archived:cancelled",
     ]);
     expect(yield* runStates(benTask)).toEqual(["ben-task:interrupted"]);
     expect(yield* answering).toEqual([hostTask]);
