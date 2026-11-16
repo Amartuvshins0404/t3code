@@ -162,6 +162,7 @@ export function decideTeamMemberCommand(input: {
   readonly teamShare: ThreadTeamShare | null | undefined;
   readonly member: TeamMemberIdentity;
   readonly agent?: { readonly enabled: boolean; readonly runningTurnsElsewhere: number };
+  readonly archived?: boolean;
 }): Result.Result<OrchestrationV2Command, EnvironmentAuthorizationError> {
   const { command, member } = input;
   if (command.type !== "message.dispatch" && command.type !== "run.interrupt") {
@@ -188,6 +189,14 @@ export function decideTeamMemberCommand(input: {
       runId: command.runId,
       ...(command.reason === undefined ? {} : { reason: command.reason }),
     });
+  }
+  if (input.archived === true) {
+    return Result.fail(
+      refusal(
+        "This thread is archived, so it does not take new messages.",
+        AuthOrchestrationOperateScope,
+      ),
+    );
   }
   if (
     !STEER_DISPATCH_MODES.has(command.dispatchMode.type) ||

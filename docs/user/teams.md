@@ -43,7 +43,8 @@ streams: messages, the agent's replies and its work.
 Teammates cannot rename, delete, archive or settle the thread, change its model or mode, attach
 files, answer the agent's questions, or open terminals or files. They can start threads on your
 machine only in a project you shared with the team. They also cannot send slash commands such as
-`/compact`: a message that starts with `/` is refused.
+`/compact`: a message that starts with `/` is refused. Teammates can read an archived shared thread
+but cannot send into it until you unarchive it.
 
 A message from a teammate with **Steer** starts a turn in the thread's current permission mode. In a
 full-access thread, that turn can run commands and change files on your machine without asking.

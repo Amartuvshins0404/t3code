@@ -1495,11 +1495,10 @@ export const layerWsRpc = (
           : { person: teamPerson(teamMember), organizationId: teamMember.organizationId }),
       });
       yield* Effect.addFinalizer(() => teamPresence.leave(presenceClientId));
+      const threadShell = (threadId: ThreadId) =>
+        threadManagement.getThreadShell(threadId).pipe(Effect.orElseSucceed(() => undefined));
       const threadTeamShare = (threadId: ThreadId) =>
-        threadManagement.getThreadShell(threadId).pipe(
-          Effect.map((thread) => thread?.teamShare),
-          Effect.orElseSucceed(() => undefined),
-        );
+        threadShell(threadId).pipe(Effect.map((thread) => thread?.teamShare));
       const resolveClientCommand = (clientCommand: OrchestrationV2Command) => {
         const command = withoutClientMemberAttribution(clientCommand);
         if (teamMember === undefined) return Effect.succeed(command);
@@ -1508,7 +1507,8 @@ export const layerWsRpc = (
             command.type === "message.dispatch" || command.type === "run.interrupt"
               ? command.threadId
               : undefined;
-          const teamShare = threadId === undefined ? undefined : yield* threadTeamShare(threadId);
+          const thread = threadId === undefined ? undefined : yield* threadShell(threadId);
+          const teamShare = thread?.teamShare;
           const agent =
             threadId === undefined || teamShare?.agent === undefined
               ? undefined
@@ -1520,6 +1520,7 @@ export const layerWsRpc = (
             teamShare,
             member: teamMember,
             ...(agent === undefined ? {} : { agent }),
+            archived: thread?.archivedAt != null,
           });
           if (Result.isSuccess(decision)) return decision.success;
           const { message, requiredPermission } = decision.failure;
