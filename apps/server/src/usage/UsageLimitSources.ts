@@ -10,6 +10,7 @@ import {
   type CliproxyLocalStatus,
   type CliproxyLocalVersion,
   CliproxyManageError,
+  type CliproxyRoute,
   type CliproxyRouting,
   type CliproxySetAccountEnabledInput,
   type CliproxySetRoutingInput,
@@ -76,6 +77,7 @@ export class UsageLimitSources extends Context.Service<
       input: CliproxyAddProvidersInput,
     ) => Effect.Effect<CliproxyAddProvidersResult, CliproxyLocalError>;
     readonly disconnect: Effect.Effect<void, CliproxyLocalError>;
+    readonly revealRoute: Effect.Effect<CliproxyRoute | null>;
     readonly revealManagementKey: (
       sourceId: UsageLimitSourceId,
     ) => Effect.Effect<string, UsageLimitSourceError>;
@@ -131,15 +133,31 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
 
 const CODEX_CLIENT_KEY_VARIABLE = "CLIPROXY_API_KEY";
 
+const CODEX_BASE_URL_OVERRIDE = "model_providers.cliproxy.base_url=";
+
 const codexProxyLaunchArgs = (url: string) =>
   [
     "model_provider=cliproxy",
     "model_providers.cliproxy.name=CLIProxyAPI",
-    `model_providers.cliproxy.base_url=${new URL("v1", `${url}/`).toString()}`,
+    `${CODEX_BASE_URL_OVERRIDE}${new URL("v1", `${url}/`).toString()}`,
     `model_providers.cliproxy.env_key=${CODEX_CLIENT_KEY_VARIABLE}`,
   ]
     .map((override) => `-c ${override}`)
     .join(" ");
+
+function codexProxyUrl(instance: ProviderInstanceConfig | undefined): string {
+  const config = instance?.config;
+  const launchArgs =
+    config !== null && typeof config === "object" && "launchArgs" in config
+      ? config.launchArgs
+      : undefined;
+  if (typeof launchArgs !== "string") return "";
+  const baseUrl = launchArgs
+    .split(/\s+/)
+    .find((argument) => argument.startsWith(CODEX_BASE_URL_OVERRIDE))
+    ?.slice(CODEX_BASE_URL_OVERRIDE.length);
+  return baseUrl?.replace(/\/v1\/?$/, "") ?? "";
+}
 
 function proxyInstances(url: string, clientKey: string, input: CliproxyAddProvidersInput) {
   return [
@@ -279,6 +297,37 @@ export const make = Effect.gen(function* () {
     }
     return { config, managementKey };
   });
+
+  const readVariable = Effect.fn("UsageLimitSources.readVariable")(function* (
+    instance: ProviderInstanceConfig | undefined,
+    name: string,
+  ) {
+    const value = instance?.environment?.find((variable) => variable.name === name)?.value;
+    if (value === undefined) return "";
+    if (typeof value === "string") return value.trim();
+    const [secret] = yield* secrets.read([value]);
+    return secret?.trim() ?? "";
+  });
+
+  const revealRoute = Effect.gen(function* () {
+    const { providerInstances } = yield* settingsService.getSettings;
+    const claude = providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID];
+    const codex = providerInstances[CLIPROXY_CODEX_INSTANCE_ID];
+    const routes = [
+      {
+        url: yield* readVariable(claude, "ANTHROPIC_BASE_URL"),
+        clientKey: yield* readVariable(claude, "ANTHROPIC_AUTH_TOKEN"),
+      },
+      {
+        url: codexProxyUrl(codex),
+        clientKey: yield* readVariable(codex, CODEX_CLIENT_KEY_VARIABLE),
+      },
+    ];
+    return routes.find((route) => route.url !== "" && route.clientKey !== "") ?? null;
+  }).pipe(
+    Effect.orElseSucceed(() => null),
+    Effect.withSpan("UsageLimitSources.revealRoute"),
+  );
 
   const revealManagementKey = Effect.fn("UsageLimitSources.revealManagementKey")(function* (
     sourceId: UsageLimitSourceId,
@@ -700,6 +749,7 @@ export const make = Effect.gen(function* () {
     setNewLocalKey,
     addLocalProviders,
     disconnect,
+    revealRoute,
     revealManagementKey,
     listAccounts,
     startSignIn,

@@ -127,9 +127,11 @@ A shared thread runs on the owner's Claude and Codex accounts, whoever sends the
 team connects its own [CLIProxyAPI](./usage.md#connect-a-cliproxyapi-hub) hub.
 
 To connect one, a team owner or admin opens **Settings → Team → Connectivity**, chooses **Connect**,
-and enters the hub's address and one of its client access keys. The key goes to T3 Connect and no
-screen shows it again. Members see the address and who set it. An admin can **Replace** or
-**Remove** it.
+and enters the hub's address and one of its client access keys. If one of your connected machines
+already uses a CLI Proxy, the form opens with that machine's address and key filled in, so you only
+choose **Save**; change either field to give the team a different hub or key. The key goes to T3
+Connect and no screen shows it again. Members see the address and who set it. An admin can
+**Replace** or **Remove** it.
 
 Then every thread shared with the team that uses Claude or Codex runs through the team's hub with
 the team's key, for the owner's and teammates' messages alike. The owner's own Claude settings and
