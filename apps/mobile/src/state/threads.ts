@@ -21,6 +21,7 @@ import {
   pendingThreadCreationOutcomesAtom,
   selectThreadCreationDetail,
 } from "./pending-thread-creation";
+import { hideMasterAgentThreadKeys } from "./master-agent-threads";
 import { serverEnvironment } from "./server";
 import { environmentShell } from "./shell";
 import { threadOutboxManager } from "./thread-outbox";
@@ -41,11 +42,14 @@ export const environmentThreads = createEnvironmentThreadStateAtoms(connectionAt
 export const environmentThreadDetails = createEnvironmentThreadDetailAtoms(
   environmentThreads.stateAtom,
 );
-export const environmentThreadShells = createEnvironmentThreadShellAtoms({
-  catalogValueAtom: environmentCatalog.catalogValueAtom,
-  snapshotAtom: threadEnvironment.snapshotAtom,
-  hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
-});
+export const environmentThreadShells = hideMasterAgentThreadKeys(
+  createEnvironmentThreadShellAtoms({
+    catalogValueAtom: environmentCatalog.catalogValueAtom,
+    snapshotAtom: threadEnvironment.snapshotAtom,
+    hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
+    masterAgentThreadIdAtom: serverEnvironment.masterAgentThreadIdAtom,
+  }),
+);
 export const childThreadApprovalsAtom = createChildThreadApprovalsAtom({
   childThreadInputsAtom: environmentThreadShells.childThreadInputsAtom,
   pendingRequestsAtom: environmentThreadDetails.pendingRequestsAtom,

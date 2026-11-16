@@ -1930,6 +1930,7 @@ export function makeClaudeQueryOptions(input: {
   /** The thread's T3 MCP session holds the `device` capability. */
   readonly deviceToolsAvailable?: boolean;
   readonly codeSearchAvailable?: boolean;
+  readonly threadInstructions?: ReadonlyArray<string>;
   readonly tools?: ClaudeAgentSdkQueryTools;
   readonly allowedTools?: ReadonlyArray<string>;
   readonly disallowedTools?: ReadonlyArray<string>;
@@ -2072,7 +2073,10 @@ export function makeClaudeQueryOptions(input: {
                 : "") +
               (input.codeSearchAvailable === true
                 ? `\n${T3_CODE_CODE_SEARCH_INSTRUCTIONS}\n`
-                : "")),
+                : "") +
+              (input.threadInstructions === undefined
+                ? ""
+                : `\n${input.threadInstructions.join("\n\n")}\n`)),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -11939,6 +11943,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : { mcpServers: mcpOverrides.mcpServers }),
             deviceToolsAvailable: mcpSession?.capabilities?.has("device") === true,
             codeSearchAvailable: mcpSession?.codeSearchAvailable === true,
+            ...(mcpSession?.threadInstructions === undefined
+              ? {}
+              : { threadInstructions: mcpSession.threadInstructions }),
             permissionMode: queryPolicy.permissionMode,
             ...(queryPolicy.allowDangerouslySkipPermissions === undefined
               ? {}

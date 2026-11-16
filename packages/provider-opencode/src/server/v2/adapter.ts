@@ -4087,6 +4087,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           mcpAvailable,
           mcpSession?.capabilities?.has("device") === true,
           mcpSession?.codeSearchAvailable === true,
+          mcpSession?.threadInstructions,
         ),
       ]
         .filter((part) => part !== undefined && part.length > 0)

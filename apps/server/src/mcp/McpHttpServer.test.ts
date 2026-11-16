@@ -29,6 +29,7 @@ import * as Tracer from "effect/Tracer";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
+import * as MasterAgent from "../masterAgent/MasterAgent.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
@@ -1726,6 +1727,121 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
       ).toEqual({ tools: [{ name: "preview_open", description: "Opens a browser preview." }] });
       expect(yield* deferring.listed).toEqual(["delegate_task", "preview_open", "tool_search"]);
       expect(yield* other.listed).toEqual(["delegate_task", "preview_open", "schedule_task"]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("lists and runs the memory and board tools only for the agent thread", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const agentThreadId = ThreadId.make("thread-agent");
+      const scopeFor = (token: string, threadId: ThreadId) => ({
+        environmentId,
+        requestNamespace: token,
+        thread: {
+          threadId,
+          providerSessionId: token,
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"] as const),
+        issuedAt: 1,
+      });
+      const scopes = new Map([
+        ["agentToken", scopeFor("agentToken", agentThreadId)],
+        ["otherToken", scopeFor("otherToken", ThreadId.make("thread-other"))],
+      ]);
+      const writes: Array<{ readonly key: string; readonly content: string }> = [];
+      const serverLayer = McpHttpServer.layerMcpTransport(
+        McpHttpServer.layerMasterAgentToolkit,
+      ).pipe(
+        Layer.provide(
+          Layer.mock(MasterAgent.MasterAgent)({
+            threadId: Effect.succeed(agentThreadId),
+            writeMemory: (input) =>
+              Effect.sync(() => {
+                writes.push(input);
+                return { key: input.key, deleted: false, usedBytes: 1, limitBytes: 32_768 };
+              }),
+          }),
+        ),
+        Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
+        Layer.provide(ServerSettings.layerTest()),
+        Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
+        Layer.provide(
+          Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+            resolve: (token) => Effect.succeed(scopes.get(token)),
+          }),
+        ),
+      );
+      yield* HttpRouter.serve(serverLayer, { disableListenLog: true, disableLogger: true }).pipe(
+        Layer.build,
+      );
+      const httpClient = yield* HttpClient.HttpClient;
+      const rpc = (token: string, method: string, params: object) =>
+        Effect.gen(function* () {
+          const headers = {
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${token}`,
+          };
+          const initialize = yield* httpClient.post("/mcp", {
+            headers,
+            body: HttpBody.text(
+              `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1.0.0"}}}`,
+              "application/json",
+            ),
+          });
+          const response = yield* httpClient.post("/mcp", {
+            headers: {
+              ...headers,
+              "mcp-session-id": initialize.headers["mcp-session-id"]!,
+              "mcp-protocol-version": "2025-06-18",
+            },
+            body: HttpBody.text(
+              JSON.stringify({ jsonrpc: "2.0", id: 2, method, params }),
+              "application/json",
+            ),
+          });
+          const text = yield* response.text;
+          return text
+            .split("\n")
+            .filter((line) => line.startsWith("data: ") || line.startsWith("{"))
+            .map(
+              (line) =>
+                JSON.parse(line.replace(/^data: /u, "")) as {
+                  readonly id?: number;
+                  readonly result?: {
+                    readonly tools?: ReadonlyArray<{ readonly name: string }>;
+                    readonly isError?: boolean;
+                  };
+                  readonly error?: unknown;
+                },
+            )
+            .find((message) => message.id === 2);
+        });
+      const listed = (token: string) =>
+        rpc(token, "tools/list", {}).pipe(
+          Effect.map((body) => (body?.result?.tools ?? []).map((tool) => tool.name).sort()),
+        );
+      const write = (token: string) =>
+        rpc(token, "tools/call", {
+          name: "agent_memory_write",
+          arguments: { key: "rule", content: "Ship small PRs." },
+        });
+
+      expect(yield* listed("agentToken")).toEqual([
+        "agent_memory_read",
+        "agent_memory_write",
+        "t3_project_board",
+      ]);
+      expect(yield* listed("otherToken")).toEqual([]);
+
+      const refused = yield* write("otherToken");
+      expect(refused?.error !== undefined || refused?.result?.isError === true).toBe(true);
+      expect(writes).toEqual([]);
+      const saved = yield* write("agentToken");
+      expect(saved?.result?.isError).not.toBe(true);
+      expect(writes).toEqual([{ key: "rule", content: "Ship small PRs." }]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

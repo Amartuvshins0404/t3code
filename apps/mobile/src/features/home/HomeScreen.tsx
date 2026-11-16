@@ -90,6 +90,8 @@ import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-sw
 import { useFabScroll } from "./FabScrollContext";
 import { useWorkspaceTabs } from "../layout/workspace/WorkspaceTabsContext";
 import { ThreadListFilters } from "./ThreadListFilters";
+import { MasterAgentRow } from "./MasterAgentRow";
+import { useOpenMasterAgent } from "./useOpenMasterAgent";
 
 interface HomeScreenProps {
   readonly projects: ReadonlyArray<EnvironmentProject>;
@@ -297,6 +299,12 @@ export function HomeScreen(props: HomeScreenProps) {
           )
         ? [props.selectedEnvironmentId]
         : [];
+  const openMasterAgent = useOpenMasterAgent({
+    preferredEnvironmentId: props.selectedEnvironmentId,
+    connectedEnvironmentIds: props.environments
+      .filter((environment) => environment.connectionState === "connected")
+      .map((environment) => environment.environmentId),
+  });
   const handleSwipeableWillOpen = (methods: SwipeableMethods) => {
     if (openSwipeableRef.current !== methods) {
       openSwipeableRef.current?.close();
@@ -380,6 +388,10 @@ export function HomeScreen(props: HomeScreenProps) {
     [projects, selectedEnvironmentId, projectGroupingMode],
   );
   const hasSearchQuery = props.searchQuery.trim().length > 0;
+  const masterAgentRow =
+    openMasterAgent !== null && !hasSearchQuery ? (
+      <MasterAgentRow onPress={() => void openMasterAgent()} />
+    ) : null;
   const projectByKey = (() => {
     const map = new Map<string, EnvironmentProject>();
     for (const project of props.projects) {
@@ -691,6 +703,7 @@ export function HomeScreen(props: HomeScreenProps) {
             }}
           >
             <View className="w-full max-w-[430px]">
+              {masterAgentRow}
               <EmptyState
                 title={emptyState.title}
                 detail={emptyState.detail}
@@ -744,6 +757,7 @@ export function HomeScreen(props: HomeScreenProps) {
           onProjectChange={props.onProjectChange}
         />
       ) : null}
+      {masterAgentRow}
     </>
   );
 
@@ -787,6 +801,7 @@ export function HomeScreen(props: HomeScreenProps) {
           className="flex-1 items-center justify-center px-4"
           style={{ paddingBottom: insets.bottom }}
         >
+          {masterAgentRow ? <View className="w-full">{masterAgentRow}</View> : null}
           {v2ListEmpty}
         </View>
       </ScreenContent>

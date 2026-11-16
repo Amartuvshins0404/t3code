@@ -6,6 +6,7 @@ import {
   T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH,
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
   t3AcpPromptWithInstructions,
+  t3MasterAgentInstructionSections,
   t3OrchestrationPrompt,
   t3OrchestrationSystemPrompt,
 } from "./orchestrationInstructions.ts";
@@ -107,6 +108,37 @@ describe("T3 device instructions", () => {
         previousState: state,
       }),
       T3_CODE_CODE_SEARCH_INSTRUCTIONS,
+    );
+  });
+});
+
+describe("T3 agent thread instructions", () => {
+  it("keep every memory section under Codex's 4000-byte limit and resend ACP agents changed memory", () => {
+    const content = "Ship small PRs. ".repeat(600);
+    const sections = t3MasterAgentInstructionSections([
+      { key: "habits", content },
+      { key: "owner", content: "Prefers short replies." },
+    ]);
+    for (const section of sections) {
+      assert.isAtMost(new TextEncoder().encode(section).byteLength, 4000);
+    }
+    const memory = sections.slice(1).join("");
+    assert.include(memory, "#### owner\nPrefers short replies.");
+    assert.equal(memory.match(/Ship small PRs\. /g)?.length, 600);
+
+    const state = { interactionMode: "default", hasT3Mcp: true, hasDeviceTools: false } as const;
+    const before = { ...state, threadInstructions: t3MasterAgentInstructionSections([]) };
+    assert.equal(
+      t3AcpPromptWithInstructions({ prompt: "Again.", state: before, previousState: before }),
+      "Again.",
+    );
+    assert.include(
+      t3AcpPromptWithInstructions({
+        prompt: "Again.",
+        state: { ...state, threadInstructions: sections },
+        previousState: before,
+      }),
+      "#### owner",
     );
   });
 });

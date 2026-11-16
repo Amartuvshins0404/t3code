@@ -30,6 +30,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
+import * as MasterAgent from "../masterAgent/MasterAgent.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -82,6 +83,8 @@ import {
   DeviceStandardToolkit,
 } from "./toolkits/device/tools.ts";
 import * as HtmlHandlers from "./toolkits/html/handlers.ts";
+import * as MasterAgentHandlers from "./toolkits/masterAgent/handlers.ts";
+import { MasterAgentToolkit } from "./toolkits/masterAgent/tools.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
 import { requestUrl } from "../requestUrl.ts";
 
@@ -1239,6 +1242,24 @@ export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsHandlers.layer,
 );
 
+/** Lists the memory tools only to the agent thread; their handlers refuse other callers too. */
+const layerMasterAgentVisibility = McpServer.visibility(
+  Effect.gen(function* () {
+    const masterAgent = yield* MasterAgent.MasterAgent;
+    // Untraced: it runs once per tool on every list request.
+    return Effect.fnUntraced(function* () {
+      const scope = yield* Effect.serviceOption(McpInvocationContext.McpInvocationContext);
+      const threadId = Option.getOrUndefined(scope)?.thread?.threadId;
+      return yield* MasterAgentHandlers.isMasterThread(masterAgent, threadId);
+    });
+  }),
+).layer;
+
+export const layerMasterAgentToolkit = toolkitRegistration(
+  MasterAgentToolkit,
+  MasterAgentHandlers.layer,
+).pipe(Layer.provide(layerMasterAgentVisibility));
+
 const layerDeviceStandardToolkitRegistration = toolkitRegistration(
   DeviceStandardToolkit,
   DeviceHandlers.layerStandard,
@@ -1338,4 +1359,7 @@ export const layerToolSearch = Layer.mergeAll(
   layerDeferredListing,
 ).pipe(Layer.provide(layerToolExposure));
 
-export const layer = layerMcpTransport(Layer.mergeAll(layerTools, layerToolSearch));
+/** Outside layerTools too: only the agent thread lists the memory tools. */
+export const layer = layerMcpTransport(
+  Layer.mergeAll(layerTools, layerToolSearch, layerMasterAgentToolkit),
+);

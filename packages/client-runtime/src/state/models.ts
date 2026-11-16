@@ -1,19 +1,19 @@
-import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import {
+  threadShellActivity,
+  type PendingSubagentRequest,
+  type ThreadRunSummary,
+  type ThreadRuntimeSummary,
+} from "@t3tools/shared/projectBoard";
 import { threadPullRequestsOf } from "../threadPullRequests.ts";
 import type {
   ThreadLinkedPullRequest,
   EnvironmentId,
-  MessageId,
   OrchestrationProjectShell,
   OrchestrationV2ProviderGoal,
-  OrchestrationV2RunStatus,
-  OrchestrationV2ProviderFailureClass,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadShell,
-  PlanId,
   ProjectId,
   ProviderInstanceId,
-  RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -77,43 +77,15 @@ export interface EnvironmentThreadStructure {
   readonly projection: ThreadStructure;
 }
 
-export interface ThreadRunSummary {
-  readonly runId: RunId;
-  readonly status: OrchestrationV2RunStatus;
-  readonly requestedAt: string | null;
-  readonly startedAt: string | null;
-  readonly completedAt: string | null;
-  readonly assistantMessageId: MessageId | null;
-  /**
-   * The run is still open, but its provider turn already ended, so nothing is
-   * generating while the server settles it.
-   */
-  readonly turnEnded?: boolean;
-  readonly sourcePlanRef?: {
-    readonly threadId: ThreadId;
-    readonly planId: PlanId;
-  };
-}
-
-export interface ThreadRuntimeSummary {
-  readonly status: OrchestrationV2RunStatus | "idle";
-  readonly activeRunId: RunId | null;
-  readonly activityStartedAt?: string | null | undefined;
-  readonly providerInstanceId: ProviderInstanceId;
-  readonly providerName: string | null;
-  readonly lastError: string | null;
-  readonly lastErrorClass?: OrchestrationV2ProviderFailureClass | null;
-  readonly lastErrorCode?: string | null;
-  readonly usageLimitResetAt?: string | null;
-  readonly updatedAt: string;
-}
+export {
+  threadRuntimeIsActive,
+  type PendingSubagentRequest,
+  type ThreadRunSummary,
+  type ThreadRuntimeSummary,
+} from "@t3tools/shared/projectBoard";
 
 /** The runtime summary a thread's structure determines; see ThreadStructure. */
 export type ThreadStructureRuntime = Omit<ThreadRuntimeSummary, "updatedAt">;
-
-export function threadRuntimeIsActive(runtime: ThreadStructureRuntime | null | undefined): boolean {
-  return runtime !== null && runtime !== undefined && threadRunStatusIsActive(runtime.status);
-}
 
 export function threadRuntimeCanArchive(runtime: ThreadRuntimeSummary | null | undefined): boolean {
   if (runtime?.status === "queued") return runtime.activeRunId === null;
@@ -121,16 +93,6 @@ export function threadRuntimeCanArchive(runtime: ThreadRuntimeSummary | null | u
     runtime?.status !== "preparing" &&
     runtime?.status !== "starting" &&
     runtime?.status !== "running"
-  );
-}
-
-function threadRunStatusIsActive(status: ThreadRuntimeSummary["status"]): boolean {
-  return (
-    status === "preparing" ||
-    status === "queued" ||
-    status === "starting" ||
-    status === "running" ||
-    status === "waiting"
   );
 }
 
@@ -207,45 +169,6 @@ function nullableIso(value: DateTime.Utc | null): string | null {
   return value === null ? null : iso(value);
 }
 
-function terminalRunStatus(status: OrchestrationV2RunStatus): boolean {
-  return (
-    status === "completed" ||
-    status === "interrupted" ||
-    status === "failed" ||
-    status === "cancelled" ||
-    status === "rolled_back"
-  );
-}
-
-// Only work the agent waits on holds it: commands and monitors it left running
-// unmarked, such as a dev server, present the run's own status. The
-// server suppresses the roster while an interruptible activity run exists, so a
-// remaining roster is stronger than checkpoint-oriented waiting.
-function shellRuntime(thread: OrchestrationV2ThreadShell): ThreadRuntimeSummary | null {
-  const parkAtIdle =
-    backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) &&
-    thread.status !== "failed";
-  if (thread.latestRunId === null && thread.activeProviderThreadId === null && !parkAtIdle) {
-    return null;
-  }
-  const status = parkAtIdle ? "idle" : (thread.activityRunStatus ?? thread.status);
-  return {
-    status,
-    activeRunId: thread.activeRunId,
-    activityStartedAt:
-      thread.activityRunStartedAt === undefined
-        ? undefined
-        : nullableIso(thread.activityRunStartedAt),
-    providerInstanceId: thread.providerInstanceId,
-    providerName: null,
-    lastError: thread.lastError ?? null,
-    lastErrorClass: thread.lastErrorClass ?? null,
-    lastErrorCode: thread.lastErrorCode ?? null,
-    usageLimitResetAt: thread.usageLimitResetAt ?? null,
-    updatedAt: iso(thread.updatedAt),
-  };
-}
-
 export function scopeProject(
   environmentId: EnvironmentId,
   project: OrchestrationProjectShell,
@@ -253,31 +176,12 @@ export function scopeProject(
   return { ...project, environmentId };
 }
 
-export type PendingSubagentRequest = "approval" | "user_input";
-
 export function presentThreadShell(
   environmentId: EnvironmentId,
   thread: OrchestrationV2ThreadShell,
   pendingSubagentRequest: PendingSubagentRequest | null = null,
 ): EnvironmentThreadShell {
-  const updatedAt = iso(thread.updatedAt);
-  const latestRun =
-    thread.latestRunId === null
-      ? null
-      : ({
-          runId: thread.latestRunId,
-          status: thread.status === "idle" ? "completed" : thread.status,
-          requestedAt: nullableIso(thread.latestRunRequestedAt ?? null),
-          startedAt: nullableIso(thread.latestRunStartedAt ?? null),
-          completedAt:
-            thread.latestRunCompletedAt === undefined
-              ? thread.status === "idle" || terminalRunStatus(thread.status)
-                ? updatedAt
-                : null
-              : nullableIso(thread.latestRunCompletedAt),
-          assistantMessageId: null,
-        } satisfies ThreadRunSummary);
-  const runtime = shellRuntime(thread);
+  const activity = threadShellActivity(thread);
   return {
     environmentId,
     id: thread.id,
@@ -300,23 +204,16 @@ export function presentThreadShell(
     linkOrigin: thread.linkOrigin ?? null,
     delegatedFrom: thread.delegatedFrom ?? null,
     activeProviderThreadId: thread.activeProviderThreadId,
-    latestRun,
-    runtime,
+    latestRun: activity.latestRun,
+    runtime: activity.runtime,
     blockedOnThreadWait: thread.blockedOnThreadWait ?? false,
-    latestUserMessageAt: nullableIso(thread.latestUserMessageAt),
+    latestUserMessageAt: activity.latestUserMessageAt,
     ...(thread.latestUserAuthoredMessageAt === undefined
       ? {}
       : { latestUserAuthoredMessageAt: nullableIso(thread.latestUserAuthoredMessageAt) }),
-    hasPendingApprovals:
-      thread.pendingRuntimeRequest !== null &&
-      thread.pendingRuntimeRequest.kind !== "user_input" &&
-      thread.pendingRuntimeRequest.kind !== "auth_refresh",
-    // Async questions count too, so a thread with any open question leaves Working.
-    hasPendingUserInput: thread.pendingRuntimeRequest?.kind === "user_input",
-    pendingUserInputAt:
-      thread.pendingRuntimeRequest?.kind === "user_input"
-        ? iso(thread.pendingRuntimeRequest.createdAt)
-        : null,
+    hasPendingApprovals: activity.hasPendingApprovals,
+    hasPendingUserInput: activity.hasPendingUserInput,
+    pendingUserInputAt: activity.pendingUserInputAt,
     pendingSubagentRequest,
     pendingGuestMessageCount: thread.pendingGuestMessageCount ?? 0,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
@@ -326,7 +223,7 @@ export function presentThreadShell(
     itemCount: thread.itemCount,
     visibleItemCount: thread.visibleItemCount,
     createdAt: iso(thread.createdAt),
-    updatedAt,
+    updatedAt: activity.updatedAt,
     archivedAt: nullableIso(thread.archivedAt),
     settledOverride: thread.settledOverride,
     settledAt: nullableIso(thread.settledAt),

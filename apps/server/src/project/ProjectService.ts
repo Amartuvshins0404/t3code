@@ -23,6 +23,7 @@ import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as LegacyV1ThreadImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
 import {
   decodeProjectCommandRejection,
   encodeProjectCommandRejection,
@@ -175,6 +176,7 @@ export const make = Effect.gen(function* () {
   const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const threadProjections = yield* ProjectionStore.ProjectionStoreV2;
+  const masterAgentStore = yield* MasterAgentStore.MasterAgentStore;
   const eventSink = yield* EventSink.EventSinkV2;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
@@ -508,6 +510,18 @@ export const make = Effect.gen(function* () {
     const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads];
     if (projectThreads.length > 0 && input.force !== true) {
       return yield* new ProjectNotEmptyError({ projectId });
+    }
+    if (projectThreads.length === 0) return;
+    const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
+      Effect.mapError(
+        (cause) => new ProjectOperationError({ operation: "list-threads", projectId, cause }),
+      ),
+    );
+    if (projectThreads.some((thread) => thread.id === masterThreadId)) {
+      return yield* new ProjectInvalidError({
+        projectId,
+        detail: "The agent thread lives in this project, so the project cannot be deleted.",
+      });
     }
     // Delete children durably before the project so a failed cascade can be retried.
     yield* Effect.forEach(

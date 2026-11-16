@@ -264,6 +264,7 @@ import {
   ProjectCreateFromThreadInput,
   ProjectCreateFromThreadResult,
   ProjectEnsureScratchResult,
+  MasterAgentEnsureResult,
   ProjectListEntriesError,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
@@ -469,6 +470,7 @@ export const WS_METHODS = {
   projectsWriteFile: "projects.writeFile",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
+  masterAgentEnsure: "masterAgent.ensure",
   projectsCreateNew: "projects.createNew",
   projectsCreateFromThread: "projects.createFromThread",
   projectsReadPlant: "projects.readPlant",
@@ -1577,6 +1579,12 @@ const WsProjectsEnsureScratchRpc = Rpc.make(WS_METHODS.projectsEnsureScratch, {
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsMasterAgentEnsureRpc = Rpc.make(WS_METHODS.masterAgentEnsure, {
+  payload: Schema.Struct({}),
+  success: MasterAgentEnsureResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsCreateNewRpc = Rpc.make(WS_METHODS.projectsCreateNew, {
   payload: ProjectCreateNewInput,
   success: ProjectCreateNewResult,
@@ -2498,6 +2506,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsEnsureScratchRpc,
+  WsMasterAgentEnsureRpc,
   WsProjectsCreateNewRpc,
   WsProjectsCreateFromThreadRpc,
   WsProjectsReadPlantRpc,

@@ -19,6 +19,8 @@ import {
 } from "../state/entities";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useEnvironmentShellStatus } from "../state/shell";
+import { usePrimaryEnvironmentId } from "../state/environments";
+import { useIsMasterAgentThread } from "../state/masterAgent";
 import { environmentThreadShells, threadFamilies, useEnvironmentThread } from "../state/threads";
 import {
   buildThreadRouteParams,
@@ -54,11 +56,14 @@ function useOpenThreadFamily(threadRef: ScopedThreadRef | null, missing: boolean
 export function ThreadRouteView({
   target,
   background = false,
+  agentPage = false,
 }: {
   target: ThreadRouteTarget;
   background?: boolean;
+  agentPage?: boolean;
 }) {
   const navigate = useNavigate();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const draftId = target.kind === "draft" ? target.draftId : null;
   const draftSession = useComposerDraftStore((store) =>
     draftId === null ? null : store.getDraftSession(draftId),
@@ -67,6 +72,9 @@ export function ThreadRouteView({
     draftId === null ? null : store.getPromotedDraftRedirect(draftId),
   );
   const serverThreadRef = target.kind === "server" ? target.threadRef : null;
+  const masterAgentThread = useIsMasterAgentThread(serverThreadRef);
+  const openOnAgentPage =
+    !agentPage && masterAgentThread && serverThreadRef?.environmentId === primaryEnvironmentId;
   const serverThreadShell = useQuietThreadShell(serverThreadRef);
   const shellStatus = useEnvironmentShellStatus(serverThreadRef?.environmentId ?? null);
   const environmentThreadRefs = useEnvironmentThreadRefs(serverThreadRef?.environmentId ?? null);
@@ -208,6 +216,8 @@ export function ThreadRouteView({
     } else {
       redirect = <Navigate to="/" replace />;
     }
+  } else if (openOnAgentPage) {
+    redirect = <Navigate to="/agent" replace />;
   } else if (hiddenByTagFilter) {
     redirect = <Navigate to="/" replace />;
   } else if (offShellBlocked) {
@@ -220,6 +230,7 @@ export function ThreadRouteView({
         environmentId={target.threadRef.environmentId}
         threadId={target.threadRef.threadId}
         routeKind="server"
+        chatOnly={agentPage || masterAgentThread}
       />
     );
   }

@@ -58,6 +58,12 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.projectsPlant)).toBe(AuthOrchestrationOperateScope);
   });
 
+  it("keeps the agent thread, which ensure creates on first open, behind operate scope", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.masterAgentEnsure)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
   it("separates passive terminal observation from operations that can change a shell", () => {
     for (const method of [WS_METHODS.terminalObserve, WS_METHODS.subscribeTerminalMetadata]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthTerminalReadScope);

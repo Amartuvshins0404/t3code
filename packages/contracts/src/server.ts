@@ -650,6 +650,8 @@ export const ServerConfig = Schema.Struct({
   /** A secret request card may be answered with a secret provider reference. */
   secretRequestReferences: Schema.optionalKey(Schema.Boolean),
   scratchWorkspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  /** The agent thread clients leave out of thread lists and boards; absent until it exists. */
+  masterAgentThreadId: Schema.optionalKey(ThreadId),
   newProjectsRoot: Schema.optionalKey(TrimmedNonEmptyString),
   /**
    * The latest stall long enough to notice, sent only for a few minutes after

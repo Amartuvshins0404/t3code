@@ -267,6 +267,10 @@
       "types": "./src/state/peerPairingCode.ts",
       "default": "./src/state/peerPairingCode.ts"
     },
+    "./state/master-agent": {
+      "types": "./src/state/masterAgent.ts",
+      "default": "./src/state/masterAgent.ts"
+    },
     "./state/preview": {
       "types": "./src/state/preview.ts",
       "default": "./src/state/preview.ts"

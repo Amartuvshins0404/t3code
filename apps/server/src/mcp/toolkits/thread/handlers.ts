@@ -141,9 +141,13 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         caller?.teamShare?.agent === undefined
           ? matches
           : yield* Effect.filter(matches, (match) =>
-              threads.getThreadShell(match.threadId).pipe(
+              Effect.all([
+                threads.getThreadShell(match.threadId),
+                threads.isMasterAgentThread(match.threadId),
+              ]).pipe(
                 Effect.map(
-                  (target) => target != null && !teamAgentReadsAnotherTeam(caller, target),
+                  ([target, master]) =>
+                    target != null && !master && !teamAgentReadsAnotherTeam(caller, target),
                 ),
                 Effect.orElseSucceed(() => false),
               ),

@@ -17,6 +17,8 @@ export interface McpProviderSessionConfig {
   readonly browserToolsAvailable: boolean;
   readonly capabilities?: ReadonlySet<string>;
   readonly codeSearchAvailable?: boolean;
+  /** Sections only the agent thread gets: its instructions and saved memory. */
+  readonly threadInstructions?: ReadonlyArray<string>;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
 }
 
