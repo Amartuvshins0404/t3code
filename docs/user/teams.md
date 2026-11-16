@@ -128,8 +128,10 @@ team connects its own [CLIProxyAPI](./usage.md#connect-a-cliproxyapi-hub) hub.
 
 To connect one, a team owner or admin opens **Settings → Team → Connectivity**, chooses **Connect**,
 and enters the hub's address and one of its client access keys. If one of your connected machines
-already uses a CLI Proxy, the form opens with that machine's address and key filled in, so you only
-choose **Save**; change either field to give the team a different hub or key. The key goes to T3
+already uses a CLI Proxy that other machines can reach, the form opens with that machine's address
+and key filled in, so you only choose **Save**; change either field to give the team a different
+hub or key. The form warns you when that key is the hub's management key: every teammate's machine
+would hold it, so enter a client access key instead to keep it private. The key goes to T3
 Connect and no screen shows it again. Members see the address and who set it. An admin can
 **Replace** or **Remove** it.
 

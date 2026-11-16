@@ -6,7 +6,12 @@ import {
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, ScopedThreadRef, TeamConnectivityStatus } from "@t3tools/contracts";
+import type {
+  CliproxyRoute,
+  EnvironmentId,
+  ScopedThreadRef,
+  TeamConnectivityStatus,
+} from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
@@ -77,11 +82,11 @@ function ownedMachines(): ReadonlyArray<EnvironmentId> {
   );
 }
 
-export interface SavedProxy {
-  readonly url: string;
-  readonly clientKey: string;
+export interface SavedProxy extends CliproxyRoute {
   readonly machine: string;
 }
+
+const SAVED_PROXY_WAIT_MS = 2_000;
 
 export async function readSavedProxy(): Promise<SavedProxy | null> {
   const primary = readPrimaryEnvironmentId();
@@ -89,13 +94,16 @@ export async function readSavedProxy(): Promise<SavedProxy | null> {
     (left, right) => Number(right === primary) - Number(left === primary),
   );
   for (const environmentId of machines) {
-    const result = await runAtomCommand(
-      appAtomRegistry,
-      cliproxyRevealRoute,
-      { environmentId, input: {} },
-      { reportFailure: false },
-    );
-    if (result._tag !== "Success" || result.value === null) continue;
+    const result = await Promise.race([
+      runAtomCommand(
+        appAtomRegistry,
+        cliproxyRevealRoute,
+        { environmentId, input: {} },
+        { reportFailure: false },
+      ),
+      new Promise<null>((resolve) => setTimeout(resolve, SAVED_PROXY_WAIT_MS, null)),
+    ]);
+    if (result?._tag !== "Success" || result.value === null) continue;
     const machine = appAtomRegistry.get(environmentPresentations.presentationAtom(environmentId))
       ?.entry.target.label;
     return { ...result.value, machine: machine ?? "this machine" };

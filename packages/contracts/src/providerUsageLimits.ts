@@ -146,6 +146,7 @@ export type CliproxySourceInput = typeof CliproxySourceInput.Type;
 export const CliproxyRoute = Schema.Struct({
   url: TrimmedNonEmptyString,
   clientKey: TrimmedNonEmptyString,
+  managesProxy: Schema.Boolean,
 });
 export type CliproxyRoute = typeof CliproxyRoute.Type;
 

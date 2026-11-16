@@ -117,6 +117,14 @@ function isLocalHub(configUrl: string, localUrl: string): boolean {
   }
 }
 
+function isLocalUrl(url: string): boolean {
+  try {
+    return LOCAL_HOSTS.has(new URL(url).hostname);
+  } catch {
+    return true;
+  }
+}
+
 function hubUrl(configUrl: string): string {
   return (configUrl.includes("://") ? configUrl : `http://${configUrl}`).replace(/\/+$/, "");
 }
@@ -310,20 +318,27 @@ export const make = Effect.gen(function* () {
   });
 
   const revealRoute = Effect.gen(function* () {
-    const { providerInstances } = yield* settingsService.getSettings;
+    const { providerInstances, usageLimitSources } = yield* settingsService.getSettings;
     const claude = providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID];
     const codex = providerInstances[CLIPROXY_CODEX_INSTANCE_ID];
-    const routes = [
-      {
-        url: yield* readVariable(claude, "ANTHROPIC_BASE_URL"),
-        clientKey: yield* readVariable(claude, "ANTHROPIC_AUTH_TOKEN"),
-      },
-      {
-        url: codexProxyUrl(codex),
-        clientKey: yield* readVariable(codex, CODEX_CLIENT_KEY_VARIABLE),
-      },
-    ];
-    return routes.find((route) => route.url !== "" && route.clientKey !== "") ?? null;
+    const reachable = (route: { readonly url: string; readonly clientKey: string }) =>
+      route.clientKey !== "" && !isLocalUrl(route.url);
+    const claudeRoute = {
+      url: yield* readVariable(claude, "ANTHROPIC_BASE_URL"),
+      clientKey: yield* readVariable(claude, "ANTHROPIC_AUTH_TOKEN"),
+    };
+    const route = reachable(claudeRoute)
+      ? claudeRoute
+      : {
+          url: codexProxyUrl(codex),
+          clientKey: yield* readVariable(codex, CODEX_CLIENT_KEY_VARIABLE),
+        };
+    if (!reachable(route)) return null;
+    const managementKeys = yield* Effect.forEach(
+      Object.values(usageLimitSources),
+      readManagementKey,
+    );
+    return { ...route, managesProxy: managementKeys.includes(route.clientKey) };
   }).pipe(
     Effect.orElseSucceed(() => null),
     Effect.withSpan("UsageLimitSources.revealRoute"),

@@ -197,10 +197,8 @@ function ConnectProxyDialog({
   const trimmedKey = accessKey.trim();
   const urlValid = isProxyUrl(trimmedUrl);
   const canSubmit = urlValid && trimmedKey.length > 0 && !pending;
-  const filledFrom =
-    saved !== null && trimmedUrl === saved.url && trimmedKey === saved.clientKey
-      ? saved.machine
-      : null;
+  const filled =
+    saved !== null && trimmedUrl === saved.url && trimmedKey === saved.clientKey ? saved : null;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -270,12 +268,18 @@ function ConnectProxyDialog({
                 onChange={(event) => setAccessKey(event.target.value)}
               />
             </div>
-            {filledFrom !== null ? (
+            {filled === null ? null : filled.managesProxy ? (
+              <p role="alert" className="text-xs text-warning">
+                Filled in from the CLI Proxy on {filled.machine}. This key also manages that proxy,
+                and every teammate's machine will hold it. Enter a client access key instead to keep
+                it private.
+              </p>
+            ) : (
               <p className="text-xs text-muted-foreground">
-                Filled in from the CLI Proxy on {filledFrom}. Change either field to use another
+                Filled in from the CLI Proxy on {filled.machine}. Change either field to use another
                 one.
               </p>
-            ) : null}
+            )}
             {error ? (
               <p role="alert" className="text-xs text-destructive">
                 {error}
