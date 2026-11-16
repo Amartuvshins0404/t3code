@@ -215,12 +215,23 @@ it("strips a member that any client sends on its own message", () => {
 });
 
 describe("makeTeamShellFilter", () => {
-  const project = (id: string) =>
+  const project = (
+    id: string,
+    extra: Partial<Pick<OrchestrationProjectShell, "teamShare" | "scripts">> = {},
+  ) =>
     ({
       id: ProjectId.make(id),
       title: id,
       workspaceRoot: `/owner/${id}`,
+      scripts: [],
+      ...extra,
     }) as unknown as OrchestrationProjectShell;
+  const projectShare = (organizationId: string) => ({
+    organizationId,
+    sharedAt: "2026-11-15T00:00:00.000Z",
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-max" },
+    runtimeMode: "full-access" as const,
+  });
   const thread = (id: string, projectId: string, teamShare: ThreadTeamShare | null) =>
     ({
       id: ThreadId.make(id),
@@ -335,5 +346,46 @@ describe("makeTeamShellFilter", () => {
       { kind: "project.updated", sequence: 2, project: project("p-1") },
       { kind: "thread.updated", sequence: 2, location: "active", thread: shared },
     ]);
+  });
+
+  it("shows a team project with no threads, hides others, and drops it when the share ends", () => {
+    const filter = makeTeamShellFilter("org-a");
+    const script = { id: "deploy", name: "Deploy", command: "./deploy.sh" };
+    const teamProject = project("p-team", {
+      teamShare: projectShare("org-a"),
+      scripts: [script] as never,
+    });
+    const [snapshot] = filter({
+      kind: "snapshot",
+      snapshot: {
+        schemaVersion: 1,
+        snapshotSequence: 1,
+        projects: [
+          teamProject,
+          project("p-other-team", { teamShare: projectShare("org-b") }),
+          project("p-private"),
+        ],
+        threads: [],
+        archivedThreads: [],
+      },
+    });
+    expect(snapshot).toMatchObject({
+      kind: "snapshot",
+      snapshot: { projects: [{ id: "p-team", scripts: [] }] },
+    });
+    expect(
+      filter({
+        kind: "project.updated",
+        sequence: 2,
+        project: project("p-private", { teamShare: projectShare("org-b") }),
+      }),
+    ).toEqual([]);
+    expect(
+      filter({
+        kind: "project.updated",
+        sequence: 3,
+        project: project("p-team", { teamShare: null }),
+      }),
+    ).toEqual([{ kind: "project.removed", sequence: 3, projectId: "p-team" }]);
   });
 });

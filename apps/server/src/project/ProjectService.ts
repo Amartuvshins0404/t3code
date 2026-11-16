@@ -6,6 +6,7 @@ import {
   type ProjectCreatePayload,
   type ProjectUpdatePayload,
   type ProjectSnapshot,
+  type ProjectTeamShare,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
@@ -136,6 +137,11 @@ export class ProjectService extends Context.Service<
       ProjectServiceError
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
+    readonly setTeamShare: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly teamShare: ProjectTeamShare | null;
+    }) => Effect.Effect<void, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly getById: (
       projectId: ProjectId,
@@ -250,7 +256,10 @@ export const make = Effect.gen(function* () {
     const { projectId } = command;
     const dispatchError = (cause: unknown) =>
       new ProjectOperationError({ operation: "dispatch-project-command", projectId, cause });
-    const workspaceRoot = command.type === "project.delete" ? undefined : command.workspaceRoot;
+    const workspaceRoot =
+      command.type === "project.create" || command.type === "project.meta.update"
+        ? command.workspaceRoot
+        : undefined;
     const planAndCommit = Effect.gen(function* () {
       const project = Option.getOrUndefined(yield* readRow(projectId, { includeDeleted: true }));
       const workspaceOwner =
@@ -437,6 +446,17 @@ export const make = Effect.gen(function* () {
       return yield* readCommitted(input.projectId);
     },
   );
+
+  const setTeamShare: ProjectService["Service"]["setTeamShare"] = Effect.fn(
+    "ProjectService.setTeamShare",
+  )(function* (input) {
+    yield* commit({
+      type: "project.team-share.set",
+      commandId: input.commandId,
+      projectId: input.projectId,
+      teamShare: input.teamShare,
+    });
+  });
 
   const bootstrap: ProjectService["Service"]["bootstrap"] = Effect.fn("ProjectService.bootstrap")(
     function* (input) {
@@ -647,6 +667,7 @@ export const make = Effect.gen(function* () {
     create,
     bootstrap,
     update,
+    setTeamShare,
     delete: deleteProject,
     getById,
     getByWorkspaceRoot,

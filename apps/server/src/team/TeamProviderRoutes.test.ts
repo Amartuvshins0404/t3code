@@ -178,14 +178,36 @@ describe("what clients receive", () => {
     ).not.toContain(FAKE_KEY);
   });
 
-  it("puts the key only in the provider process environment, marked sensitive", () => {
-    const environment = teamProviderEnvironment(
-      "claudeAgent",
-      [{ name: "ANTHROPIC_API_KEY", value: "owner-key-not-real", sensitive: true }],
-      { url: "https://proxy.test", clientKey: FAKE_KEY },
-    );
-    expect(environment.find((variable) => variable.value === FAKE_KEY)?.sensitive).toBe(true);
-    expect(environment.some((variable) => variable.value === "owner-key-not-real")).toBe(false);
+  it("hands the key over only under T3's own name, and blanks every Claude credential", () => {
+    for (const driver of ["claudeAgent", "codex"] as const) {
+      const environment = teamProviderEnvironment(
+        driver,
+        [
+          { name: "ANTHROPIC_API_KEY", value: "owner-key-not-real", sensitive: true },
+          { name: "ANTHROPIC_AUTH_TOKEN", value: "owner-token-not-real", sensitive: true },
+          { name: "CLAUDE_CODE_OAUTH_TOKEN", value: "owner-oauth-not-real", sensitive: true },
+          { name: "CLAUDE_CODE_USE_BEDROCK", value: "1", sensitive: false },
+          { name: "ANTHROPIC_CUSTOM_HEADERS", value: "x-api-key: owner-not-real", sensitive: true },
+        ],
+        { url: "https://proxy.test", clientKey: FAKE_KEY },
+      );
+      expect(environment.filter((variable) => variable.value === FAKE_KEY)).toEqual([
+        { name: "T3_TEAM_PROXY_API_KEY", value: FAKE_KEY, sensitive: true },
+      ]);
+      if (driver === "claudeAgent") {
+        expect(
+          Object.fromEntries(environment.map((variable) => [variable.name, variable.value])),
+        ).toMatchObject({
+          ANTHROPIC_BASE_URL: "https://proxy.test",
+          ANTHROPIC_API_KEY: "",
+          ANTHROPIC_AUTH_TOKEN: "",
+          CLAUDE_CODE_OAUTH_TOKEN: "",
+          CLAUDE_CODE_USE_BEDROCK: "",
+          ANTHROPIC_CUSTOM_HEADERS: "",
+        });
+        expect(new Set(environment.map((variable) => variable.name)).size).toBe(environment.length);
+      }
+    }
   });
 
   it("starts Codex on the team proxy after the owner's own launch args", () => {
@@ -204,7 +226,9 @@ describe("what clients receive", () => {
       "model_provider=t3team",
     );
     expect(overrides).toContain("model_providers.t3team.base_url=https://proxy.test/base/v1");
-    expect(overrides).toContain("model_providers.t3team.env_key=T3_TEAM_PROXY_API_KEY");
+    expect(overrides).toContain('model_providers.t3team.auth.command="/bin/sh"');
+    expect(overrides).toContain('model_providers.t3team.auth.args=["-c","cat <&3"]');
+    expect(overrides.some((arg) => arg.includes("env_key"))).toBe(false);
     expect(overrides).toContain("features.shell_snapshot=false");
     expect(codexLaunchArgModelProvider(config.launchArgs)).toBe("t3team");
   });

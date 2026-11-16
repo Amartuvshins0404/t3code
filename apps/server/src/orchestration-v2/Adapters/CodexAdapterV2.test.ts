@@ -70,6 +70,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
+import { CODEX_TEAM_KEY_COMMAND } from "../../team/TeamProviderRoutes.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
@@ -10550,6 +10551,56 @@ describe("codexDynamicToolOutput", () => {
 });
 
 describe("CodexAdapterV2 app-server process", () => {
+  it.live.skipIf(HostProcess.Platform.defaultValue() === "win32")(
+    "hands a team key to the app-server on a descriptor that its commands cannot read",
+    () =>
+      Effect.gen(function* () {
+        const teamKey = "fake-team-proxy-key-for-tests";
+        const run = (env: NodeJS.ProcessEnv) =>
+          Effect.gen(function* () {
+            const command = yield* CodexAdapterV2.makeCodexAppServerSpawnCommand({
+              command: "/bin/sh",
+              args: [
+                "-c",
+                [
+                  'printf "server=%s\\n" "$(env | tr "\\n" " ")"',
+                  'printf "auth=%s\\n" "$("$@" 2>/dev/null)"',
+                  'printf "shell=%s\\n" "$(/bin/sh -c "env; cat 2>/dev/null <&3" | tr "\\n" " ")"',
+                ].join("; "),
+                "t3-fake-codex",
+                CODEX_TEAM_KEY_COMMAND.command,
+                ...CODEX_TEAM_KEY_COMMAND.args,
+              ],
+              env,
+              extendEnv: false,
+            });
+            const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+            const child = yield* spawner.spawn(command);
+            const lines = yield* child.stdout.pipe(
+              Stream.decodeText(),
+              Stream.splitLines,
+              Stream.runCollect,
+            );
+            return Object.fromEntries(
+              lines.map((line) => [
+                line.slice(0, line.indexOf("=")),
+                line.slice(line.indexOf("=") + 1),
+              ]),
+            );
+          }).pipe(Effect.scoped);
+        const path = "/usr/bin:/bin";
+
+        const team = yield* run({ PATH: path, T3_TEAM_PROXY_API_KEY: teamKey });
+        assert.strictEqual(team.auth, teamKey);
+        assert.notInclude(team.server, teamKey);
+        assert.notInclude(team.shell, teamKey);
+
+        const personal = yield* run({ PATH: path, OWNER_SETTING: "kept" });
+        assert.strictEqual(personal.auth, "");
+        assert.include(personal.server, "OWNER_SETTING=kept");
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.live.skipIf(HostProcess.Platform.defaultValue() === "win32")(
     "stops an app-server that ignores SIGTERM within its kill deadline",
     () =>

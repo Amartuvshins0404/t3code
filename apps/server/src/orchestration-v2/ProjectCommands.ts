@@ -6,6 +6,7 @@ import {
   type ProjectIconOverride,
   ProjectId,
   type ProjectScript,
+  type ProjectTeamShare,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
 } from "@t3tools/contracts";
@@ -47,7 +48,18 @@ export interface ProjectDeleteCommand {
   readonly projectId: ProjectId;
 }
 
-export type ProjectCommand = ProjectCreateCommand | ProjectMetaUpdateCommand | ProjectDeleteCommand;
+export interface ProjectTeamShareSetCommand {
+  readonly type: "project.team-share.set";
+  readonly commandId: CommandId;
+  readonly projectId: ProjectId;
+  readonly teamShare: ProjectTeamShare | null;
+}
+
+export type ProjectCommand =
+  | ProjectCreateCommand
+  | ProjectMetaUpdateCommand
+  | ProjectDeleteCommand
+  | ProjectTeamShareSetCommand;
 
 export class ProjectCommandInvariantError extends Schema.TaggedError<ProjectCommandInvariantError>()(
   "ProjectCommandInvariantError",
@@ -172,6 +184,9 @@ export function planProjectCommand(input: {
     case "project.meta.update": {
       const project = activeProject;
       if (project === undefined) return missingProject();
+      if (command.archived === true && project.archivedAt === null && project.teamShare !== null) {
+        return invariant("Stop sharing this project with the team before you archive it.");
+      }
       if (
         command.projectIcon?.kind === "monogram" &&
         Array.from(monogramSegmenter.segment(command.projectIcon.text)).length > 2
@@ -218,6 +233,23 @@ export function planProjectCommand(input: {
             ? {}
             : { archivedAt: command.archived ? (project.archivedAt ?? occurredAt) : null }),
           updatedAt: occurredAt,
+        },
+      });
+    }
+
+    case "project.team-share.set": {
+      const project = activeProject;
+      if (project === undefined) return missingProject();
+      if (command.teamShare !== null && project.archivedAt !== null) {
+        return invariant("An archived project cannot be shared with a team.");
+      }
+      return Result.succeed({
+        ...base,
+        type: "project.meta-updated",
+        payload: {
+          projectId: command.projectId,
+          teamShare: command.teamShare,
+          updatedAt: project.updatedAt,
         },
       });
     }

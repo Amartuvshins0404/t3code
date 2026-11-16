@@ -220,26 +220,30 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
 
 const latestMigrationId = Math.max(...migrationEntries.map(([id]) => id));
 
-const TEAM_MEMBER_COLUMN_TABLES = ["auth_pairing_links", "auth_sessions"] as const;
+const TEAM_COLUMNS = [
+  { table: "auth_pairing_links", column: "member_json" },
+  { table: "auth_sessions", column: "member_json" },
+  { table: "projection_projects", column: "team_share_json" },
+] as const;
 
-const tablesMissingTeamMemberColumn = Effect.fn("tablesMissingTeamMemberColumn")(function* () {
+const missingTeamColumns = Effect.fn("missingTeamColumns")(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const missing: Array<(typeof TEAM_MEMBER_COLUMN_TABLES)[number]> = [];
-  for (const table of TEAM_MEMBER_COLUMN_TABLES) {
+  const missing: Array<(typeof TEAM_COLUMNS)[number]> = [];
+  for (const entry of TEAM_COLUMNS) {
     const columns = yield* sql<{ readonly name: string }>`
-      SELECT name FROM pragma_table_info(${table})
+      SELECT name FROM pragma_table_info(${entry.table})
     `;
-    if (columns.length > 0 && !columns.some((column) => column.name === "member_json")) {
-      missing.push(table);
+    if (columns.length > 0 && !columns.some((column) => column.name === entry.column)) {
+      missing.push(entry);
     }
   }
   return missing;
 });
 
-const ensureTeamMemberColumns = Effect.fn("ensureTeamMemberColumns")(function* () {
+const ensureTeamColumns = Effect.fn("ensureTeamColumns")(function* () {
   const sql = yield* SqlClient.SqlClient;
-  for (const table of yield* tablesMissingTeamMemberColumn()) {
-    yield* sql`ALTER TABLE ${sql(table)} ADD COLUMN member_json TEXT`;
+  for (const entry of yield* missingTeamColumns()) {
+    yield* sql`ALTER TABLE ${sql(entry.table)} ADD COLUMN ${sql(entry.column)} TEXT`;
   }
 });
 
@@ -278,7 +282,7 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
     SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
   `;
   if (tables.length === 0) return true;
-  if ((yield* tablesMissingTeamMemberColumn()).length > 0) return true;
+  if ((yield* missingTeamColumns()).length > 0) return true;
   if (yield* masterAgentTablesMissing()) return true;
   const rows = yield* sql<{ readonly latestId: number | null; readonly previewRows: number }>`
     SELECT
@@ -309,7 +313,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     ...previewMigrations,
     ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
   ];
-  yield* ensureTeamMemberColumns();
+  yield* ensureTeamColumns();
   yield* ensureMasterAgentTables();
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0

@@ -1331,6 +1331,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     cloudOnly: true,
   },
   {
+    id: "team-projects",
+    title: "Team projects",
+    to: "/settings/team",
+    searchTerms: [
+      "team project shared project start a team project share project with team teammates new thread stop sharing model access",
+    ],
+    cloudOnly: true,
+  },
+  {
     id: "team-connectivity",
     title: "Team connection",
     to: "/settings/team",

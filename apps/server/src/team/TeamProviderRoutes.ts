@@ -1,4 +1,5 @@
 import {
+  type OrchestrationV2AppThread,
   type ProviderDriverKind,
   type ProviderInstanceId,
   ProviderSessionId,
@@ -123,6 +124,18 @@ export const teamRouteOrganization = (
   return organizationId;
 };
 
+export const routedTeamShare = <E, R>(
+  thread: Pick<OrchestrationV2AppThread, "id" | "lineage" | "teamShare">,
+  rootTeamShare: (
+    rootThreadId: ThreadId,
+  ) => Effect.Effect<ThreadTeamShare | null | undefined, E, R>,
+): Effect.Effect<ThreadTeamShare | null | undefined, E, R> =>
+  thread.teamShare != null ||
+  thread.lineage.relationshipToParent !== "subagent" ||
+  thread.lineage.rootThreadId === thread.id
+    ? Effect.succeed(thread.teamShare)
+    : rootTeamShare(thread.lineage.rootThreadId);
+
 export const decideTeamTurnRoute = (
   memory: TeamConnectivityMemory,
   input: {
@@ -204,19 +217,43 @@ export const turnProviderSessionId = (input: {
     : Effect.succeed(input.current);
 };
 
-const CLAUDE_PROXY_VARIABLES = new Set([
-  "ANTHROPIC_BASE_URL",
+const TEAM_PROXY_KEY_VARIABLE = "T3_TEAM_PROXY_API_KEY";
+export const CODEX_TEAM_KEY_FD = 3;
+export const CODEX_TEAM_KEY_COMMAND = {
+  command: "/bin/sh",
+  args: ["-c", `cat <&${CODEX_TEAM_KEY_FD}`],
+} as const;
+const CLAUDE_TEAM_BLANKED_VARIABLES = [
   "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "ANTHROPIC_CUSTOM_HEADERS",
+  "ANTHROPIC_UNIX_SOCKET",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "CLAUDE_CODE_USE_FOUNDRY",
+  "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+  "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
+  "CLAUDE_CODE_USE_MANTLE",
+  "CLAUDE_CODE_USE_GATEWAY",
+];
+export const CLAUDE_TEAM_PINNED_VARIABLES: ReadonlySet<string> = new Set([
+  "ANTHROPIC_BASE_URL",
+  ...CLAUDE_TEAM_BLANKED_VARIABLES,
 ]);
-const CODEX_TEAM_KEY_VARIABLE = "T3_TEAM_PROXY_API_KEY";
+
+export const withoutTeamProxyKey = (environment: NodeJS.ProcessEnv) => {
+  const { [TEAM_PROXY_KEY_VARIABLE]: key, ...rest } = environment;
+  return { key, environment: rest };
+};
 
 const codexTeamLaunchArgs = (url: string) =>
   [
     "model_provider=t3team",
     "model_providers.t3team.name=Team CLI Proxy",
     `model_providers.t3team.base_url=${new URL("v1", `${url.replace(/\/+$/, "")}/`).toString()}`,
-    `model_providers.t3team.env_key=${CODEX_TEAM_KEY_VARIABLE}`,
+    `model_providers.t3team.auth.command=${JSON.stringify(CODEX_TEAM_KEY_COMMAND.command)}`,
+    `model_providers.t3team.auth.args=${JSON.stringify(CODEX_TEAM_KEY_COMMAND.args)}`,
     "features.shell_snapshot=false",
   ]
     .map((override) => `-c "${override.replace(/["\\$`]/g, "\\$&")}"`)
@@ -229,15 +266,19 @@ export const teamProviderEnvironment = (
 ): ResolvedProviderInstanceEnvironment => {
   if (driver === "claudeAgent") {
     return [
-      ...environment.filter((variable) => !CLAUDE_PROXY_VARIABLES.has(variable.name)),
+      ...environment.filter(
+        (variable) =>
+          !CLAUDE_TEAM_PINNED_VARIABLES.has(variable.name) &&
+          variable.name !== TEAM_PROXY_KEY_VARIABLE,
+      ),
       { name: "ANTHROPIC_BASE_URL", value: connection.url, sensitive: false },
-      { name: "ANTHROPIC_AUTH_TOKEN", value: connection.clientKey, sensitive: true },
-      { name: "ANTHROPIC_API_KEY", value: "", sensitive: false },
+      ...CLAUDE_TEAM_BLANKED_VARIABLES.map((name) => ({ name, value: "", sensitive: false })),
+      { name: TEAM_PROXY_KEY_VARIABLE, value: connection.clientKey, sensitive: true },
     ];
   }
   return [
-    ...environment.filter((variable) => variable.name !== CODEX_TEAM_KEY_VARIABLE),
-    { name: CODEX_TEAM_KEY_VARIABLE, value: connection.clientKey, sensitive: true },
+    ...environment.filter((variable) => variable.name !== TEAM_PROXY_KEY_VARIABLE),
+    { name: TEAM_PROXY_KEY_VARIABLE, value: connection.clientKey, sensitive: true },
   ];
 };
 

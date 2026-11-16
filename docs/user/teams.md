@@ -1,8 +1,8 @@
 # Teams
 
 A team lets the people you invite follow threads on your machine and, if you allow it, send messages
-to the agent. They see only the threads you share, one at a time. Your other threads, projects,
-files and terminals stay private.
+to the agent. They see only the threads you share, one at a time, and the threads in projects you
+share with the team. Your other threads, projects, files and terminals stay private.
 
 ## Start a team
 
@@ -30,7 +30,8 @@ A shared thread shows a small badge in its header. Select it to change the level
 
 ## What teammates see and can do
 
-In the team workspace, the sidebar lists the team's people: you first, then everyone else by name,
+In the team workspace, the sidebar lists the team's projects first (see
+[Team projects](#team-projects)), then the team's people: you first, then everyone else by name,
 with their picture and whether their agent is ready. Under each person are the threads they shared
 with the team and the questions asked of their agent, newest first. A teammate sees a thread as it
 streams: messages, the agent's replies and its work.
@@ -40,8 +41,9 @@ streams: messages, the agent's replies and its work.
   into the current turn and **Queue** holds it for after the turn. They can also stop the agent.
 
 Teammates cannot rename, delete, archive or settle the thread, change its model or mode, attach
-files, answer the agent's questions, open terminals or files, or start threads on your machine.
-They also cannot send slash commands such as `/compact`: a message that starts with `/` is refused.
+files, answer the agent's questions, or open terminals or files. They can start threads on your
+machine only in a project you shared with the team. They also cannot send slash commands such as
+`/compact`: a message that starts with `/` is refused.
 
 A message from a teammate with **Steer** starts a turn in the thread's current permission mode. In a
 full-access thread, that turn can run commands and change files on your machine without asking.
@@ -49,6 +51,35 @@ Give **Steer** on a full-access thread only to people you would let use your mac
 
 Each message shows who sent it. Avatars in the thread header and the sidebar show who has the thread
 open, and a line above the message box shows who is typing.
+
+## Team projects
+
+A team project is a project on your machine that the whole team works in. Every thread started in
+it is shared with the team with **Steer**, whoever starts it, and anyone in the team can start a
+thread in it. A fork or subagent of a thread keeps that thread's sharing, so a fork of a private
+thread stays private, and a task delegated from another machine stays private too. The project stays on your machine; nothing is copied to other machines.
+
+To start one, choose **Start a team project** in the team sidebar, the command palette or **Settings
+→ Team → Team projects**. Pick one of your machines shared with the team, then a project on it or
+**Add a project…**, then the model and access level that teammates' threads get, and choose **Share
+with <team>**. You can also choose **Share with team** in a project's menu in the Personal sidebar.
+A small team mark shows on a shared project there. **No project** holds your own agent's chat, so
+it cannot be shared with a team.
+
+- To start a thread, select the pen next to the project in the team sidebar, or **New thread in
+  <project>** in the command palette. A teammate types the first message and sends it; the thread
+  runs on your machine with the model and access you picked. They cannot change either.
+- Teammates' threads get **Full access**: they run commands and change files on your machine without
+  asking, because nobody can answer an approval for them. Share a project only with people you
+  would let use your machine.
+- Threads that were in the project before you shared it stay private. Share them one by one if you
+  want to. You can still make one thread private with **Stop sharing** on its badge.
+
+To change the model or access, use **Team sharing** in the project's menu or **Change** in **Settings
+→ Team → Team projects**. To stop, choose **Stop sharing with team** or **Stop sharing** there. The
+team loses the project and every thread in it that was shared with the team. Stopping sharing the
+machine, or deleting the project, ends it too. A team project cannot be archived: stop sharing it
+first.
 
 ## Ask a teammate's agent
 
@@ -99,8 +130,10 @@ and enters the hub's address and one of its client access keys. The key goes to 
 screen shows it again. Members see the address and who set it. An admin can **Replace** or
 **Remove** it.
 
-Then every thread shared with the team that uses Claude or Codex runs through the team's hub, for
-the owner's and teammates' messages alike. Other providers stay on the owner's accounts. Stop
+Then every thread shared with the team that uses Claude or Codex runs through the team's hub with
+the team's key, for the owner's and teammates' messages alike. The owner's own Claude settings and
+environment do not change that: Bedrock, Vertex and other provider switches, an API key helper, and
+custom headers are turned off for team threads. Other providers stay on the owner's accounts. Stop
 sharing the thread and its next message is back on the owner's accounts.
 
 - The share dialog and the header badge say what the thread runs on. Teammates see it under the
@@ -109,9 +142,20 @@ sharing the thread and its next message is back on the owner's accounts.
   **Ready** or why it is not.
 - The machine must run a recent T3 Code. An older one shows **Update this machine to use the team
   connection** and keeps using your accounts.
-- If the team has a connection but the machine cannot get the key, for example while T3 Connect is
-  unreachable, messages in team threads fail until it is back. They never fall back to your
-  accounts.
+- A team with no key runs on your accounts: before an admin connects one, and after an admin
+  removes it.
+- After an admin connects a key, each machine fetches it within about 5 minutes. Until it does, team
+  threads on that machine still run on your accounts.
+- If the team has a key but the machine cannot get it, for example while T3 Connect is unreachable,
+  messages in team threads fail until it is back. They do not fall back to your accounts.
+- Claude's managed settings, the ones set for every user of the machine, cannot be turned off. If
+  they choose another provider, address, key, key helper or headers, Claude messages in team threads
+  fail instead of running on them.
+- Commands the agent runs do not get the key, so asking the agent to print its environment does
+  not show it. This protects the key from the agent's commands, not from someone who controls your
+  machine: a teammate with **Steer** on a full-access thread can change files on it.
+- A task the agent hands to another machine cannot use the team's hub, so the agent is told to run
+  it on this machine instead.
 
 ## Stop sharing
 

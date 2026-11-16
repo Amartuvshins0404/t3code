@@ -20,6 +20,7 @@ import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { TeamShareDialogHost } from "../components/teams/TeamShareControls";
 import { AskAgentDialogHost } from "../components/teams/AskAgentDialog";
+import { TeamProjectDialogHost } from "../components/teams/TeamProjectDialogs";
 import { TeamWorkspaceConnections } from "../cloud/teamWorkspace";
 import { UseInAnotherAppDialogHost } from "../components/mcp/UseInAnotherAppDialog";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
@@ -198,6 +199,7 @@ function RootRouteBranch() {
       <GuestShareDialogHost />
       <TeamShareDialogHost />
       <AskAgentDialogHost />
+      <TeamProjectDialogHost />
       <TeamWorkspaceConnections />
       <ProjectCloneToastCoordinator />
       <AddProjectToMachineDialogHost />

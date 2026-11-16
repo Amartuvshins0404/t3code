@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
-import { discoverClaudeSkills } from "./ClaudeSkills.ts";
+import { claudeSettingsOverrides, discoverClaudeSkills } from "./ClaudeSkills.ts";
 import { planClaudeSkillDispatch } from "./ClaudeSkillDispatch.ts";
 
 const writeSkill = Effect.fn(function* (
@@ -1159,4 +1159,20 @@ it.layer(NodeServices.layer)("discoverClaudeSkills", (it) => {
       );
     }),
   );
+});
+
+it("names the managed settings a team connection cannot override", () => {
+  const pinned = new Set(["ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK"]);
+  assert.deepEqual(
+    claudeSettingsOverrides(
+      [
+        '{ "env": { "CLAUDE_CODE_USE_BEDROCK": 1, "ANTHROPIC_BASE_URL": "", "OTHER": "x" }, }',
+        '// drop-in\n{ "apiKeyHelper": "print-key" }',
+        "not json",
+      ],
+      pinned,
+    ),
+    ["CLAUDE_CODE_USE_BEDROCK", "apiKeyHelper"],
+  );
+  assert.deepEqual(claudeSettingsOverrides(['{ "env": { "OTHER": "x" } }'], pinned), []);
 });

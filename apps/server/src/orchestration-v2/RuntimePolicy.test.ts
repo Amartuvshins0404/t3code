@@ -125,6 +125,7 @@ const projectRow = {
   scripts: [],
   pinnedAt: null,
   archivedAt: null,
+  teamShare: null,
   createdAt: "2026-06-21T00:00:00.000Z",
   updatedAt: "2026-06-21T00:00:00.000Z",
   deletedAt: null,

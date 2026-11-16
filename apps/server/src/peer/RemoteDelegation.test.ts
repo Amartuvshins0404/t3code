@@ -67,6 +67,7 @@ import * as PeerLinks from "./PeerLinks.ts";
 import { descriptorOf, layerLinkingEnvironment, linkTo, servePeer } from "./PeerLinks.testkit.ts";
 import * as RemoteDelegation from "./RemoteDelegation.ts";
 import * as PeerLinkRequests from "./PeerLinkRequests.ts";
+import { TeamProviderRoutes, type TeamTurnRoute } from "../team/TeamProviderRoutes.ts";
 
 // The laptop's agent delegates a task to the box through a link. The box is
 // its real /mcp behind real OAuth, with one thread the test finishes; the
@@ -1220,6 +1221,64 @@ it.effect("refuses worktree isolation for a task there before launching anything
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result.content)).toContain("isolation");
       expect(yield* Ref.get(thread.launched)).toBeNull();
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("refuses a task there from a thread on its team's connection, before launching", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const teamRoute = yield* Ref.make<TeamTurnRoute>({
+        type: "team",
+        organizationId: "org-team",
+        version: "v1",
+      });
+      const a = yield* makeLaptop(database, offers).pipe(
+        Effect.provideService(TeamProviderRoutes, {
+          routeTurn: ({ teamShare }) =>
+            teamShare?.organizationId === "org-team"
+              ? Ref.get(teamRoute)
+              : Effect.succeed({ type: "owner" }),
+          openAdapter: () => Effect.die("unused"),
+        }),
+      );
+      yield* linkTo(a.links, b, "auto");
+      yield* seedParent(a);
+      yield* a.orchestrator.dispatch({
+        type: "thread.team-share.set",
+        commandId: CommandId.make("command:share:laptop-parent"),
+        threadId: parentThreadId,
+        organizationId: "org-team",
+        access: "steer",
+      });
+
+      for (const route of [
+        { type: "team", organizationId: "org-team", version: "v1" },
+        { type: "unavailable", organizationId: "org-team" },
+      ] satisfies ReadonlyArray<TeamTurnRoute>) {
+        yield* Ref.set(teamRoute, route);
+        const refused = yield* a.call("delegate_task", {
+          task: "Run the suite on the box.",
+          target: { environmentId: box.environmentId },
+        });
+        expect(refused.isError).toBe(true);
+        expect(JSON.stringify(refused.content)).toContain("Team connection unavailable");
+        expect(yield* Ref.get(thread.launched)).toBeNull();
+      }
+
+      yield* Ref.set(teamRoute, { type: "owner" });
+      const owner = yield* a.call("delegate_task", {
+        task: "Run the suite on the box.",
+        target: { environmentId: box.environmentId },
+      });
+      expect(owner.isError, JSON.stringify(owner.content)).toBe(false);
+      expect(yield* Ref.get(thread.launched)).not.toBeNull();
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

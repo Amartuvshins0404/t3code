@@ -103,6 +103,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ProjectStore from "./ProjectStore.ts";
+import { teamShareAtCreation } from "./teamShareAtCreation.ts";
 import {
   isCheckpointRestoreIsolated,
   SHARED_WORKSPACE_RESTORE_MESSAGE,
@@ -3407,6 +3408,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       { concurrency: 1, discard: true },
     );
 
+  const projectToShareFrom = Effect.fn("orchestrationV2.projectToShareFrom")(function* (
+    project: Option.Option<ProjectStore.ProjectRow>,
+    threadId: ThreadId,
+  ) {
+    const row = Option.getOrUndefined(project);
+    if (row?.teamShare == null) return row;
+    const projectionError = (cause: unknown) =>
+      new OrchestratorProjectionError({ threadId, cause });
+    const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
+      Effect.mapError(projectionError),
+    );
+    if (masterThreadId === null) return row;
+    if (masterThreadId === threadId) return undefined;
+    const master = yield* projectionStore
+      .getThread(masterThreadId)
+      .pipe(
+        Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+        Effect.mapError(projectionError),
+      );
+    return master?.projectId === row.projectId ? undefined : row;
+  });
+
   const dispatchThreadCreate = Effect.fn("orchestrationV2.dispatch.threadCreate")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.create" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -3434,11 +3457,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const delegatedFrom = command.linkOrigin === undefined ? undefined : command.delegatedFrom;
+    const project = yield* projects.get(command.projectId).pipe(mapDispatchError(command));
+    const teamShare = teamShareAtCreation({
+      requested: command.teamShare,
+      project:
+        delegatedFrom === undefined
+          ? yield* projectToShareFrom(project, command.threadId)
+          : undefined,
+      sharedAt: DateTime.formatIso(now),
+    });
     const thread: OrchestrationV2AppThread = {
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
       projectId: command.projectId,
+      ...(teamShare === undefined ? {} : { teamShare }),
       title: command.title,
       providerInstanceId: command.modelSelection.instanceId,
       modelSelection: command.modelSelection,
@@ -3450,9 +3484,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       pullRequests: [],
       ...(command.linkOrigin === undefined ? {} : { linkOrigin: command.linkOrigin }),
       // Only stamped work names a remote parent, so a client cannot claim one.
-      ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
-        ? {}
-        : { delegatedFrom: command.delegatedFrom }),
+      ...(delegatedFrom === undefined ? {} : { delegatedFrom }),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,

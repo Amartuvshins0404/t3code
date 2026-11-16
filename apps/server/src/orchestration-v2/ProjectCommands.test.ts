@@ -1,5 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
-import { CommandId, EventId, ProjectId, type ProjectScript } from "@t3tools/contracts";
+import {
+  CommandId,
+  EventId,
+  ProjectId,
+  type ProjectScript,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
 
@@ -25,6 +31,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   scripts: [],
   pinnedAt: null,
   archivedAt: null,
+  teamShare: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   deletedAt: null,
@@ -109,6 +116,32 @@ describe("planProjectCommand", () => {
     const untouched = update(organized, {});
     assert.notProperty(untouched, "pinnedAt");
     assert.notProperty(untouched, "archivedAt");
+  });
+
+  it("refuses to archive a project that is still shared with a team", () => {
+    const shared = row({
+      teamShare: {
+        organizationId: "org-team",
+        sharedAt: "2025-12-01T00:00:00.000Z",
+        modelSelection: { instanceId: ProviderInstanceId.make("claudeAgent"), model: "claude" },
+        runtimeMode: "full-access",
+      },
+    });
+    const change = (change: { pinned?: boolean; archived?: boolean }) =>
+      plan(
+        {
+          type: "project.meta.update",
+          commandId: CommandId.make("cmd-archive-shared"),
+          projectId,
+          ...change,
+        },
+        { project: shared },
+      );
+    assert.deepInclude(failureOf(change({ archived: true })), {
+      _tag: "ProjectCommandInvariantError",
+      detail: "Stop sharing this project with the team before you archive it.",
+    });
+    assert.notProperty(payloadOf(change({ pinned: true })), "teamShare");
   });
 
   it("rejects a workspace root held by another active project", () => {

@@ -127,6 +127,7 @@ import {
   codexLaunchArgModelProvider,
   resolveCodexLaunchArgs,
 } from "../../provider/codexLaunchArgs.ts";
+import { CODEX_TEAM_KEY_FD, withoutTeamProxyKey } from "../../team/TeamProviderRoutes.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -1525,16 +1526,28 @@ export const makeCodexAppServerSpawnCommand = Effect.fn(
     env: input.env,
     shared: true,
   });
+  const team = input.env === undefined ? undefined : withoutTeamProxyKey(input.env);
+  const env = team?.key === undefined ? input.env : team.environment;
   const spawnCommand = yield* resolveSpawnCommand(launch.command, launch.args, {
-    ...(input.env === undefined ? {} : { env: input.env }),
+    ...(env === undefined ? {} : { env }),
     ...(input.extendEnv === undefined ? {} : { extendEnv: input.extendEnv }),
   });
   return ChildProcess.make(spawnCommand.command, spawnCommand.args, {
     ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-    ...(input.env === undefined ? {} : { env: input.env }),
+    ...(env === undefined ? {} : { env }),
     ...(input.extendEnv === undefined ? {} : { extendEnv: input.extendEnv }),
     shell: spawnCommand.shell,
     forceKillAfter: CODEX_APP_SERVER_FORCE_KILL_AFTER,
+    ...(team?.key === undefined
+      ? {}
+      : {
+          additionalFds: {
+            [`fd${CODEX_TEAM_KEY_FD}`]: {
+              type: "input",
+              stream: Stream.make(new TextEncoder().encode(team.key)),
+            },
+          },
+        }),
   });
 });
 
