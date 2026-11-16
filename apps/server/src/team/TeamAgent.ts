@@ -362,7 +362,7 @@ const make = Effect.gen(function* () {
         modelEnabled: instance?.enabled === true,
       }),
     );
-    yield* sharing.setAgentSetting(input.organizationId, setting);
+    yield* asks.withPermits(1)(sharing.setAgentSetting(input.organizationId, setting));
     const statuses = yield* getAgents(undefined);
     const status = statuses.agents.find((agent) => agent.organizationId === input.organizationId);
     if (status === undefined) return yield* refused("internal", "The agent setting was not saved.");
