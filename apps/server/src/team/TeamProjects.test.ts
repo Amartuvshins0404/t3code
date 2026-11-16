@@ -19,6 +19,7 @@ import type { ProjectRow } from "../orchestration-v2/ProjectStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -139,57 +140,96 @@ describe("decideTeamProjectRun", () => {
   });
 });
 
-it.effect("a teammate's thread runs with the share's model, access and workspace only", () =>
-  Effect.gen(function* () {
-    const launches: Array<ThreadLaunchService.ThreadLaunchInput> = [];
-    const service = yield* TeamProjects.pipe(
-      Effect.provide(
-        teamProjectsLayer.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              Layer.mock(TeamSharing.TeamSharing)({
-                readState: Effect.succeed({ organizationIds: ["org-a"], agents: {} }),
-              }),
-              Layer.mock(ProjectStore.ProjectStoreV2)({
-                get: () => Effect.succeedSome(row()),
-              }),
-              Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-                getInstance: () =>
-                  Effect.succeed({
-                    driverKind: ProviderDriverKind.make("codex"),
-                    enabled: true,
-                  } as never),
-              }),
-              Layer.mock(ThreadLaunchService.ThreadLaunchService)({
-                launch: (input) => {
-                  launches.push(input);
-                  return Effect.succeed({
-                    threadId: input.threadId ?? ThreadId.make("thread-new"),
-                    projection: {} as never,
-                    resumed: false,
-                  });
-                },
-              }),
-              Layer.mock(ThreadManagementService.ThreadManagementService)({}),
-              ServerSettings.layerTest({
-                defaultThreadEnvMode: "worktree",
-                newWorktreesStartFromOrigin: false,
-              }),
-              Layer.mock(GitVcsDriver.GitVcsDriver)({
-                statusDetailsLocal: () => Effect.succeed({ isRepo: true, branch: "main" } as never),
-              }),
-              Layer.mock(ServerSecretStore.ServerSecretStore)({
-                get: () => Effect.succeedNone,
-              }),
-              Layer.succeed(
-                SecureRandom.SecureRandom,
-                SecureRandom.make((size) => new Uint8Array(size).fill(7)),
-              ),
+const teamProjects = (
+  input: {
+    readonly launches?: Array<ThreadLaunchService.ThreadLaunchInput>;
+    readonly shared?: Array<ProjectTeamShare>;
+    readonly scratchProjectId?: ProjectId;
+  } = {},
+) =>
+  TeamProjects.pipe(
+    Effect.provide(
+      teamProjectsLayer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(TeamSharing.TeamSharing)({
+              readState: Effect.succeed({ organizationIds: ["org-a"], agents: {} }),
+              setProjectShare: (_projectId, teamShare) => {
+                input.shared?.push(teamShare);
+                return Effect.void;
+              },
+            }),
+            Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+              namedProjectsRoot: "/projects",
+              isScratchProject: (id) => Effect.succeed(id === input.scratchProjectId),
+            }),
+            Layer.mock(ProjectStore.ProjectStoreV2)({
+              get: () => Effect.succeedSome(row()),
+            }),
+            Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+              getInstance: () =>
+                Effect.succeed({
+                  driverKind: ProviderDriverKind.make("codex"),
+                  enabled: true,
+                } as never),
+            }),
+            Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+              launch: (launch) => {
+                input.launches?.push(launch);
+                return Effect.succeed({
+                  threadId: launch.threadId ?? ThreadId.make("thread-new"),
+                  projection: {} as never,
+                  resumed: false,
+                });
+              },
+            }),
+            Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+            ServerSettings.layerTest({
+              defaultThreadEnvMode: "worktree",
+              newWorktreesStartFromOrigin: false,
+            }),
+            Layer.mock(GitVcsDriver.GitVcsDriver)({
+              statusDetailsLocal: () => Effect.succeed({ isRepo: true, branch: "main" } as never),
+            }),
+            Layer.mock(ServerSecretStore.ServerSecretStore)({
+              get: () => Effect.succeedNone,
+            }),
+            Layer.succeed(
+              SecureRandom.SecureRandom,
+              SecureRandom.make((size) => new Uint8Array(size).fill(7)),
             ),
           ),
         ),
       ),
-    );
+    ),
+  );
+
+it.effect("the No project space cannot be shared with a team, while a project can", () =>
+  Effect.gen(function* () {
+    const scratchProjectId = ProjectId.make("project-scratch");
+    const shared: Array<ProjectTeamShare> = [];
+    const service = yield* teamProjects({ shared, scratchProjectId });
+    const shareInput = {
+      organizationId: "org-a",
+      modelSelection: shareModel,
+      runtimeMode: "full-access",
+    } as const;
+
+    const refusal = yield* service
+      .setProjectShare({ ...shareInput, projectId: scratchProjectId }, undefined)
+      .pipe(Effect.flip);
+    expect(refusal.reason).toBe("project_unavailable");
+    expect(shared).toEqual([]);
+
+    yield* service.setProjectShare({ ...shareInput, projectId }, undefined);
+    expect(shared.map((entry) => entry.organizationId)).toEqual(["org-a"]);
+  }),
+);
+
+it.effect("a teammate's thread runs with the share's model, access and workspace only", () =>
+  Effect.gen(function* () {
+    const launches: Array<ThreadLaunchService.ThreadLaunchInput> = [];
+    const service = yield* teamProjects({ launches });
 
     const result = yield* service.startProjectThread(
       {

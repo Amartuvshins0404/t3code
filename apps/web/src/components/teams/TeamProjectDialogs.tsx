@@ -6,6 +6,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { useActiveWorkspace, useCloudTeamsState } from "~/cloud/cloudTeams";
+import { useCommandPaletteStore } from "~/commandPaletteStore";
 import {
   useManagedRelayEnvironments,
   useManagedRelayTeamEnvironments,
@@ -68,6 +69,12 @@ import {
 } from "./teamUiStore";
 
 const ADD_PROJECT_VALUE = "add-project";
+
+useCommandPaletteStore.subscribe((palette, previous) => {
+  if (palette.open || !previous.open) return;
+  const awaited = useTeamUiStore.getState().awaitedProject;
+  if (awaited !== null && !awaited.addStarted) useTeamUiStore.setState({ awaitedProject: null });
+});
 
 function useAwaitedProject(): {
   readonly teamId: string;

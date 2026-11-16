@@ -25,6 +25,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -139,6 +140,7 @@ const make = Effect.gen(function* () {
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const settings = yield* ServerSettings.ServerSettingsService;
+  const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const random = yield* SecureRandom.SecureRandom;
   const owner = ownerTeamPerson(yield* ServerSecretStore.ServerSecretStore, settings);
@@ -173,6 +175,12 @@ const make = Effect.gen(function* () {
     member: TeamMemberIdentity | undefined,
   ) {
     yield* hostOnly(member);
+    if (yield* managedFolders.isScratchProject(input.projectId)) {
+      return yield* refused(
+        "project_unavailable",
+        "No project holds your own agent's chat, so it cannot be shared with a team.",
+      );
+    }
     const run = yield* decideRun(input.modelSelection, input.runtimeMode);
     const share: ProjectTeamShare = {
       organizationId: input.organizationId,

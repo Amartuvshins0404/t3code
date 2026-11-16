@@ -1,8 +1,6 @@
 import type { EnvironmentId, ProjectId, ScopedThreadRef, TeamPerson } from "@t3tools/contracts";
 import { create } from "zustand";
 
-import { useCommandPaletteStore } from "../../commandPaletteStore";
-
 export type TeamDialog =
   | { readonly kind: "create" }
   | { readonly kind: "invite"; readonly teamId: string }
@@ -108,12 +106,6 @@ export function markProjectAddStarted(environmentId: EnvironmentId): void {
   if (awaited === null || awaited.environmentId !== environmentId) return;
   useTeamUiStore.setState({ awaitedProject: { ...awaited, addStarted: true } });
 }
-
-useCommandPaletteStore.subscribe((palette, previous) => {
-  if (palette.open || !previous.open) return;
-  const awaited = useTeamUiStore.getState().awaitedProject;
-  if (awaited !== null && !awaited.addStarted) useTeamUiStore.setState({ awaitedProject: null });
-});
 
 export function closeTeamDialog(): void {
   useTeamUiStore.setState({ dialog: null, awaitedProject: null });

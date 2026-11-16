@@ -3409,6 +3409,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       { concurrency: 1, discard: true },
     );
 
+  const projectToShareFrom = Effect.fn("orchestrationV2.projectToShareFrom")(function* (
+    project: Option.Option<ProjectStore.ProjectRow>,
+    threadId: ThreadId,
+  ) {
+    const row = Option.getOrUndefined(project);
+    if (row?.teamShare == null) return row;
+    const projectionError = (cause: unknown) =>
+      new OrchestratorProjectionError({ threadId, cause });
+    const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
+      Effect.mapError(projectionError),
+    );
+    if (masterThreadId === null) return row;
+    if (masterThreadId === threadId) return undefined;
+    const master = yield* projectionStore
+      .getThread(masterThreadId)
+      .pipe(
+        Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+        Effect.mapError(projectionError),
+      );
+    return master?.projectId === row.projectId ? undefined : row;
+  });
+
   const dispatchThreadCreate = Effect.fn("orchestrationV2.dispatch.threadCreate")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.create" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -3440,7 +3462,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const teamShare = teamShareAtCreation({
       inherited: undefined,
       requested: command.teamShare,
-      project: Option.getOrUndefined(project),
+      project: yield* projectToShareFrom(project, command.threadId),
       sharedAt: DateTime.formatIso(now),
     });
     const thread: OrchestrationV2AppThread = {
@@ -5320,8 +5342,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ? teamShareAtCreation({
           inherited: targetThread.teamShare,
           requested: undefined,
-          project: Option.getOrUndefined(
+          project: yield* projectToShareFrom(
             yield* projects.get(targetThread.projectId).pipe(mapDispatchError(command)),
+            command.targetThreadId,
           ),
           sharedAt: DateTime.formatIso(now),
         })

@@ -1282,9 +1282,9 @@ function PersonalSidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
       if (!api) return;
       const teamShared = group.memberProjects.find((member) => member.teamShare);
       const teamShare = teamShared?.teamShare ?? null;
-      const canShareWithTeam = readCanShareTeamProject(
-        teamShared?.environmentId ?? group.environmentId,
-      );
+      const canShareWithTeam =
+        group.isScratch !== true &&
+        readCanShareTeamProject(teamShared?.environmentId ?? group.environmentId);
       void (async () => {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(

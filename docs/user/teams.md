@@ -62,7 +62,8 @@ To start one, choose **Start a team project** in the team sidebar, the command p
 → Team → Team projects**. Pick one of your machines shared with the team, then a project on it or
 **Add a project…**, then the model and access level that teammates' threads get, and choose **Share
 with <team>**. You can also choose **Share with team** in a project's menu in the Personal sidebar.
-A small team mark shows on a shared project there.
+A small team mark shows on a shared project there. **No project** holds your own agent's chat, so
+it cannot be shared with a team.
 
 - To start a thread, select the pen next to the project in the team sidebar, or **New thread in
   <project>** in the command palette. A teammate types the first message and sends it; the thread

@@ -748,6 +748,68 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
     }),
   );
 
+  it.effect(
+    "a project's team share reaches new threads but never the agent thread or threads beside it",
+    () =>
+      Effect.gen(function* () {
+        const masterAgent = yield* MasterAgent.MasterAgent;
+        const store = yield* MasterAgentStore.MasterAgentStore;
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projects = yield* ProjectService.ProjectService;
+        const threads = yield* ThreadManagementService.ThreadManagementService;
+        const teamShare = {
+          organizationId: "org-team",
+          sharedAt: "2026-11-16T00:00:00.000Z",
+          modelSelection,
+          runtimeMode: "full-access",
+        } as const;
+        const share = (projectId: ProjectId) =>
+          projects.setTeamShare({
+            commandId: CommandId.make(`agent-share:${projectId}`),
+            projectId,
+            teamShare,
+          });
+        const createThread = (threadId: ThreadId, projectId: ProjectId) =>
+          orchestrator
+            .dispatch({
+              type: "thread.create",
+              commandId: CommandId.make(`agent-share-create:${threadId}`),
+              createdBy: "user",
+              creationSource: "web",
+              threadId,
+              projectId,
+              title: "Shared?",
+              modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+            })
+            .pipe(Effect.andThen(threads.getThreadShell(threadId)));
+
+        const projectId = ProjectId.make("agent-share-project");
+        yield* projects.create({
+          commandId: CommandId.make("agent-share-project"),
+          projectId,
+          title: "Agent home",
+          workspaceRoot: "/work/agent-share",
+        });
+        yield* share(projectId);
+
+        const before = yield* createThread(ThreadId.make("agent-share-before"), projectId);
+        assert.deepInclude(before?.teamShare, { organizationId: "org-team", access: "steer" });
+        const agentThreadId = ThreadId.make("agent-share-agent");
+        yield* store.replaceThreadId({
+          previous: yield* masterAgent.threadId,
+          next: agentThreadId,
+        });
+        const agentThread = yield* createThread(agentThreadId, projectId);
+        assert.isNull(agentThread?.teamShare ?? null);
+        const besideAgent = yield* createThread(ThreadId.make("agent-share-after"), projectId);
+        assert.isNull(besideAgent?.teamShare ?? null);
+      }),
+  );
+
   it.effect("opens a new agent thread when the stored one was deleted", () =>
     Effect.gen(function* () {
       const masterAgent = yield* MasterAgent.MasterAgent;
