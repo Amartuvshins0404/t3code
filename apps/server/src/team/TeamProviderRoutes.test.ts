@@ -186,6 +186,8 @@ describe("what clients receive", () => {
           { name: "ANTHROPIC_API_KEY", value: "owner-key-not-real", sensitive: true },
           { name: "ANTHROPIC_AUTH_TOKEN", value: "owner-token-not-real", sensitive: true },
           { name: "CLAUDE_CODE_OAUTH_TOKEN", value: "owner-oauth-not-real", sensitive: true },
+          { name: "CLAUDE_CODE_USE_BEDROCK", value: "1", sensitive: false },
+          { name: "ANTHROPIC_CUSTOM_HEADERS", value: "x-api-key: owner-not-real", sensitive: true },
         ],
         { url: "https://proxy.test", clientKey: FAKE_KEY },
       );
@@ -200,7 +202,10 @@ describe("what clients receive", () => {
           ANTHROPIC_API_KEY: "",
           ANTHROPIC_AUTH_TOKEN: "",
           CLAUDE_CODE_OAUTH_TOKEN: "",
+          CLAUDE_CODE_USE_BEDROCK: "",
+          ANTHROPIC_CUSTOM_HEADERS: "",
         });
+        expect(new Set(environment.map((variable) => variable.name)).size).toBe(environment.length);
       }
     }
   });

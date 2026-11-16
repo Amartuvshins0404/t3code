@@ -223,12 +223,23 @@ export const CODEX_TEAM_KEY_COMMAND = {
   command: "/bin/sh",
   args: ["-c", `cat <&${CODEX_TEAM_KEY_FD}`],
 } as const;
-const CLAUDE_PROXY_VARIABLES = new Set([
-  "ANTHROPIC_BASE_URL",
+const CLAUDE_TEAM_BLANKED_VARIABLES = [
   "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_API_KEY",
   "CLAUDE_CODE_OAUTH_TOKEN",
-  TEAM_PROXY_KEY_VARIABLE,
+  "ANTHROPIC_CUSTOM_HEADERS",
+  "ANTHROPIC_UNIX_SOCKET",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "CLAUDE_CODE_USE_FOUNDRY",
+  "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+  "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
+  "CLAUDE_CODE_USE_MANTLE",
+  "CLAUDE_CODE_USE_GATEWAY",
+];
+export const CLAUDE_TEAM_PINNED_VARIABLES: ReadonlySet<string> = new Set([
+  "ANTHROPIC_BASE_URL",
+  ...CLAUDE_TEAM_BLANKED_VARIABLES,
 ]);
 
 export const withoutTeamProxyKey = (environment: NodeJS.ProcessEnv) => {
@@ -255,11 +266,13 @@ export const teamProviderEnvironment = (
 ): ResolvedProviderInstanceEnvironment => {
   if (driver === "claudeAgent") {
     return [
-      ...environment.filter((variable) => !CLAUDE_PROXY_VARIABLES.has(variable.name)),
+      ...environment.filter(
+        (variable) =>
+          !CLAUDE_TEAM_PINNED_VARIABLES.has(variable.name) &&
+          variable.name !== TEAM_PROXY_KEY_VARIABLE,
+      ),
       { name: "ANTHROPIC_BASE_URL", value: connection.url, sensitive: false },
-      { name: "ANTHROPIC_AUTH_TOKEN", value: "", sensitive: false },
-      { name: "ANTHROPIC_API_KEY", value: "", sensitive: false },
-      { name: "CLAUDE_CODE_OAUTH_TOKEN", value: "", sensitive: false },
+      ...CLAUDE_TEAM_BLANKED_VARIABLES.map((name) => ({ name, value: "", sensitive: false })),
       { name: TEAM_PROXY_KEY_VARIABLE, value: connection.clientKey, sensitive: true },
     ];
   }

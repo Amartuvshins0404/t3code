@@ -1540,6 +1540,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
   const executablePaths: Array<string | undefined> = [];
   const taskToolEnvironment: Array<string | undefined> = [];
   const flagEnvironments: Array<Readonly<Record<string, string>> | undefined> = [];
+  const flagSettings: Array<object | undefined> = [];
   const processEnvironments: Array<NodeJS.ProcessEnv | undefined> = [];
   const adapter = yield* ClaudeAdapterV2.createClaudeAdapterV2(
     {
@@ -1565,6 +1566,9 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
           processEnvironments.push(input.options.env);
           flagEnvironments.push(
             typeof input.options.settings === "object" ? input.options.settings.env : undefined,
+          );
+          flagSettings.push(
+            typeof input.options.settings === "object" ? input.options.settings : undefined,
           );
           return {
             messages: Stream.never,
@@ -1609,7 +1613,13 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       attachments: [],
     }),
   );
-  return { executablePaths, taskToolEnvironment, flagEnvironments, processEnvironments };
+  return {
+    executablePaths,
+    taskToolEnvironment,
+    flagEnvironments,
+    flagSettings,
+    processEnvironments,
+  };
 });
 
 describe("ClaudeAdapterV2 executable path", () => {
@@ -1645,23 +1655,58 @@ describe("ClaudeAdapterV2 team proxy", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const teamKey = "fake-team-proxy-key-for-tests";
-        const { flagEnvironments, processEnvironments } = yield* captureSdkExecutablePaths(
+        const ownerEnvironment = [
+          { name: "ANTHROPIC_API_KEY", value: "fake-owner-key-for-tests", sensitive: true },
+          { name: "CLAUDE_CODE_USE_BEDROCK", value: "1", sensitive: false },
+          {
+            name: "ANTHROPIC_CUSTOM_HEADERS",
+            value: "x-api-key: fake-owner-header-for-tests",
+            sensitive: true,
+          },
+        ];
+        const serverEnvironment = {
+          ...process.env,
+          CLAUDE_CODE_USE_VERTEX: "1",
+          ANTHROPIC_UNIX_SOCKET: "/tmp/owner.sock",
+        };
+        const team = yield* captureSdkExecutablePaths(
           "/opt/claude/bin/claude",
-          teamProviderEnvironment(
-            "claudeAgent",
-            [{ name: "ANTHROPIC_API_KEY", value: "fake-owner-key-for-tests", sensitive: true }],
-            { url: "https://team-proxy.test", clientKey: teamKey },
-          ),
+          teamProviderEnvironment("claudeAgent", ownerEnvironment, {
+            url: "https://team-proxy.test",
+            clientKey: teamKey,
+          }),
           { pinProxyEnvironment: true },
-        );
-        assert.deepInclude(flagEnvironments[0], {
+        ).pipe(Effect.provideService(HostProcess.Environment, serverEnvironment));
+        const pinned = {
           ANTHROPIC_BASE_URL: "https://team-proxy.test",
           ANTHROPIC_AUTH_TOKEN: "",
           ANTHROPIC_API_KEY: "",
           CLAUDE_CODE_OAUTH_TOKEN: "",
+          ANTHROPIC_CUSTOM_HEADERS: "",
+          ANTHROPIC_UNIX_SOCKET: "",
+          CLAUDE_CODE_USE_BEDROCK: "",
+          CLAUDE_CODE_USE_VERTEX: "",
+          CLAUDE_CODE_USE_FOUNDRY: "",
+        };
+        assert.deepInclude(team.flagEnvironments[0], pinned);
+        assert.deepInclude(team.processEnvironments[0], pinned);
+        assert.deepInclude(team.flagSettings[0], { apiKeyHelper: "" });
+        assert.notInclude(JSON.stringify(team.flagEnvironments), teamKey);
+        assert.strictEqual(team.processEnvironments[0]?.T3_TEAM_PROXY_API_KEY, teamKey);
+
+        const personal = yield* captureSdkExecutablePaths(
+          "/opt/claude/bin/claude",
+          ownerEnvironment,
+        ).pipe(Effect.provideService(HostProcess.Environment, serverEnvironment));
+        assert.notProperty(personal.flagSettings[0] ?? {}, "apiKeyHelper");
+        assert.notProperty(personal.flagEnvironments[0] ?? {}, "CLAUDE_CODE_USE_BEDROCK");
+        assert.deepInclude(personal.processEnvironments[0], {
+          ANTHROPIC_API_KEY: "fake-owner-key-for-tests",
+          CLAUDE_CODE_USE_BEDROCK: "1",
+          CLAUDE_CODE_USE_VERTEX: "1",
+          ANTHROPIC_UNIX_SOCKET: "/tmp/owner.sock",
+          ANTHROPIC_CUSTOM_HEADERS: "x-api-key: fake-owner-header-for-tests",
         });
-        assert.notInclude(JSON.stringify(flagEnvironments), teamKey);
-        assert.strictEqual(processEnvironments[0]?.T3_TEAM_PROXY_API_KEY, teamKey);
       }),
     ).pipe(
       Effect.provide(

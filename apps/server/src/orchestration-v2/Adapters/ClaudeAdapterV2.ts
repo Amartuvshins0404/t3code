@@ -170,8 +170,10 @@ import {
 } from "../../provider/Drivers/ClaudeSkillDispatch.ts";
 import {
   claudeLaunchArgDirectories,
+  claudeSettingsOverrides,
   customClaudeApiEndpointHost,
   discoverClaudeSkills,
+  readClaudeManagedSettingsFiles,
   readClaudeSettingsEnv,
 } from "../../provider/Drivers/ClaudeSkills.ts";
 import {
@@ -192,7 +194,10 @@ import {
   type TeamAgentToolDecision,
 } from "../../team/TeamAgentToolGuard.ts";
 import { teamAgentInstructions } from "../../team/teamAgentInstructions.ts";
-import { withoutTeamProxyKey } from "../../team/TeamProviderRoutes.ts";
+import {
+  CLAUDE_TEAM_PINNED_VARIABLES,
+  withoutTeamProxyKey,
+} from "../../team/TeamProviderRoutes.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
@@ -2039,6 +2044,7 @@ export function makeClaudeQueryOptions(input: {
       ? compactQuerySettings
       : ({
           ...compactQuerySettings,
+          ...(input.pinnedEnvironment === undefined ? {} : { apiKeyHelper: "" }),
           env: { ...compactQuerySettings?.env, ...flagEnvironment },
         } as ClaudeSdkSettings);
   const deviceInstructions = input.mcpServers !== undefined && input.deviceToolsAvailable === true;
@@ -13489,19 +13495,12 @@ export type ClaudeAdapterV2DriverEnv =
   | ProviderInstallationGate.ProviderInstallationGate
   | ServerConfig.ServerConfig;
 
-const CLAUDE_PINNED_ENVIRONMENT = new Set([
-  "ANTHROPIC_BASE_URL",
-  "ANTHROPIC_AUTH_TOKEN",
-  "ANTHROPIC_API_KEY",
-  "CLAUDE_CODE_OAUTH_TOKEN",
-]);
-
 const claudePinnedEnvironment = (
   environment: ProviderAdapterDriverCreateInput<ClaudeSettings>["environment"],
 ): Readonly<Record<string, string>> =>
   Object.fromEntries(
     environment
-      .filter((variable) => CLAUDE_PINNED_ENVIRONMENT.has(variable.name))
+      .filter((variable) => CLAUDE_TEAM_PINNED_VARIABLES.has(variable.name))
       .map((variable) => [variable.name, variable.value]),
   );
 
@@ -13520,6 +13519,19 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     const serverConfig = yield* ServerConfig.ServerConfig;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
     const installationGate = yield* ProviderInstallationGate.ProviderInstallationGate;
+    if (hooks.pinProxyEnvironment === true) {
+      const managed = claudeSettingsOverrides(
+        yield* readClaudeManagedSettingsFiles(hostEnvironment),
+        CLAUDE_TEAM_PINNED_VARIABLES,
+      );
+      if (managed.length > 0) {
+        return yield* new ProviderAdapterDriverCreateError({
+          driver: CLAUDE_PROVIDER,
+          instanceId,
+          detail: `Claude's managed settings set ${managed.join(", ")}, which a team connection cannot override.`,
+        });
+      }
+    }
     const baseEnvironment = yield* mergeClaudeProcessEnvironment(
       config,
       environment,
