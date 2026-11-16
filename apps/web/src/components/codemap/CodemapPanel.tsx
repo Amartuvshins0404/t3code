@@ -127,7 +127,7 @@ export default function CodemapPanel({
     );
   }
 
-  const files = touchedFiles(checkpoints, shown.addedPaths);
+  const files = touchedFiles(checkpoints, shown.addedPaths, shown.pathPrefix);
   const boxes = size ? layoutMap(shown.view.nodes, files, size) : [];
   const flat = boxes.flatMap((box) => [box, ...box.children]);
   const selected = flat.find((box) => box.node.id === selectedId) ?? null;
@@ -139,8 +139,7 @@ export default function CodemapPanel({
     setFocusId(id);
   };
   const openDiff = (file: TouchedFile) => {
-    if (file.runId !== null)
-      useDiffPanelStore.getState().selectTurn(threadRef, file.runId, file.path);
+    useDiffPanelStore.getState().selectTurn(threadRef, file.runId, file.repoPath);
     useRightPanelStore.getState().open(threadRef, "diff");
   };
   const onBox = (box: MapBox) => {

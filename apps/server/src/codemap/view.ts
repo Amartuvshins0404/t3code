@@ -117,3 +117,7 @@ export function dirtyPaths(porcelain: string): ReadonlyArray<string> {
   }
   return paths;
 }
+
+export function underPrefix(paths: ReadonlyArray<string>, prefix: string): string[] {
+  return paths.filter((file) => file.startsWith(prefix)).map((file) => file.slice(prefix.length));
+}

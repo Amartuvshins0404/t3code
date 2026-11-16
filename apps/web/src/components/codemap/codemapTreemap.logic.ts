@@ -10,10 +10,11 @@ export interface Rect {
 
 export interface TouchedFile {
   readonly path: string;
+  readonly repoPath: string;
   readonly added: boolean;
   readonly additions: number;
   readonly deletions: number;
-  readonly runId: RunId | null;
+  readonly runId: RunId;
 }
 
 export type PartStatus = "new" | "changed" | null;
@@ -92,26 +93,26 @@ function squarify<T>(
 export function touchedFiles(
   checkpoints: ReadonlyArray<ThreadCheckpointSummary>,
   addedPaths: ReadonlyArray<string>,
+  pathPrefix: string,
 ): ReadonlyArray<TouchedFile> {
   const added = new Set(addedPaths);
   const byPath = new Map<string, TouchedFile & { turn: number }>();
   for (const checkpoint of checkpoints) {
     for (const file of checkpoint.files) {
-      const previous = byPath.get(file.path);
+      if (!file.path.startsWith(pathPrefix)) continue;
+      const path = file.path.slice(pathPrefix.length);
+      const previous = byPath.get(path);
       const latest = previous === undefined || checkpoint.checkpointTurnCount >= previous.turn;
-      byPath.set(file.path, {
-        path: file.path,
-        added: added.has(file.path),
+      byPath.set(path, {
+        path,
+        repoPath: file.path,
+        added: added.has(path),
         additions: (previous?.additions ?? 0) + file.additions,
         deletions: (previous?.deletions ?? 0) + file.deletions,
-        runId: latest ? checkpoint.runId : (previous?.runId ?? null),
+        runId: latest ? checkpoint.runId : (previous?.runId ?? checkpoint.runId),
         turn: latest ? checkpoint.checkpointTurnCount : (previous?.turn ?? 0),
       });
     }
-  }
-  for (const path of added) {
-    if (!byPath.has(path))
-      byPath.set(path, { path, added: true, additions: 0, deletions: 0, runId: null, turn: 0 });
   }
   return [...byPath.values()]
     .map(({ turn: _turn, ...file }) => file)

@@ -37,20 +37,38 @@ function folder(id: string, parentId: string | null, lines: number): CodemapView
 }
 
 describe("touchedFiles", () => {
-  it("marks thread-added files new, sums turns, and points at the latest turn", () => {
+  it("keeps only checkpoint files under the project folder, marks added ones new, and points at the latest turn", () => {
     const files = touchedFiles(
       [
-        checkpoint(1, [["src/a.ts", 3, 1]]),
+        checkpoint(1, [
+          ["app/src/a.ts", 3, 1],
+          ["other/z.ts", 1, 0],
+        ]),
         checkpoint(2, [
-          ["src/a.ts", 2, 0],
-          ["src/b.ts", 4, 0],
+          ["app/src/a.ts", 2, 0],
+          ["app/src/b.ts", 4, 0],
         ]),
       ],
-      ["src/b.ts"],
+      ["src/b.ts", "src/pulled.ts"],
+      "app/",
     );
     expect(files).toEqual([
-      { path: "src/a.ts", added: false, additions: 5, deletions: 1, runId: "run-2" },
-      { path: "src/b.ts", added: true, additions: 4, deletions: 0, runId: "run-2" },
+      {
+        path: "src/a.ts",
+        repoPath: "app/src/a.ts",
+        added: false,
+        additions: 5,
+        deletions: 1,
+        runId: "run-2",
+      },
+      {
+        path: "src/b.ts",
+        repoPath: "app/src/b.ts",
+        added: true,
+        additions: 4,
+        deletions: 0,
+        runId: "run-2",
+      },
     ]);
   });
 });
@@ -58,7 +76,7 @@ describe("touchedFiles", () => {
 describe("layoutMap", () => {
   it("lights the touched box and keeps a tiny touched box big enough to see", () => {
     const nodes = [folder("big", null, 100_000), folder("tiny", null, 5)];
-    const files = touchedFiles([checkpoint(1, [["tiny/x.ts", 5, 0]])], ["tiny/x.ts"]);
+    const files = touchedFiles([checkpoint(1, [["tiny/x.ts", 5, 0]])], ["tiny/x.ts"], "");
     const boxes = layoutMap(nodes, files, { w: 400, h: 300 });
     const tiny = boxes.find((box) => box.node.id === "tiny");
     expect(tiny?.status).toBe("new");

@@ -34,6 +34,7 @@ export const CodemapReadResult = Schema.Union([
   Schema.TaggedStruct("ready", {
     view: CodemapView,
     addedPaths: Schema.Array(Schema.String),
+    pathPrefix: Schema.String,
     totalFiles: Schema.Number,
     analyzedAt: Schema.String,
   }),
