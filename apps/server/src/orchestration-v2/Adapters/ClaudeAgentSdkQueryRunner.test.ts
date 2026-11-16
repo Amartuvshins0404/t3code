@@ -764,6 +764,53 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Claude CLI pro
     }),
   );
 
+  it.effect("hands a team key to the CLI on a descriptor that its commands cannot read", () =>
+    Effect.gen(function* () {
+      const teamKey = "fake-team-proxy-key-for-tests";
+      const cli = fakeClaudeCli(
+        [
+          'fd="$CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR"',
+          'printf "key=%s\\n" "$( [ -n "$fd" ] && cat "/dev/fd/$fd")"',
+          'printf "cli=%s\\n" "$(env | tr "\\n" " ")"',
+          'printf "shell=%s\\n" "$(/bin/sh -c "env; [ -n \\"$fd\\" ] && cat /dev/fd/$fd" | tr "\\n" " ")"',
+        ].join("\n"),
+      );
+      const dir = NodePath.dirname(cli);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })),
+      );
+      const run = (env: NodeJS.ProcessEnv) =>
+        Effect.promise(async () => {
+          const child = spawnClaudeProcessGroup({
+            command: cli,
+            args: [],
+            cwd: dir,
+            env,
+            signal: new AbortController().signal,
+          }) as NodeChildProcess.ChildProcess;
+          let output = "";
+          for await (const chunk of child.stdout ?? []) output += String(chunk);
+          return Object.fromEntries(
+            output
+              .trim()
+              .split("\n")
+              .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+          );
+        });
+      const path = "/usr/bin:/bin";
+
+      const team = yield* run({ PATH: path, T3_TEAM_PROXY_API_KEY: teamKey });
+      assert.strictEqual(team.key, teamKey);
+      assert.include(team.cli, "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR=4");
+      assert.notInclude(team.cli, teamKey);
+      assert.notInclude(team.shell, teamKey);
+
+      const personal = yield* run({ PATH: path });
+      assert.strictEqual(personal.key, "");
+      assert.notInclude(personal.cli, "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR");
+    }),
+  );
+
   it.effect("marks the CLI's jobs with its thread and counts it as an agent until it exits", () => {
     let runningAgents = 0;
     let releaseAgent!: () => void;

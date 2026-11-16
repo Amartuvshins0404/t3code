@@ -1540,6 +1540,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
   const executablePaths: Array<string | undefined> = [];
   const taskToolEnvironment: Array<string | undefined> = [];
   const flagEnvironments: Array<Readonly<Record<string, string>> | undefined> = [];
+  const processEnvironments: Array<NodeJS.ProcessEnv | undefined> = [];
   const adapter = yield* ClaudeAdapterV2.createClaudeAdapterV2(
     {
       instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
@@ -1561,6 +1562,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
         Effect.sync(() => {
           executablePaths.push(input.options.pathToClaudeCodeExecutable);
           taskToolEnvironment.push(input.options.env?.CLAUDE_CODE_ENABLE_TODO_TOOLS);
+          processEnvironments.push(input.options.env);
           flagEnvironments.push(
             typeof input.options.settings === "object" ? input.options.settings.env : undefined,
           );
@@ -1607,7 +1609,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       attachments: [],
     }),
   );
-  return { executablePaths, taskToolEnvironment, flagEnvironments };
+  return { executablePaths, taskToolEnvironment, flagEnvironments, processEnvironments };
 });
 
 describe("ClaudeAdapterV2 executable path", () => {
@@ -1639,11 +1641,11 @@ describe("ClaudeAdapterV2 executable path", () => {
 });
 
 describe("ClaudeAdapterV2 team proxy", () => {
-  it.effect("pins the team proxy over the user's own Claude settings env", () =>
+  it.effect("pins the team proxy over the user's own Claude settings env, without the key", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const teamKey = "fake-team-proxy-key-for-tests";
-        const { flagEnvironments } = yield* captureSdkExecutablePaths(
+        const { flagEnvironments, processEnvironments } = yield* captureSdkExecutablePaths(
           "/opt/claude/bin/claude",
           teamProviderEnvironment(
             "claudeAgent",
@@ -1654,9 +1656,12 @@ describe("ClaudeAdapterV2 team proxy", () => {
         );
         assert.deepInclude(flagEnvironments[0], {
           ANTHROPIC_BASE_URL: "https://team-proxy.test",
-          ANTHROPIC_AUTH_TOKEN: teamKey,
+          ANTHROPIC_AUTH_TOKEN: "",
           ANTHROPIC_API_KEY: "",
+          CLAUDE_CODE_OAUTH_TOKEN: "",
         });
+        assert.notInclude(JSON.stringify(flagEnvironments), teamKey);
+        assert.strictEqual(processEnvironments[0]?.T3_TEAM_PROXY_API_KEY, teamKey);
       }),
     ).pipe(
       Effect.provide(

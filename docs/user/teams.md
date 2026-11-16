@@ -139,9 +139,17 @@ sharing the thread and its next message is back on the owner's accounts.
   **Ready** or why it is not.
 - The machine must run a recent T3 Code. An older one shows **Update this machine to use the team
   connection** and keeps using your accounts.
-- If the team has a connection but the machine cannot get the key, for example while T3 Connect is
-  unreachable, messages in team threads fail until it is back. They never fall back to your
-  accounts.
+- A team with no key runs on your accounts: before an admin connects one, and after an admin
+  removes it.
+- After an admin connects a key, each machine fetches it within about 5 minutes. Until it does, team
+  threads on that machine still run on your accounts.
+- If the team has a key but the machine cannot get it, for example while T3 Connect is unreachable,
+  messages in team threads fail until it is back. They do not fall back to your accounts.
+- Commands the agent runs do not get the key, so asking the agent to print its environment does
+  not show it. This protects the key from the agent's commands, not from someone who controls your
+  machine: a teammate with **Steer** on a full-access thread can change files on it.
+- A task the agent hands to another machine cannot use the team's hub, so the agent is told to run
+  it on this machine instead.
 
 ## Stop sharing
 

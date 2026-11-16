@@ -44,6 +44,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { forkParked } from "../serverActivation.ts";
+import { routedTeamShare, TeamProviderRoutes } from "../team/TeamProviderRoutes.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
 import * as PeerLinks from "./PeerLinks.ts";
 
@@ -140,6 +141,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const random = yield* SecureRandom.SecureRandom;
+  const teamRoutes = yield* TeamProviderRoutes;
   const hereId = yield* ServerEnvironment.ServerEnvironment.pipe(
     Effect.flatMap((environment) => environment.getEnvironmentId),
   );
@@ -204,15 +206,17 @@ const make = Effect.gen(function* () {
 
   const delegate: RemoteDelegation["Service"]["delegate"] = Effect.fn("RemoteDelegation.delegate")(
     function* (scope, input) {
-      const parent = yield* threads.getThreadRecords(scope.thread.threadId, ["runs"]).pipe(
-        Effect.mapError(
-          () =>
-            new OrchestratorMcpFailure({
-              code: "thread_not_found",
-              message: "The calling thread was not found.",
-            }),
-        ),
-      );
+      const parent = yield* threads
+        .getThreadRecords(scope.thread.threadId, ["runs", "providerThreads"])
+        .pipe(
+          Effect.mapError(
+            () =>
+              new OrchestratorMcpFailure({
+                code: "thread_not_found",
+                message: "The calling thread was not found.",
+              }),
+          ),
+        );
       const parentRun = parent.runs
         .filter(ThreadManagement.isActiveRun)
         .toSorted((left, right) => right.ordinal - left.ordinal)[0];
@@ -225,6 +229,25 @@ const make = Effect.gen(function* () {
           code: "parent_not_active",
           message: "Delegated tasks require an active run owned by this MCP provider session.",
         });
+      }
+      const parentDriver = parent.providerThreads.find(
+        (providerThread) => providerThread.id === parentRun.providerThreadId,
+      )?.driver;
+      if (parentDriver !== undefined) {
+        const teamShare = yield* routedTeamShare(parent.thread, (rootThreadId) =>
+          projections.getThreadShell(rootThreadId).pipe(
+            Effect.map((root) => root?.teamShare),
+            Effect.orElseSucceed(() => undefined),
+          ),
+        );
+        const route = yield* teamRoutes.routeTurn({ teamShare, driver: parentDriver });
+        if (route.type !== "owner") {
+          return yield* new OrchestratorMcpFailure({
+            code: "provider_unavailable",
+            message:
+              "Team connection unavailable: this thread runs on its team's provider connection, and a task in another environment cannot use it. Delegate the task here instead: omit target.environmentId.",
+          });
+        }
       }
       const parentNodeId = parentRun.rootNodeId;
       const { target } = input;
