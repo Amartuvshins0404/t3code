@@ -54,9 +54,10 @@ open, and a line above the message box shows who is typing.
 
 ## Team projects
 
-A team project is a project on your machine that the whole team works in. Every new thread in it is
-shared with the team with **Steer**, whoever starts it, and anyone in the team can start a thread in
-it. The project stays on your machine; nothing is copied to other machines.
+A team project is a project on your machine that the whole team works in. Every thread started in
+it is shared with the team with **Steer**, whoever starts it, and anyone in the team can start a
+thread in it. A fork or subagent of a thread keeps that thread's sharing, so a fork of a private
+thread stays private, and a task delegated from another machine stays private too. The project stays on your machine; nothing is copied to other machines.
 
 To start one, choose **Start a team project** in the team sidebar, the command palette or **Settings
 → Team → Team projects**. Pick one of your machines shared with the team, then a project on it or

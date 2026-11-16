@@ -7,11 +7,10 @@ type RequestedTeamShare = NonNullable<
 >;
 
 export function teamShareAtCreation(input: {
-  readonly inherited: ThreadTeamShare | null | undefined;
   readonly requested: RequestedTeamShare | undefined;
   readonly project: Pick<ProjectRow, "teamShare" | "archivedAt" | "deletedAt"> | undefined;
   readonly sharedAt: string;
-}): ThreadTeamShare | null | undefined {
+}): ThreadTeamShare | undefined {
   if (input.requested !== undefined) {
     return {
       organizationId: input.requested.organizationId,
@@ -21,7 +20,6 @@ export function teamShareAtCreation(input: {
       ...(input.requested.startedBy === undefined ? {} : { startedBy: input.requested.startedBy }),
     };
   }
-  if (input.inherited?.agent !== undefined) return input.inherited;
   const project = input.project;
   if (
     project === undefined ||
@@ -29,7 +27,7 @@ export function teamShareAtCreation(input: {
     project.archivedAt !== null ||
     project.deletedAt !== null
   ) {
-    return input.inherited;
+    return undefined;
   }
   return {
     organizationId: project.teamShare.organizationId,
