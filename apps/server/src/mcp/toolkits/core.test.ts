@@ -1112,7 +1112,7 @@ it.effect(
   },
 );
 
-it.effect("an agent conversation never reads or finds another team's threads", () => {
+it.effect("an agent conversation never reads another team's or the owner's agent", () => {
   const share = (organizationId: string, agent: boolean) => ({
     organizationId,
     access: "steer" as const,
@@ -1124,6 +1124,7 @@ it.effect("an agent conversation never reads or finds another team's threads", (
       [
         [threadId, share("org-a", true)],
         [ThreadId.make("owner-thread"), undefined],
+        [ThreadId.make("owner-agent"), undefined],
         [ThreadId.make("team-a-thread"), share("org-a", false)],
         [ThreadId.make("team-b-agent"), share("org-b", true)],
         [ThreadId.make("team-b-thread"), share("org-b", false)],
@@ -1146,12 +1147,13 @@ it.effect("an agent conversation never reads or finds another team's threads", (
           Effect.provideService(McpSchema.McpServerClient, client),
         );
     const reads = yield* Effect.forEach(
-      ["owner-thread", "team-a-thread", "team-b-agent", "team-b-thread"],
+      ["owner-thread", "team-a-thread", "team-b-agent", "team-b-thread", "owner-agent"],
       (id) => call("t3_thread_read", { threadId: id }),
     );
     expect(reads.map((result) => declaredFailure(result)?.code ?? "read")).toEqual([
       "read",
       "read",
+      "capability_denied",
       "capability_denied",
       "capability_denied",
     ]);
@@ -1197,6 +1199,7 @@ it.effect("an agent conversation never reads or finds another team's threads", (
         Layer.provide(
           Layer.mock(ThreadManagement.ThreadManagementService)({
             getThreadShell: (id) => Effect.succeed(shells.get(id) ?? null),
+            isMasterAgentThread: (id) => Effect.succeed(id === "owner-agent"),
             getThreadRecords: (id) =>
               Effect.succeed(
                 McpToolAccessTestkit.idleThreadProjection(

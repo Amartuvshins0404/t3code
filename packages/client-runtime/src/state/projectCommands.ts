@@ -214,6 +214,12 @@ export function createProjectEnvironmentAtoms<R, E>(
       scheduler: projectScheduler,
       concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
     }),
+    ensureMasterAgent: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:master-agent:ensure",
+      tag: WS_METHODS.masterAgentEnsure,
+      scheduler: projectScheduler,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
     createNew: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:create-new",
       tag: WS_METHODS.projectsCreateNew,

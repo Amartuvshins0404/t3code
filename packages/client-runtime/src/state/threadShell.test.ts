@@ -22,7 +22,10 @@ const environmentId = EnvironmentId.make("environment-v2");
 const remoteEnvironmentId = EnvironmentId.make("remote-environment-v2");
 const otherProjectId = ProjectId.make("other-project");
 
-function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environmentId]) {
+function makeHarness(
+  environmentIds: ReadonlyArray<EnvironmentId> = [environmentId],
+  masterAgentThreadIds: ReadonlyMap<EnvironmentId, ThreadId> = new Map(),
+) {
   const snapshotAtom = Atom.family((_environmentId: EnvironmentId) =>
     Atom.make<OrchestrationV2ShellSnapshot | null>(v2ShellSnapshot),
   );
@@ -52,11 +55,53 @@ function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environment
       catalogValueAtom,
       snapshotAtom,
       hiddenThreadTagsAtom: () => Atom.make(null),
+      masterAgentThreadIdAtom: Atom.family((id: EnvironmentId) =>
+        Atom.make(masterAgentThreadIds.get(id) ?? null),
+      ),
     }),
   };
 }
 
 describe("v2 thread shell lists", () => {
+  it("leaves every environment's agent thread out of the lists while point reads keep it", () => {
+    const localAgent = ThreadId.make("agent-local");
+    const remoteAgent = ThreadId.make("agent-remote");
+    const { registry, threads, snapshotAtom } = makeHarness(
+      [environmentId, remoteEnvironmentId],
+      new Map([
+        [environmentId, localAgent],
+        [remoteEnvironmentId, remoteAgent],
+      ]),
+    );
+    const shell = (id: string) => ({ ...v2ThreadShell, id: ThreadId.make(id) });
+    registry.set(snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [shell("work-local"), shell(localAgent), shell(remoteAgent)],
+    });
+    registry.set(snapshotAtom(remoteEnvironmentId), {
+      ...v2ShellSnapshot,
+      threads: [shell(remoteAgent), shell("work-remote"), shell(localAgent)],
+    });
+    const listed = (
+      atom: Atom.Atom<ReadonlyArray<{ environmentId: EnvironmentId; id: ThreadId }>>,
+    ) => registry.get(atom).map((thread) => `${thread.environmentId}/${thread.id}`);
+    const expected = [
+      `${environmentId}/work-local`,
+      `${environmentId}/${remoteAgent}`,
+      `${remoteEnvironmentId}/work-remote`,
+      `${remoteEnvironmentId}/${localAgent}`,
+    ];
+
+    expect(listed(threads.quietThreadShellsAtom)).toEqual(expected);
+    expect(listed(threads.visibleThreadShellsAtom)).toEqual(expected);
+    expect(listed(threads.navigationThreadShellsAtom)).toEqual(expected);
+    expect(registry.get(threads.threadShellsAtom)).toHaveLength(6);
+    expect(registry.get(threads.threadShellAtom({ environmentId, threadId: localAgent }))?.id).toBe(
+      localAgent,
+    );
+    registry.dispose();
+  });
+
   it("preserves ordered reference arrays when a middle thread changes", () => {
     const { registry, threads, snapshotAtom } = makeHarness();
     const snapshot = {

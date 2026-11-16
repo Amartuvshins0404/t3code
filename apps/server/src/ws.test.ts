@@ -79,6 +79,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
+import * as MasterAgent from "./masterAgent/MasterAgent.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import * as ProjectPlant from "./project/ProjectPlant.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
@@ -160,6 +161,7 @@ import * as EventSink from "./orchestration-v2/EventSink.ts";
 import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as ThreadCommandExecutor from "./orchestration-v2/ThreadCommandExecutor.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as MasterAgentStore from "./persistence/MasterAgentStore.ts";
 import * as OrchestrationEventStore from "./persistence/OrchestrationEventStore.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -979,6 +981,9 @@ it.effect.each([
           namedProjectsRoot: process.cwd(),
         }),
         Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+        Layer.mock(MasterAgent.MasterAgent)({
+          threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
+        }),
         Layer.mock(ProjectPlant.ProjectPlant)({}),
         Layer.mock(ServerEnvironment.ServerEnvironment)({
           getDescriptor: Effect.succeed({
@@ -1235,6 +1240,9 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
         namedProjectsRoot: process.cwd(),
       }),
       Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+      Layer.mock(MasterAgent.MasterAgent)({
+        threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
+      }),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({
         getDescriptor: Effect.succeed({
@@ -1486,6 +1494,7 @@ it.effect("a missing thread worktree gets its project's skills in the cwd snapsh
             Layer.mock(ProjectEnrichment.ProjectEnrichmentService)({}),
             Layer.mock(WorkspacePaths.WorkspacePaths)({}),
             Layer.mock(EventSink.EventSinkV2)({}),
+            Layer.mock(MasterAgentStore.MasterAgentStore)({}),
             IdAllocator.layer,
             Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({}),
             Layer.mock(ThreadCommandExecutor.ThreadCommandExecutor)({}),
@@ -1501,6 +1510,9 @@ it.effect("a missing thread worktree gets its project's skills in the cwd snapsh
         namedProjectsRoot: process.cwd(),
       }),
       Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+      Layer.mock(MasterAgent.MasterAgent)({
+        threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
+      }),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
@@ -1589,6 +1601,9 @@ it.effect("a git action that fails partway still refreshes the repository status
       Layer.mock(DirectEndpoints.DirectEndpoints)({}),
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
       Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+      Layer.mock(MasterAgent.MasterAgent)({
+        threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
+      }),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
@@ -1671,6 +1686,9 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
       Layer.mock(DirectEndpoints.DirectEndpoints)({}),
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
       Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+      Layer.mock(MasterAgent.MasterAgent)({
+        threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
+      }),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
@@ -2051,6 +2069,9 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
       Layer.mock(DirectEndpoints.DirectEndpoints)({}),
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
       Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+      Layer.mock(MasterAgent.MasterAgent)({
+        threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
+      }),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
@@ -2196,6 +2217,9 @@ it.effect(
           namedProjectsRoot: process.cwd(),
         }),
         Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+        Layer.mock(MasterAgent.MasterAgent)({
+          threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
+        }),
         Layer.mock(ProjectPlant.ProjectPlant)({}),
         Layer.mock(ServerEnvironment.ServerEnvironment)({}),
         Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),

@@ -115,6 +115,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
+import * as QuestionAutoAnswerWorker from "./orchestration-v2/QuestionAutoAnswerWorker.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -233,6 +234,7 @@ import * as ProjectService from "./project/ProjectService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
+import * as MasterAgent from "./masterAgent/MasterAgent.ts";
 import * as ProjectPlant from "./project/ProjectPlant.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -1435,6 +1437,7 @@ export const layerWsRpc = (
       const projectService = yield* ProjectService.ProjectService;
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
       const scratchThreadPromotion = yield* ScratchThreadPromotion.ScratchThreadPromotion;
+      const masterAgent = yield* MasterAgent.MasterAgent;
       const projectPlant = yield* ProjectPlant.ProjectPlant;
       const eventLoopMonitor = yield* EventLoopMonitor.EventLoopMonitor;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
@@ -1903,7 +1906,17 @@ export const layerWsRpc = (
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
         const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
+        const masterAgentThreadId = yield* masterAgent.threadId.pipe(
+          Effect.tapError((cause) =>
+            Effect.logWarning("Could not reserve the agent thread id.", { cause }),
+          ),
+          Effect.option,
+        );
         const lastEventLoopStall = yield* eventLoopMonitor.latestNoticeableStall;
+        const questionAutoAnswerDefaultMinutes =
+          yield* QuestionAutoAnswerWorker.defaultWaitMinutes.pipe(
+            Effect.orElseSucceed(() => undefined),
+          );
         const discovery = yield* resolveOpenDiscoveryForConfig({
           editors: externalLauncher.resolveAvailableEditors(),
           fileManagerRevealKind: externalLauncher.resolveFileManagerRevealKind(),
@@ -1964,12 +1977,19 @@ export const layerWsRpc = (
           threadSnapshotPagination: true,
           threadFind: true,
           threadFindProgressive: true,
+          ...(questionAutoAnswerDefaultMinutes === undefined
+            ? {}
+            : { questionAutoAnswerDefaultMinutes }),
           secretProviderSettings: true,
           secretReferences: true,
           secretRequestReferences: true,
           ...Option.match(scratchWorkspaceRoot, {
             onNone: () => ({}),
             onSome: (root) => ({ scratchWorkspaceRoot: root }),
+          }),
+          ...Option.match(masterAgentThreadId, {
+            onNone: () => ({}),
+            onSome: (threadId) => ({ masterAgentThreadId: threadId }),
           }),
           newProjectsRoot: managedFolders.namedProjectsRoot,
           ...(lastEventLoopStall === undefined ? {} : { lastEventLoopStall }),
@@ -3022,6 +3042,12 @@ export const layerWsRpc = (
               (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
             ),
           ),
+        [WS_METHODS.masterAgentEnsure]: () =>
+          masterAgent.ensure.pipe(
+            Effect.mapError(
+              (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+            ),
+          ),
         [WS_METHODS.projectsCreateNew]: (input) =>
           managedFolders
             .createNamedProject(input)
@@ -3133,7 +3159,7 @@ export const layerWsRpc = (
                 new ProjectMutationError({
                   commandId: mutation.commandId,
                   message:
-                    cause._tag === "ProjectNotEmptyError"
+                    cause._tag === "ProjectNotEmptyError" || cause._tag === "ProjectInvalidError"
                       ? cause.message
                       : "Failed to mutate project.",
                   cause,

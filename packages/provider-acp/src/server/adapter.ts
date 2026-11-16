@@ -7940,6 +7940,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             hasT3Mcp: mcpSession !== undefined,
             hasDeviceTools: mcpSession?.capabilities?.has("device") === true,
             hasCodeSearch: mcpSession?.codeSearchAvailable === true,
+            ...(mcpSession?.threadInstructions === undefined
+              ? {}
+              : { threadInstructions: mcpSession.threadInstructions }),
           } satisfies T3AcpInstructionState;
           const previousInstructionState = (yield* Ref.get(promptInstructionStates)).get(sessionId);
           const compactionMarker = (yield* Ref.get(compactionMarkers)).get(sessionId);

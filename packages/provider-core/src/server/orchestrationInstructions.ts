@@ -61,6 +61,65 @@ export const T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH = deviceToolInstr
   ` Load them with ToolSearch \`select:${T3_CODE_DEVICE_TOOLS.map((tool) => `mcp__t3-code__${tool}`).join(",")}\`.`,
 );
 
+const T3_CODE_MASTER_AGENT_INSTRUCTIONS = `## T3 Code agent
+
+You are the owner's one constant agent for this T3 Code machine. This thread belongs to no project.
+- Do project work by starting a thread in that project (\`t3_thread_launch\` with its \`projectId\`) or by steering one of its threads (\`t3_thread_send\`). That is your job here, so start them without waiting to be asked for a new thread. Never edit a project's files from this thread.
+- Keep durable rules and facts the owner gives you, and what you learn about how they work, with \`agent_memory_write\`. Save without being asked. Update a key rather than adding a near copy.
+- Asked how projects or work stand, read \`t3_project_board\` first.`;
+
+export interface T3MasterAgentMemoryEntry {
+  readonly key: string;
+  readonly content: string;
+}
+
+const utf8 = new TextEncoder();
+const utf8Bytes = (text: string) => utf8.encode(text).length;
+
+function splitToBytes(text: string, maxBytes: number): ReadonlyArray<string> {
+  const pieces: string[] = [];
+  let piece = "";
+  for (const char of text) {
+    if (piece !== "" && utf8Bytes(piece + char) > maxBytes) {
+      pieces.push(piece);
+      piece = "";
+    }
+    piece += char;
+  }
+  return piece === "" ? pieces : [...pieces, piece];
+}
+
+/**
+ * The agent thread's instructions and saved memory, in sections of at most `maxBytes`
+ * so Codex keeps every one (see `T3_CODE_ORCHESTRATION_SECTIONS`).
+ */
+export function t3MasterAgentInstructionSections(
+  memory: ReadonlyArray<T3MasterAgentMemoryEntry>,
+  maxBytes = 4_000,
+): ReadonlyArray<string> {
+  const heading = "### Your memory";
+  if (memory.length === 0) {
+    return [T3_CODE_MASTER_AGENT_INSTRUCTIONS, `${heading}\n\nNothing saved yet.`];
+  }
+  const sections: string[] = [T3_CODE_MASTER_AGENT_INSTRUCTIONS];
+  let current = heading;
+  for (const entry of memory) {
+    for (const piece of splitToBytes(`#### ${entry.key}\n${entry.content}`, maxBytes - 2)) {
+      if (utf8Bytes(`${current}\n\n${piece}`) > maxBytes) {
+        sections.push(current);
+        current = piece;
+      } else {
+        current = `${current}\n\n${piece}`;
+      }
+    }
+  }
+  sections.push(current);
+  return sections;
+}
+
+const threadInstructionsText = (sections: ReadonlyArray<string> | undefined) =>
+  sections === undefined || sections.length === 0 ? "" : `\n\n${sections.join("\n\n")}\n`;
+
 // ACP only: some ACP agents accept the injected MCP server but never expose
 // its tools, so they need the terminal transport other harnesses never use.
 const T3_CODE_ACP_MCP_FALLBACK_INSTRUCTIONS = `ACP fallback: if the T3 tools are absent and \`T3_ACP_MCP_NODE\` is present, call them through the terminal: \`ELECTRON_RUN_AS_NODE=1 "$T3_ACP_MCP_NODE" \${T3_ACP_MCP_ENTRYPOINT:+"$T3_ACP_MCP_ENTRYPOINT"} acp-mcp-call orchestrator_capabilities '{}'\` (\`T3_ACP_MCP_ENTRYPOINT\` is unset for a standalone executable). Delegate with \`acp-mcp-call delegate_task '{"task":"...","target":{"providerInstanceId":"...","model":"..."},"mode":"async","clientRequestId":"..."}'\`.`;
@@ -78,6 +137,8 @@ export interface T3AcpInstructionState {
   readonly hasT3Mcp: boolean;
   readonly hasDeviceTools: boolean;
   readonly hasCodeSearch?: boolean;
+  /** The agent thread's sections; a change, such as saved memory, sends them again. */
+  readonly threadInstructions?: ReadonlyArray<string>;
 }
 
 /** ACP lacks system/developer fields; inject context on first prompt and tool/mode changes. */
@@ -92,7 +153,9 @@ export function t3AcpPromptWithInstructions(input: {
     input.previousState?.interactionMode === input.state.interactionMode &&
     input.previousState.hasT3Mcp === input.state.hasT3Mcp &&
     input.previousState.hasDeviceTools === input.state.hasDeviceTools &&
-    input.previousState.hasCodeSearch === input.state.hasCodeSearch
+    input.previousState.hasCodeSearch === input.state.hasCodeSearch &&
+    threadInstructionsText(input.previousState.threadInstructions) ===
+      threadInstructionsText(input.state.threadInstructions)
   ) {
     return input.prompt;
   }
@@ -106,6 +169,7 @@ export function t3AcpPromptWithInstructions(input: {
           ...(input.state.hasDeviceTools ? [T3_CODE_DEVICE_TOOL_INSTRUCTIONS] : []),
           T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim(),
           ...(input.state.hasCodeSearch === true ? [T3_CODE_CODE_SEARCH_INSTRUCTIONS] : []),
+          ...(input.state.threadInstructions ?? []),
           T3_CODE_ACP_MCP_FALLBACK_INSTRUCTIONS,
         ]
       : []),
@@ -113,14 +177,19 @@ export function t3AcpPromptWithInstructions(input: {
   return `<t3_code_instructions>\n${instructions.join("\n\n")}\n</t3_code_instructions>\n\n<user_request>\n${input.prompt}\n</user_request>`;
 }
 
-const orchestrationInstructions = (hasDeviceTools: boolean, hasCodeSearch: boolean) =>
+const orchestrationInstructions = (
+  hasDeviceTools: boolean,
+  hasCodeSearch: boolean,
+  threadInstructions?: ReadonlyArray<string>,
+) =>
   T3_CODE_ORCHESTRATION_INSTRUCTIONS +
   [
     ...(hasDeviceTools ? [T3_CODE_DEVICE_TOOL_INSTRUCTIONS] : []),
     ...(hasCodeSearch ? [T3_CODE_CODE_SEARCH_INSTRUCTIONS] : []),
   ]
     .map((section) => `\n${section}\n`)
-    .join("");
+    .join("") +
+  threadInstructionsText(threadInstructions);
 
 function prependT3OrchestrationInstructions(prompt: string, instructions: string): string {
   return `<t3_code_orchestration_instructions>${instructions.trim()}</t3_code_orchestration_instructions>\n\n<user_request>\n${prompt}\n</user_request>`;
@@ -132,6 +201,7 @@ export function t3OrchestrationPrompt(input: {
   readonly hasT3Mcp: boolean;
   readonly hasDeviceTools: boolean;
   readonly hasCodeSearch?: boolean;
+  readonly threadInstructions?: ReadonlyArray<string>;
   readonly orchestrationDelivered: boolean;
   readonly deviceInstructionsDelivered: boolean;
 }): string {
@@ -139,7 +209,11 @@ export function t3OrchestrationPrompt(input: {
   if (!input.orchestrationDelivered) {
     return prependT3OrchestrationInstructions(
       input.prompt,
-      orchestrationInstructions(input.hasDeviceTools, input.hasCodeSearch === true),
+      orchestrationInstructions(
+        input.hasDeviceTools,
+        input.hasCodeSearch === true,
+        input.threadInstructions,
+      ),
     );
   }
   return input.hasDeviceTools && !input.deviceInstructionsDelivered
@@ -151,6 +225,9 @@ export function t3OrchestrationSystemPrompt(
   hasT3Mcp: boolean,
   hasDeviceTools: boolean,
   hasCodeSearch = false,
+  threadInstructions?: ReadonlyArray<string>,
 ): string | undefined {
-  return hasT3Mcp ? orchestrationInstructions(hasDeviceTools, hasCodeSearch) : undefined;
+  return hasT3Mcp
+    ? orchestrationInstructions(hasDeviceTools, hasCodeSearch, threadInstructions)
+    : undefined;
 }

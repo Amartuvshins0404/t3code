@@ -201,6 +201,7 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
 
 const isMessageQuestionAnswer = Schema.is(
   Schema.Union([TrimmedNonEmptyString, Schema.NonEmptyArray(TrimmedNonEmptyString)]),
@@ -308,6 +309,31 @@ export class OrchestratorProviderSelectionBusyError extends Schema.TaggedError<O
   }
 }
 
+export class OrchestratorMasterThreadProtectedError extends Schema.TaggedError<OrchestratorMasterThreadProtectedError>()(
+  "OrchestratorMasterThreadProtectedError",
+  {
+    commandId: CommandId,
+    threadId: ThreadId,
+    commandType: Schema.Literals([
+      "thread.archive",
+      "thread.delete",
+      "thread.team-share.set",
+      "thread.guest-share.open",
+    ]),
+  },
+) {
+  override get message(): string {
+    switch (this.commandType) {
+      case "thread.archive":
+        return "The agent thread is permanent and cannot be archived.";
+      case "thread.delete":
+        return "The agent thread is permanent and cannot be deleted.";
+      default:
+        return "The agent thread is private to its owner and cannot be shared.";
+    }
+  }
+}
+
 const isOrchestratorDispatchError = Schema.is(OrchestratorDispatchError);
 
 /** The ceiling refusal under however many dispatch errors wrapped it on the way out. */
@@ -374,6 +400,7 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorThreadAboveModeLimitError,
   OrchestratorProviderSelectionBusyError,
   OrchestratorRuntimeModeAboveCeilingError,
+  OrchestratorMasterThreadProtectedError,
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
 
@@ -494,6 +521,8 @@ export interface OrchestratorV2Shape {
     OrchestratorV2Error
   >;
   readonly countThreads: () => Effect.Effect<number, OrchestratorV2Error>;
+  /** Whether this is the owner's one agent thread, which no team or guest may read. */
+  readonly isMasterAgentThread: (threadId: ThreadId) => Effect.Effect<boolean, OrchestratorV2Error>;
   readonly listActiveShellIndex: () => Effect.Effect<
     ReadonlyArray<ActiveShellIndexEntry>,
     OrchestratorV2Error
@@ -1302,6 +1331,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const projects = yield* ProjectStore.ProjectStoreV2;
   const projectionStore = yield* ProjectionStoreV2;
+  const masterAgentStore = yield* MasterAgentStore.MasterAgentStore;
   const effectOutbox = yield* EffectOutbox.EffectOutboxV2;
   const nextTurnItemOrdinal = (
     projection: Pick<OrchestrationV2ThreadProjection, "thread"> &
@@ -14128,6 +14158,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       | undefined;
     let updateDelegatedCompletionOnlyRunId: RunId | undefined;
+    if (
+      command.type === "thread.archive" ||
+      command.type === "thread.delete" ||
+      command.type === "thread.team-share.set" ||
+      command.type === "thread.guest-share.open"
+    ) {
+      const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+      if (masterThreadId === command.threadId) {
+        return yield* new OrchestratorMasterThreadProtectedError({
+          commandId: command.commandId,
+          threadId: command.threadId,
+          commandType: command.type,
+        });
+      }
+    }
     switch (command.type) {
       case "thread.create":
         yield* dispatchThreadCreate(command, events);
@@ -15481,6 +15530,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .pipe(Effect.mapError(shellProjectionError));
       },
     ),
+    isMasterAgentThread: Effect.fn("OrchestratorV2.isMasterAgentThread")(function (threadId) {
+      return masterAgentStore.readThreadId.pipe(
+        Effect.map((masterThreadId) => masterThreadId === threadId),
+        Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
+      );
+    }),
     countThreads: Effect.fn("OrchestratorV2.countThreads")(function () {
       return projectionStore.countThreads().pipe(Effect.mapError(shellProjectionError));
     }),
@@ -15576,6 +15631,7 @@ export const layer: Layer.Layer<
   | ProjectionStoreV2
   | RuntimePolicyV2
   | ServerSettings.ServerSettingsService
+  | MasterAgentStore.MasterAgentStore
   | ThreadForkServiceV2
 > = Layer.effect(OrchestratorV2, makeOrchestrator()).pipe(
   Layer.provide(ThreadCommandExecutor.layer),

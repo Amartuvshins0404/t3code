@@ -490,6 +490,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
       ? ["In-app notifications"]
       : []),
+    ...(settings.questionAutoAnswerMinutes !== DEFAULT_UNIFIED_SETTINGS.questionAutoAnswerMinutes
+      ? ["Answer for me"]
+      : []),
     ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
       ? ["Project Grouping"]
       : []),
@@ -655,6 +658,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
+      questionAutoAnswerMinutes: DEFAULT_UNIFIED_SETTINGS.questionAutoAnswerMinutes,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -727,6 +731,62 @@ export function useSettingsRestore(onRestored?: () => void) {
 }
 
 const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ?? 7;
+
+const ANSWER_FOR_ME_CHOICES = [0, 5, 10, 30, 60];
+
+const answerForMeLabel = (minutes: number) =>
+  minutes <= 0
+    ? "Off"
+    : minutes === 60
+      ? "1 hour"
+      : minutes === 1
+        ? "1 minute"
+        : `${minutes} minutes`;
+
+function AnswerForMeRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const { environment } = useSettingsScope();
+  const stored = settings.questionAutoAnswerMinutes;
+  const serverDefault = environment?.serverConfig?.questionAutoAnswerDefaultMinutes;
+  if (serverDefault === undefined) return null;
+  const minutes = stored ?? serverDefault;
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["questionAutoAnswerMinutes"]}
+      {...searchableSetting("answer-for-me")}
+      description="When an agent asks a question and marks a recommended answer, send it after this long."
+      resetAction={
+        stored !== null ? (
+          <SettingResetButton
+            label="answer for me"
+            onClick={() => updateSettings({ questionAutoAnswerMinutes: null })}
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={String(minutes)}
+          onValueChange={(value) => {
+            if (value !== null) updateSettings({ questionAutoAnswerMinutes: Number(value) });
+          }}
+        >
+          <SelectTrigger size="sm" className="w-auto min-w-0" aria-label="Answer for me">
+            <SelectValue>{answerForMeLabel(minutes)}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {ANSWER_FOR_ME_CHOICES.map((choice) => (
+              <SelectItem key={choice} value={String(choice)}>
+                {answerForMeLabel(choice)}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
 
 function AutoSettleDaysInput({
   value,
@@ -810,6 +870,7 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        <AnswerForMeRow />
       </SettingsSection>
 
       <SettingsSection id="sidebar" title={gt("Sidebar")}>

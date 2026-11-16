@@ -1,5 +1,6 @@
 import type { ProjectId } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import { resolveThreadActivityTimestamp, toSortableTimestamp } from "@t3tools/shared/projectBoard";
 import type { EnvironmentThreadShell } from "./models.ts";
 
 export interface ThreadSortInput {
@@ -12,11 +13,7 @@ export interface ThreadSortInput {
   }>;
 }
 
-export function toSortableTimestamp(iso: string | undefined): number | null {
-  if (!iso) return null;
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? ms : null;
-}
+export { resolveThreadActivityTimestamp, toSortableTimestamp };
 
 export type SettledThreadTimestampInput = Pick<
   EnvironmentThreadShell,
@@ -28,27 +25,6 @@ export function resolveSettledThreadTimestamp(thread: SettledThreadTimestampInpu
     return thread.settledAt;
   }
   return resolveThreadActivityTimestamp(thread);
-}
-
-export function resolveThreadActivityTimestamp(
-  thread: Pick<EnvironmentThreadShell, "latestUserMessageAt" | "latestRun" | "updatedAt">,
-): string | null {
-  let latest: string | null = null;
-  let latestMs = Number.NEGATIVE_INFINITY;
-  for (const candidate of [
-    thread.latestUserMessageAt,
-    thread.latestRun?.requestedAt,
-    thread.latestRun?.startedAt,
-    thread.latestRun?.completedAt,
-  ]) {
-    const parsed = toSortableTimestamp(candidate ?? undefined);
-    if (candidate != null && parsed !== null && parsed > latestMs) {
-      latest = candidate;
-      latestMs = parsed;
-    }
-  }
-  if (latest !== null) return latest;
-  return toSortableTimestamp(thread.updatedAt) === null ? null : thread.updatedAt;
 }
 
 export function sortSettledThreads<T extends SettledThreadTimestampInput & { readonly id: string }>(

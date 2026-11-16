@@ -46,6 +46,7 @@ import {
 } from "../observability/Metrics.ts";
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
+import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as CodeSearchSetup from "../codeSearch/CodeSearchSetup.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -57,6 +58,8 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
+import type { McpProviderSessionConfig } from "@t3tools/provider-core/server/mcpSession";
+import { t3MasterAgentInstructionSections } from "@t3tools/provider-core/server/orchestrationInstructions";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import {
@@ -386,6 +389,32 @@ export const layerWithOptions = (
       const codeSearchAvailable = Option.isNone(codeSearchSetup)
         ? Effect.succeed(false)
         : codeSearchSetup.value.available;
+      const masterAgentStore = yield* Effect.serviceOption(MasterAgentStore.MasterAgentStore);
+      // Unreadable memory leaves the agent thread with plain instructions rather than no session.
+      const threadInstructionsFor = (threadId: ThreadId) =>
+        Option.isNone(masterAgentStore)
+          ? Effect.undefined
+          : Effect.gen(function* () {
+              const store = masterAgentStore.value;
+              if ((yield* store.readThreadId) !== threadId) return undefined;
+              return t3MasterAgentInstructionSections(yield* store.listMemory);
+            }).pipe(Effect.orElseSucceed(() => undefined));
+      const withSessionExtras = (
+        config: McpProviderSessionConfig,
+        extras: {
+          readonly codeSearch: boolean;
+          readonly threadInstructions: ReadonlyArray<string> | undefined;
+        },
+      ): McpProviderSessionConfig => {
+        const { threadInstructions: _previous, ...rest } = config;
+        return {
+          ...rest,
+          codeSearchAvailable: extras.codeSearch,
+          ...(extras.threadInstructions === undefined
+            ? {}
+            : { threadInstructions: extras.threadInstructions }),
+        };
+      };
       const eventSink = yield* EventSink.EventSinkV2;
       const commandOutput = yield* CommandOutputHub.CommandOutputHub;
       const promptSuggestionStore = yield* SubscriptionRef.make<
@@ -518,6 +547,7 @@ export const layerWithOptions = (
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   yield* agentAccessSettings(threadId);
                 const codeSearch = yield* codeSearchAvailable;
+                const threadInstructions = yield* threadInstructionsFor(threadId);
                 const capabilities = new Set<
                   import("../mcp/McpInvocationContext.ts").McpCapability
                 >(["orchestration", "worktree", "pull-requests"]);
@@ -551,8 +581,13 @@ export const layerWithOptions = (
                     // A credential issued while the lineage read failed is replaced once it works.
                     (resolved.thread.subagent === true) === subagent
                   ) {
-                    if (existing.codeSearchAvailable !== codeSearch) {
-                      yield* mcpSessions.set({ ...existing, codeSearchAvailable: codeSearch });
+                    if (
+                      existing.codeSearchAvailable !== codeSearch ||
+                      existing.threadInstructions?.join("\n") !== threadInstructions?.join("\n")
+                    ) {
+                      yield* mcpSessions.set(
+                        withSessionExtras(existing, { codeSearch, threadInstructions }),
+                      );
                     }
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -566,7 +601,9 @@ export const layerWithOptions = (
                   capabilities,
                   subagent,
                 });
-                yield* mcpSessions.set({ ...credential.config, codeSearchAvailable: codeSearch });
+                yield* mcpSessions.set(
+                  withSessionExtras(credential.config, { codeSearch, threadInstructions }),
+                );
                 reserveMcpCredential(threadId, credential.config.providerSessionId);
                 return { mcpCredentialId: credential.config.providerSessionId, issued: true };
               }),

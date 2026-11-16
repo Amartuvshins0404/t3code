@@ -57,6 +57,15 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Ask the agent
+
+The agent is one standing chat that belongs to no project. It keeps the rules you
+give it between sessions, reads the Projects board, and can start work in your
+projects. On web and desktop, open **Agent** from the sidebar footer or the command
+palette, or press `mod+alt+g`. It runs on this app's own machine. The agent's chat
+stays out of thread lists, search and the Projects page, and it can't be archived
+or deleted. A link to its thread opens the Agent page.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

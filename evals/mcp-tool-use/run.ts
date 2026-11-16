@@ -56,6 +56,8 @@ import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
 import { HtmlToolkit } from "../../apps/server/src/mcp/toolkits/html/tools.ts";
+import { MasterAgentToolkit } from "../../apps/server/src/mcp/toolkits/masterAgent/tools.ts";
+import { t3MasterAgentInstructionSections } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { OrchestratorToolkit } from "../../apps/server/src/mcp/toolkits/orchestrator/tools.ts";
 import { PreviewToolkit } from "../../apps/server/src/mcp/toolkits/preview/tools.ts";
 import { PreviewControlsToolkit } from "../../apps/server/src/mcp/toolkits/previewControls/tools.ts";
@@ -271,6 +273,10 @@ const McpToolUseWorld = Schema.StructWithRest(
     /** false: agent browser access is off. T3 denies every preview call and drops its browser text. */
     browserAgentAccess: Schema.optional(Schema.Boolean),
     codeSearch: Schema.optional(Schema.Boolean),
+    /** The thread is the owner's agent thread, with this saved memory: T3 adds its agent text and tools. */
+    masterAgentMemory: Schema.optional(
+      Schema.Array(Schema.Struct({ key: Schema.String, content: Schema.String })),
+    ),
     /** Every capture reaches T3 with adb screencap's warning ahead of the PNG: T3 reports 0×0. */
     deviceInvalidCapture: Schema.optional(Schema.Boolean),
     /** Devices another thread's agent-device session holds, by device id: that thread's id. */
@@ -449,6 +455,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   PreviewToolkit,
   DeviceToolkit,
   HtmlToolkit,
+  MasterAgentToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const t3InputDecoders = new Map(
@@ -504,9 +511,21 @@ const pastedSecret = (name: string, input: Readonly<Record<string, unknown>>) =>
 const hiddenFromSubagents = enabledWhen(McpInvocationContext.hiddenFromSubagents);
 // The Linked environments beta starts off, and T3 lists its tools only while it is on.
 const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff);
-const visibleT3Tools = (options: { readonly subagent?: boolean; readonly links?: boolean }) =>
+type AgentMemory = NonNullable<typeof McpToolUseWorld.Type.masterAgentMemory>;
+const agentInstructions = (memory: AgentMemory | undefined) =>
+  memory === undefined ? undefined : t3MasterAgentInstructionSections(memory);
+// McpHttpServer lists these only to the agent thread.
+const agentThreadTools = new Set(
+  Object.values(MasterAgentToolkit.tools).map((tool: Tool.Any) => `${T3_PREFIX}${tool.name}`),
+);
+const visibleT3Tools = (options: {
+  readonly subagent?: boolean;
+  readonly links?: boolean;
+  readonly agentMemory?: AgentMemory | undefined;
+}) =>
   t3Tools.filter(
     (tool) =>
+      (options.agentMemory !== undefined || !agentThreadTools.has(tool.name)) &&
       (options.links === true || !hiddenWhileLinksOff.has(tool.name)) &&
       !(options.subagent === true && hiddenFromSubagents.has(tool.name)),
   );
@@ -516,7 +535,13 @@ const visibleT3Tools = (options: { readonly subagent?: boolean; readonly links?:
  * `browser` say whether the thread holds the `device` and `preview` capabilities, as agent device
  * and browser access decide.
  */
-const claudeQueryOptions = (model: Model, device = true, browser = true, codeSearch = false) => {
+const claudeQueryOptions = (
+  model: Model,
+  device = true,
+  browser = true,
+  codeSearch = false,
+  agentMemory?: AgentMemory,
+) => {
   // Refs whose text follows a capability read its flag; older ones ignore it.
   const input: Parameters<typeof makeClaudeQueryOptions>[0] & {
     readonly deviceToolsAvailable?: boolean;
@@ -531,13 +556,22 @@ const claudeQueryOptions = (model: Model, device = true, browser = true, codeSea
     deviceToolsAvailable: device,
     browserToolsAvailable: browser,
     codeSearchAvailable: codeSearch,
+    ...(agentMemory === undefined
+      ? {}
+      : { threadInstructions: t3MasterAgentInstructionSections(agentMemory) }),
   };
   return makeClaudeQueryOptions(input);
 };
 
 /** Text T3 appends to Claude Code's system prompt. Delegated children get the same text. */
-export const t3SystemAppend = (model: Model, device = true, browser = true, codeSearch = false) => {
-  const { systemPrompt } = claudeQueryOptions(model, device, browser, codeSearch);
+export const t3SystemAppend = (
+  model: Model,
+  device = true,
+  browser = true,
+  codeSearch = false,
+  agentMemory?: AgentMemory,
+) => {
+  const { systemPrompt } = claudeQueryOptions(model, device, browser, codeSearch, agentMemory);
   if (isRecord(systemPrompt) && systemPrompt.type === "preset" && systemPrompt.append) {
     return systemPrompt.append;
   }
@@ -627,6 +661,7 @@ export const buildBase = (
     /** false: the thread has no agent browser access, so T3's text leaves the browser out. */
     readonly browserAccess?: boolean;
     readonly codeSearch?: boolean;
+    readonly agentMemory?: AgentMemory | undefined;
   },
 ) => {
   const t3 = visibleT3Tools(options);
@@ -652,7 +687,13 @@ export const buildBase = (
   const { model } = options;
   const append = options.nativeSubagent
     ? ""
-    : t3SystemAppend(model, options.deviceAccess, options.browserAccess, options.codeSearch);
+    : t3SystemAppend(
+        model,
+        options.deviceAccess,
+        options.browserAccess,
+        options.codeSearch,
+        options.agentMemory,
+      );
   const modelLine = `You are powered by the model named ${MODELS[model]}. The exact model ID is ${model}.`;
   const joined = systemTexts.join("\n");
   // The capture's home directory names its user. Cases use `/home/user` paths instead.
@@ -722,6 +763,7 @@ const buildCodexBase = (
     /** false: the thread has no agent browser access, so T3's text leaves the browser out. */
     readonly browserAccess?: boolean;
     readonly codeSearch?: boolean;
+    readonly agentMemory?: AgentMemory | undefined;
   },
 ): Base => {
   const t3 = visibleT3Tools(options);
@@ -762,6 +804,7 @@ const buildCodexBase = (
       device: options.deviceAccess ?? true,
       codeSearch: options.codeSearch === true,
     },
+    agentInstructions(options.agentMemory),
   );
   input.push(
     ...Object.entries(context).map(([key, entry]) => message(`<${key}>${entry.value}</${key}>`)),
@@ -2535,6 +2578,7 @@ const main = Effect.gen(function* () {
     browserAccess: boolean,
     links: boolean,
     codeSearch: boolean,
+    agentMemory?: AgentMemory,
   ): Effect.Effect<Base, Schema.SchemaError> =>
     codex
       ? decodeCodexCapture(template).pipe(
@@ -2548,6 +2592,7 @@ const main = Effect.gen(function* () {
               deviceAccess,
               browserAccess,
               codeSearch,
+              agentMemory,
             }),
           ),
         )
@@ -2562,6 +2607,7 @@ const main = Effect.gen(function* () {
               deviceAccess,
               browserAccess,
               codeSearch,
+              agentMemory,
             });
             return role === "native-subagent"
               ? Effect.promise(() =>
@@ -2572,9 +2618,9 @@ const main = Effect.gen(function* () {
         );
   // Codex has no native subagents; its cases with that role run as top-level threads.
   const baseKey = ({ setup }: McpToolUseCase) =>
-    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.world?.codeSearch === true}`;
+    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.world?.codeSearch === true}:${JSON.stringify(setup.world?.masterAgentMemory ?? null)}`;
   const base = yield* buildFor("top", true, true, false, false);
-  const bases = new Map<string, Base>([["top:true:true:false:false", base]]);
+  const bases = new Map<string, Base>([["top:true:true:false:false:null", base]]);
   for (const testCase of selected) {
     const key = baseKey(testCase);
     if (bases.has(key)) continue;
@@ -2593,6 +2639,7 @@ const main = Effect.gen(function* () {
         browser === "true",
         links === "true",
         codeSearch === "true",
+        testCase.setup.world?.masterAgentMemory,
       ),
     );
   }
