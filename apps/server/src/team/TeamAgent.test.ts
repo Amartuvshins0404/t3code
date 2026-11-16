@@ -20,7 +20,7 @@ import * as Schema from "effect/Schema";
 
 import type { TeamSharingState } from "./sharedOrganizations.ts";
 import { decideTeamAgentAsk, decideTeamAgentSetting, teamAgentStatuses } from "./TeamAgent.ts";
-import { decideTeamAgentToolUse } from "./TeamAgentToolGuard.ts";
+import { decideTeamAgentToolUse, TEAM_AGENT_SECRET_READ_DENY_RULES } from "./TeamAgentToolGuard.ts";
 
 const web = ProjectId.make("project-web");
 const api = ProjectId.make("project-api");
@@ -210,6 +210,46 @@ describe("teamAgentStatuses", () => {
   });
 });
 
+const secretCopies = [
+  "server.key.bak",
+  "server.key.backup",
+  "server.key.old",
+  "server.key.orig",
+  "server.key.save",
+  "server.key.copy",
+  "server.key.tmp",
+  "server.key.swp",
+  "server.key.swo",
+  "server.key~",
+  "server.key.1",
+  "server.key.2025-01-01",
+  ".server.key.swp",
+  "#server.key#",
+  "cert.pem.old",
+  "store.p12.bak",
+  "prod.tfvars~",
+  "prod.tfstate.bak",
+  "credentials.orig",
+  "credentials~",
+  "#credentials#",
+  ".credentials.swp",
+  "kubeconfig.bak",
+  ".npmrc.bak",
+  ".netrc~",
+  "database.yml.bak",
+  ".git-credentials.bak",
+  "#.env#",
+];
+const ordinaryFiles = [
+  "keyboard.ts",
+  "api.keys.ts",
+  "monkey.png",
+  "pem-utils.ts",
+  "i18n.keys.json",
+  "README.md",
+  "package.json",
+];
+
 it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
   const withProject = <A, E, R>(
     run: (dirs: { readonly project: string; readonly outside: string }) => Effect.Effect<A, E, R>,
@@ -298,7 +338,32 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
     ),
   );
 
-  it.effect("keeps secret files out of every Grep, whatever their letter case", () =>
+  it.effect("refuses backup and editor copies of secret files, not source files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const project = yield* fs.makeTempDirectoryScoped({ prefix: "t3-team-agent-copies-" });
+      const copies = [...secretCopies, "server.ｋey.bak", "cert.p​em.old"];
+      yield* fs.makeDirectory(path.join(project, "certs"));
+      for (const file of [...ordinaryFiles, ...copies.map((copy) => `certs/${copy}`)]) {
+        yield* fs.writeFileString(path.join(project, file), "");
+      }
+      const refused = [];
+      for (const file of copies) {
+        refused.push(yield* decide("Read", { file_path: `certs/${file}` }, project));
+      }
+      expect(refused.map((decision) => (decision.allow ? "allowed" : decision.reason))).toEqual(
+        refused.map(() => expect.stringContaining("Secret files")),
+      );
+      const readable = [];
+      for (const file of ordinaryFiles) {
+        readable.push(yield* decide("Read", { file_path: file }, project));
+      }
+      expect(readable.map((decision) => decision.allow)).toEqual(ordinaryFiles.map(() => true));
+    }),
+  );
+
+  it.effect("keeps secret files out of every Grep and every Read rule, whatever their case", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -315,8 +380,11 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
         "src/ID_RSA",
         "config/.Git-Credentials",
         "deploy/Service-Account-prod.json",
+        ...secretCopies.map((file) => `certs/${file}`),
+        "certs/SERVER.KEY.BAK",
       ];
-      for (const file of [...secretFiles, "src/auth.ts"]) {
+      const readableFiles = ["src/auth.ts", ...ordinaryFiles.map((file) => `src/${file}`)];
+      for (const file of [...secretFiles, ...readableFiles]) {
         yield* fs.makeDirectory(path.dirname(path.join(project, file)), { recursive: true });
         yield* fs.writeFileString(path.join(project, file), `password=fake-${file}\n`);
       }
@@ -336,14 +404,25 @@ it.layer(NodeServices.layer)("decideTeamAgentToolUse", (it) => {
       if (ripgrep === undefined) {
         throw new Error("This test needs ripgrep: install `rg` or Claude Code on PATH.");
       }
-      const search = NodeChildProcess.spawnSync(
-        ripgrep.command,
-        ["--no-config", "--hidden", "--no-heading", "password", "--glob", glob, "."],
-        { argv0: ripgrep.argv0, cwd: project, encoding: "utf8" },
+      const rg = (args: ReadonlyArray<string>) =>
+        NodeChildProcess.spawnSync(ripgrep.command, ["--no-config", "--hidden", ...args, "."], {
+          argv0: ripgrep.argv0,
+          cwd: project,
+          encoding: "utf8",
+        })
+          .stdout.trim()
+          .split("\n")
+          .toSorted();
+      expect(rg(["--no-heading", "password", "--glob", glob])).toEqual(
+        readableFiles.map((file) => `./${file}:password=fake-${file}`).toSorted(),
       );
-      expect(search.stdout.trim().split("\n").toSorted()).toEqual([
-        "./src/auth.ts:password=fake-src/auth.ts",
+      const readRuleGlobs = TEAM_AGENT_SECRET_READ_DENY_RULES.flatMap((rule) => [
+        "--iglob",
+        `!${rule.slice("Read(".length, -1)}`,
       ]);
+      expect(rg(["--files", ...readRuleGlobs])).toEqual(
+        readableFiles.map((file) => `./${file}`).toSorted(),
+      );
     }),
   );
 
