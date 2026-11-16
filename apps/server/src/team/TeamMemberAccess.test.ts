@@ -167,6 +167,49 @@ describe("decideTeamMemberCommand", () => {
     },
   );
 
+  const steer = share("org-a", "steer");
+  const agentConversation = { ...steer, agent: { startedBy: { userId: "user-ana", name: "Ana" } } };
+  const stop: OrchestrationV2Command = {
+    type: "run.interrupt",
+    commandId: CommandId.make("command-6"),
+    threadId,
+    runId: RunId.make("run-1"),
+  };
+  it.each<[string, OrchestrationV2Command, ThreadTeamShare, boolean, boolean]>([
+    ["send into an idle archived", message, steer, true, true],
+    [
+      "queue after the running turn in a busy archived",
+      { ...message, dispatchMode: { type: "queue_after_active" } },
+      steer,
+      true,
+      true,
+    ],
+    [
+      "steer the running turn in a busy archived",
+      { ...message, dispatchMode: { type: "steer_active", targetRunId: RunId.make("run-1") } },
+      steer,
+      true,
+      true,
+    ],
+    ["follow up in an archived agent", message, agentConversation, true, true],
+    ["stop the running turn in an archived", stop, steer, true, false],
+    ["send again into an unarchived", message, steer, false, false],
+  ])(
+    "decides whether a teammate may %s thread",
+    (_label, command, teamShare, archived, refused) => {
+      const decision = decideTeamMemberCommand({
+        command,
+        teamShare,
+        member,
+        agent: { enabled: true, runningTurnsElsewhere: 0 },
+        archived,
+      });
+      expect(Result.isFailure(decision) ? decision.failure.message : undefined).toBe(
+        refused ? "This thread is archived, so it does not take new messages." : undefined,
+      );
+    },
+  );
+
   it.each<OrchestrationV2Command>([
     {
       type: "thread.runtime-mode.set",

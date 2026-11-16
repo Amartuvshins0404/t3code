@@ -2178,10 +2178,12 @@ it.effect(
       const viewThread = ThreadId.make("thread:team-view");
       const steerThread = ThreadId.make("thread:team-steer");
       const privateThread = ThreadId.make("thread:private");
+      const archivedThread = ThreadId.make("thread:team-archived");
       const sharedAt = "2026-11-14T00:00:00.000Z";
       const shares = new Map([
         [viewThread, { organizationId: "org-a", access: "view" as const, sharedAt }],
         [steerThread, { organizationId: "org-a", access: "steer" as const, sharedAt }],
+        [archivedThread, { organizationId: "org-a", access: "steer" as const, sharedAt }],
       ]);
       const presence = yield* TeamPresence.TeamPresence;
       const domainEvents = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
@@ -2227,6 +2229,7 @@ it.effect(
           getThreadShell: (threadId) =>
             Effect.succeed({
               teamShare: shares.get(threadId) ?? null,
+              archivedAt: threadId === archivedThread ? DateTime.makeUnsafe(sharedAt) : null,
             } as unknown as OrchestrationV2ThreadShell),
         }),
         Layer.mock(Orchestrator.OrchestratorV2)({
@@ -2320,6 +2323,14 @@ it.effect(
         headers: Headers.empty,
       });
       assert.include(yield* refusal, "to view only");
+      yield* server.write(0, {
+        _tag: "Request",
+        id: RpcMessage.RequestId("archived"),
+        tag: ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+        payload: { ...message, threadId: archivedThread },
+        headers: Headers.empty,
+      });
+      assert.include(yield* refusal, "This thread is archived");
 
       yield* server.write(0, {
         _tag: "Request",
