@@ -17,6 +17,8 @@ import type * as Scope from "effect/Scope";
 
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
+import { T3CODE_CODEX_LAUNCH_ARGS_ENV } from "../provider/codexLaunchArgs.ts";
+
 const TEAM_CONNECTIVITY_DRIVERS: ReadonlyArray<TeamConnectivityDriver> = ["claudeAgent", "codex"];
 
 export const isTeamConnectivityDriver = (
@@ -241,6 +243,12 @@ export const CLAUDE_TEAM_PINNED_VARIABLES: ReadonlySet<string> = new Set([
   "ANTHROPIC_BASE_URL",
   ...CLAUDE_TEAM_BLANKED_VARIABLES,
 ]);
+const CODEX_TEAM_BLANKED_VARIABLES = [
+  "OPENAI_API_KEY",
+  "CODEX_API_KEY",
+  "OPENAI_BASE_URL",
+  T3CODE_CODEX_LAUNCH_ARGS_ENV,
+];
 
 export const withoutTeamProxyKey = (environment: NodeJS.ProcessEnv) => {
   const { [TEAM_PROXY_KEY_VARIABLE]: key, ...rest } = environment;
@@ -276,8 +284,16 @@ export const teamProviderEnvironment = (
       { name: TEAM_PROXY_KEY_VARIABLE, value: connection.clientKey, sensitive: true },
     ];
   }
+  const blanked = new Set([
+    ...CODEX_TEAM_BLANKED_VARIABLES,
+    ...environment.filter((variable) => variable.sensitive).map((variable) => variable.name),
+  ]);
+  blanked.delete(TEAM_PROXY_KEY_VARIABLE);
   return [
-    ...environment.filter((variable) => variable.name !== TEAM_PROXY_KEY_VARIABLE),
+    ...environment.filter(
+      (variable) => !blanked.has(variable.name) && variable.name !== TEAM_PROXY_KEY_VARIABLE,
+    ),
+    ...[...blanked].map((name) => ({ name, value: "", sensitive: false })),
     { name: TEAM_PROXY_KEY_VARIABLE, value: connection.clientKey, sensitive: true },
   ];
 };
@@ -292,13 +308,7 @@ export const teamProviderConfig = (
     config !== null && typeof config === "object" && !Array.isArray(config)
       ? (config as Record<string, unknown>)
       : {};
-  const ownerArgs = typeof base.launchArgs === "string" ? base.launchArgs.trim() : "";
-  const teamArgs = codexTeamLaunchArgs(connection.url);
-  return {
-    ...base,
-    setupMode: "existing",
-    launchArgs: ownerArgs ? `${ownerArgs} ${teamArgs}` : teamArgs,
-  };
+  return { ...base, setupMode: "existing", launchArgs: codexTeamLaunchArgs(connection.url) };
 };
 
 export class TeamConnectivityUnavailableError extends Schema.TaggedError<TeamConnectivityUnavailableError>()(

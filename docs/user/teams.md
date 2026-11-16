@@ -139,8 +139,10 @@ Connect and no screen shows it again. Members see the address and who set it. An
 Then every thread shared with the team that uses Claude or Codex runs through the team's hub with
 the team's key, for the owner's and teammates' messages alike. The owner's own Claude settings and
 environment do not change that: Bedrock, Vertex and other provider switches, an API key helper, and
-custom headers are turned off for team threads. Other providers stay on the owner's accounts. Stop
-sharing the thread and its next message is back on the owner's accounts.
+custom headers are turned off for team threads. For Codex, the owner's launch arguments, base
+address, and the secret environment variables of their Codex provider are left out of team threads.
+Other providers stay on the owner's accounts. Stop sharing the thread and its next message is back
+on the owner's accounts.
 
 - The share dialog and the header badge say what the thread runs on. Teammates see it under the
   message box.

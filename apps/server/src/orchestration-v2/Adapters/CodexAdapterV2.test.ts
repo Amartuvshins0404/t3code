@@ -22,6 +22,7 @@ import {
   type OrchestrationV2TurnItem,
   ProjectId,
   type ProviderApprovalDecision,
+  type ResolvedProviderInstanceEnvironment,
   ProviderInstanceId,
   ProviderSessionId,
   ProviderSetupError,
@@ -70,7 +71,12 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
-import { CODEX_TEAM_KEY_COMMAND } from "../../team/TeamProviderRoutes.ts";
+import {
+  CODEX_TEAM_KEY_COMMAND,
+  teamProviderConfig,
+  teamProviderEnvironment,
+} from "../../team/TeamProviderRoutes.ts";
+import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
@@ -483,7 +489,48 @@ describe("CodexAdapterV2 fork boundary", () => {
   );
 });
 
-const DEFAULT_CODEX_SETTINGS = Schema.decodeSync(CodexSettings)({});
+const decodeCodexSettings = Schema.decodeUnknownSync(CodexSettings);
+const DEFAULT_CODEX_SETTINGS = decodeCodexSettings({});
+const fakeAppServerFactoryLayer = (input: {
+  readonly trackAgent?: () => () => void;
+  readonly onSpawn?: (command: ChildProcess.StandardCommand) => void;
+}) =>
+  CodexAdapterV2.layerAppServerClientFactory.pipe(
+    Layer.provide(
+      Layer.mock(PortScanner.PortDiscovery)({
+        trackAgent: input.trackAgent ?? (() => () => {}),
+      }),
+    ),
+    Layer.provide(
+      Layer.succeed(ProviderEventLoggers.ProviderEventLoggers, {
+        native: undefined,
+        canonical: undefined,
+      }),
+    ),
+    Layer.provide(
+      Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make((command) => {
+          if (ChildProcess.isStandardCommand(command)) input.onSpawn?.(command);
+          return Effect.succeed(
+            ChildProcessSpawner.makeHandle({
+              pid: ChildProcessSpawner.ProcessId(999_999_999),
+              exitCode: Effect.never,
+              isRunning: Effect.succeed(true),
+              kill: () => Effect.void,
+              unref: Effect.succeed(Effect.void),
+              stdin: Sink.drain,
+              stdout: Stream.never,
+              stderr: Stream.empty,
+              all: Stream.empty,
+              getInputFd: () => Sink.drain,
+              getOutputFd: () => Stream.empty,
+            }),
+          );
+        }),
+      ),
+    ),
+  );
 const CHATGPT_SHARING_LIMIT_MESSAGE =
   "stream disconnected before completion: The ChatGPT user has reached their Subscription Sharing usage limit. Ask the user to try again after their usage limit resets or use an API key instead.";
 const CODEX_TEST_MODEL_SELECTION = {
@@ -900,46 +947,14 @@ describe("CodexAdapterV2 process exit", () => {
 
   it.effect("counts the app-server as a running agent until its session closes", () => {
     let runningAgents = 0;
-    const factoryLayer = CodexAdapterV2.layerAppServerClientFactory.pipe(
-      Layer.provide(
-        Layer.mock(PortScanner.PortDiscovery)({
-          trackAgent: () => {
-            runningAgents += 1;
-            return () => {
-              runningAgents -= 1;
-            };
-          },
-        }),
-      ),
-      Layer.provide(
-        Layer.succeed(ProviderEventLoggers.ProviderEventLoggers, {
-          native: undefined,
-          canonical: undefined,
-        }),
-      ),
-      Layer.provide(
-        Layer.succeed(
-          ChildProcessSpawner.ChildProcessSpawner,
-          ChildProcessSpawner.make(() =>
-            Effect.succeed(
-              ChildProcessSpawner.makeHandle({
-                pid: ChildProcessSpawner.ProcessId(999_999_999),
-                exitCode: Effect.never,
-                isRunning: Effect.succeed(true),
-                kill: () => Effect.void,
-                unref: Effect.succeed(Effect.void),
-                stdin: Sink.drain,
-                stdout: Stream.never,
-                stderr: Stream.empty,
-                all: Stream.empty,
-                getInputFd: () => Sink.drain,
-                getOutputFd: () => Stream.empty,
-              }),
-            ),
-          ),
-        ),
-      ),
-    );
+    const factoryLayer = fakeAppServerFactoryLayer({
+      trackAgent: () => {
+        runningAgents += 1;
+        return () => {
+          runningAgents -= 1;
+        };
+      },
+    });
     return Effect.gen(function* () {
       const factory = yield* CodexAdapterV2.CodexAppServerClientFactory;
       yield* Effect.scoped(
@@ -10551,6 +10566,72 @@ describe("codexDynamicToolOutput", () => {
 });
 
 describe("CodexAdapterV2 app-server process", () => {
+  it.effect("keeps the owner's own Codex keys and launch args out of a team turn", () => {
+    const ownerKey = "fake-owner-openai-key-for-tests";
+    const ownerToken = "fake-owner-proxy-token-for-tests";
+    const hostKey = "fake-host-codex-key-for-tests";
+    const ownerEnvironment = [
+      { name: "OPENAI_API_KEY", value: ownerKey, sensitive: true },
+      { name: "OWNER_PROXY_TOKEN", value: ownerToken, sensitive: true },
+      { name: "OPENAI_BASE_URL", value: "https://owner-gateway.test/v1", sensitive: false },
+      { name: "OWNER_SETTING", value: "kept", sensitive: false },
+    ];
+    const ownerConfig = {
+      launchArgs: `-c model_providers.owner.experimental_bearer_token=${ownerToken}`,
+    };
+    const hostEnvironment = {
+      PATH: "/usr/bin:/bin",
+      CODEX_API_KEY: hostKey,
+      T3CODE_CODEX_LAUNCH_ARGS: "-c model_provider=owner",
+    };
+    const team = { url: "https://team-proxy.test", clientKey: "fake-team-key-for-tests" };
+    const spawned: Array<ChildProcess.StandardCommand> = [];
+    const spawn = (environment: ResolvedProviderInstanceEnvironment, config: unknown) =>
+      Effect.gen(function* () {
+        const factory = yield* CodexAdapterV2.CodexAppServerClientFactory;
+        yield* Effect.scoped(
+          factory.open({
+            instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+            threadId: ThreadId.make("thread-codex-team"),
+            providerSessionId: ProviderSessionId.make("session-codex-team"),
+            runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+            settings: decodeCodexSettings(config),
+            environment: yield* mergeProviderInstanceEnvironment(environment, hostEnvironment),
+          }),
+        );
+        const command = spawned.at(-1);
+        assert.isDefined(command);
+        return { env: command.options.env ?? {}, args: command.args };
+      });
+    return Effect.gen(function* () {
+      const routed = yield* spawn(
+        teamProviderEnvironment("codex", ownerEnvironment, team),
+        teamProviderConfig("codex", ownerConfig, team),
+      );
+      for (const secret of [ownerKey, ownerToken, hostKey, team.clientKey]) {
+        assert.notInclude(JSON.stringify(routed), secret);
+      }
+      assert.include(routed.args, "model_provider=t3team");
+      assert.notInclude(routed.args, "model_provider=owner");
+      assert.notInclude(routed.env.OPENAI_BASE_URL ?? "", "owner-gateway");
+      assert.strictEqual(routed.env.OWNER_SETTING, "kept");
+
+      const personal = yield* spawn(ownerEnvironment, ownerConfig);
+      assert.deepInclude(personal.env, {
+        OPENAI_API_KEY: ownerKey,
+        OWNER_PROXY_TOKEN: ownerToken,
+        OPENAI_BASE_URL: "https://owner-gateway.test/v1",
+        CODEX_API_KEY: hostKey,
+        OWNER_SETTING: "kept",
+      });
+      assert.include(personal.args, "model_provider=owner");
+    }).pipe(
+      Effect.provide(
+        fakeAppServerFactoryLayer({ onSpawn: (command) => void spawned.push(command) }),
+      ),
+    );
+  });
+
   it.live.skipIf(HostProcess.Platform.defaultValue() === "win32")(
     "hands a team key to the app-server on a descriptor that its commands cannot read",
     () =>
