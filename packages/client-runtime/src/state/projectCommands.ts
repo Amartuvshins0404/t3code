@@ -96,27 +96,11 @@ export function createProjectEnvironmentAtoms<R, E>(
     tag: WS_METHODS.projectsReadPlant,
     staleTimeMs: 15_000,
   });
-  const readCodemap = createEnvironmentRpcQueryAtomFamily(runtime, {
-    label: "environment-data:projects:read-codemap",
-    tag: WS_METHODS.codemapRead,
-    staleTimeMs: 10_000,
-  });
   return {
-    readCodemap,
-    analyzeCodemap: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:projects:analyze-codemap",
-      tag: WS_METHODS.codemapAnalyze,
-      scheduler: projectScheduler,
-      concurrency: {
-        mode: "singleFlight",
-        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.projectId]),
-      },
-      onSuccess: ({ environmentId, input }, registry) =>
-        Effect.sync(() =>
-          registry.refresh(
-            readCodemap({ environmentId, input: { projectId: input.projectId, focusId: "" } }),
-          ),
-        ),
+    readCodemap: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:read-codemap",
+      tag: WS_METHODS.codemapRead,
+      staleTimeMs: 10_000,
     }),
     readPlant,
     plant: createEnvironmentRpcCommand(runtime, {

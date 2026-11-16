@@ -34,6 +34,7 @@ const DevicePanel = lazy(() =>
   import("../device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
 );
 const FilePreviewPanel = lazy(() => import("../files/FilePreviewPanel"));
+const CodemapPanel = lazy(() => import("../codemap/CodemapPanel"));
 
 type RightPanelTerminalProps = Omit<
   PersistentThreadTerminalPanelProps,
@@ -173,6 +174,13 @@ export function RightPanelSurfaceContent(props: {
         />
       );
     }
+    case "codemap":
+      if (!props.files.projectId) return null;
+      return (
+        <Suspense fallback={null}>
+          <CodemapPanel threadRef={threadRef} projectId={props.files.projectId} />
+        </Suspense>
+      );
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
     case "side-chat":

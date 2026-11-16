@@ -11,7 +11,7 @@ import {
   type ProjectBoardColumn,
 } from "@t3tools/client-runtime/state/projects";
 import { Link } from "@tanstack/react-router";
-import { KanbanIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
+import { SettingsIcon } from "lucide-react";
 import { useState } from "react";
 
 import { isElectron } from "~/env";
@@ -29,8 +29,6 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { SidebarInset } from "../ui/sidebar";
-import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
-import { CodemapPanel } from "../codemap/CodemapPanel";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -44,21 +42,7 @@ import {
   PROJECT_BOARD_EMPTY_COLUMN_TEXT,
 } from "./projectBoardPresentation";
 
-export interface ProjectPageSearch {
-  readonly view?: "map";
-  readonly focus?: string;
-}
-
-interface ProjectPageNavigation {
-  readonly search: ProjectPageSearch;
-  readonly onSearch: (next: ProjectPageSearch) => void;
-}
-
-export function ProjectBoardPage({
-  projectKey,
-  search,
-  onSearch,
-}: { readonly projectKey: string } & ProjectPageNavigation) {
+export function ProjectBoardPage({ projectKey }: { readonly projectKey: string }) {
   const projectRef = parseScopedProjectKey(projectKey);
   const project = useProject(projectRef);
   const projectsReady = useAllEnvironmentProjectSnapshotsReady();
@@ -74,19 +58,13 @@ export function ProjectBoardPage({
           {projectsReady ? <UnknownProject projectKey={projectKey} /> : null}
         </>
       ) : (
-        <ProjectBoard project={project} search={search} onSearch={onSearch} />
+        <ProjectBoard project={project} />
       )}
     </SidebarInset>
   );
 }
 
-function ProjectBoardHeader({
-  project,
-  navigation,
-}: {
-  readonly project: EnvironmentProject | null;
-  readonly navigation?: ProjectPageNavigation;
-}) {
+function ProjectBoardHeader({ project }: { readonly project: EnvironmentProject | null }) {
   const { environments } = useEnvironments();
   const environmentLabel =
     project === null || environments.length < 2
@@ -115,27 +93,6 @@ function ProjectBoardHeader({
       </WorkspaceBreadcrumb>
       {project === null || settingsKey === null ? null : (
         <div className="flex shrink-0 items-center gap-1">
-          {navigation === undefined ? null : (
-            <ToggleGroup
-              aria-label="Project view"
-              value={[navigation.search.view ?? "board"]}
-              onValueChange={(value) => {
-                const next = value[0];
-                if (next === "map") navigation.onSearch({ view: "map" });
-                else if (next === "board") navigation.onSearch({});
-              }}
-              className="me-2"
-            >
-              <ToggleGroupItem value="board" aria-label="Board">
-                <KanbanIcon />
-                Board
-              </ToggleGroupItem>
-              <ToggleGroupItem value="map" aria-label="Map">
-                <WaypointsIcon />
-                Map
-              </ToggleGroupItem>
-            </ToggleGroup>
-          )}
           <ProjectPlantButton
             environmentId={project.environmentId}
             projectId={project.id}
@@ -200,11 +157,7 @@ function UnknownProject({ projectKey }: { readonly projectKey: string }) {
   );
 }
 
-function ProjectBoard({
-  project,
-  search,
-  onSearch,
-}: { readonly project: EnvironmentProject } & ProjectPageNavigation) {
+function ProjectBoard({ project }: { readonly project: EnvironmentProject }) {
   const threads = useQuietThreadShells();
   const [doneLimit, setDoneLimit] = useState(PROJECT_BOARD_DONE_LIMIT);
   const projectThreads = threads.filter(
@@ -215,14 +168,8 @@ function ProjectBoard({
 
   return (
     <>
-      <ProjectBoardHeader project={project} navigation={{ search, onSearch }} />
-      {search.view === "map" ? (
-        <CodemapPanel
-          project={project}
-          focusId={search.focus ?? ""}
-          onFocus={(focus) => onSearch(focus === "" ? { view: "map" } : { view: "map", focus })}
-        />
-      ) : empty ? (
+      <ProjectBoardHeader project={project} />
+      {empty ? (
         <Empty className="flex-1">
           <EmptyHeader className="max-w-md">
             <EmptyTitle>No threads yet</EmptyTitle>

@@ -319,7 +319,9 @@ const layerScratchThreadPromotionProvided = ScratchThreadPromotion.layer.pipe(
     ),
   ),
 );
-const layerCodemapProvided = Codemap.layer.pipe(Layer.provide(layerProjectService));
+const layerCodemapProvided = Codemap.layer.pipe(
+  Layer.provide(Layer.merge(layerProjectService, layerThreadManagementProvided)),
+);
 const layerProjectPlantProvided = ProjectPlant.layer.pipe(
   Layer.provide(
     Layer.mergeAll(layerProjectService, layerThreadLaunchProvided, layerThreadManagementProvided),

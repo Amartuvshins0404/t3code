@@ -465,12 +465,7 @@ import {
   ProjectPlantStartResult,
   ProjectPlantStatus,
 } from "./projectPlant.ts";
-import {
-  CodemapAnalyzeInput,
-  CodemapError,
-  CodemapReadInput,
-  CodemapReadResult,
-} from "./codemap.ts";
+import { CodemapError, CodemapReadInput, CodemapReadResult } from "./codemap.ts";
 
 export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
@@ -487,7 +482,6 @@ export const WS_METHODS = {
   projectsReadPlant: "projects.readPlant",
   projectsPlant: "projects.plant",
   codemapRead: "codemap.read",
-  codemapAnalyze: "codemap.analyze",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -1631,12 +1625,6 @@ const WsCodemapReadRpc = Rpc.make(WS_METHODS.codemapRead, {
   error: Schema.Union([CodemapError, EnvironmentAuthorizationError]),
 });
 
-const WsCodemapAnalyzeRpc = Rpc.make(WS_METHODS.codemapAnalyze, {
-  payload: CodemapAnalyzeInput,
-  success: CodemapReadResult,
-  error: Schema.Union([CodemapError, EnvironmentAuthorizationError]),
-});
-
 const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -2560,7 +2548,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsReadPlantRpc,
   WsProjectsPlantRpc,
   WsCodemapReadRpc,
-  WsCodemapAnalyzeRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

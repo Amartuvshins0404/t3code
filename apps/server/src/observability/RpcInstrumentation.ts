@@ -200,7 +200,6 @@ const RPC_AGGREGATES = {
   [WS_METHODS.projectsReadPlant]: "orchestration",
   [WS_METHODS.projectsPlant]: "orchestration",
   [WS_METHODS.codemapRead]: "workspace",
-  [WS_METHODS.codemapAnalyze]: "workspace",
   [WS_METHODS.shellOpenInEditor]: "workspace",
   [WS_METHODS.filesystemBrowse]: "workspace",
   [WS_METHODS.filesystemGetMetadata]: "workspace",

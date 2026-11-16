@@ -3069,7 +3069,6 @@ export const layerWsRpc = (
             ),
         [WS_METHODS.projectsReadPlant]: (input) => projectPlant.readStatus(input),
         [WS_METHODS.codemapRead]: (input) => codemap.read(input),
-        [WS_METHODS.codemapAnalyze]: (input) => codemap.analyze(input),
         [WS_METHODS.projectsPlant]: (input) =>
           projectPlant.start({ ...input, createdBy: "user", creationSource: "web" }),
         [WS_METHODS.projectCloneCancel]: (input) =>

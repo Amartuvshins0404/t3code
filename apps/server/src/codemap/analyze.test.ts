@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { analyzeCodebase, filesToRead } from "./analyze.ts";
-import { buildCodemapView } from "./view.ts";
+import { buildCodemapView, parseNameStatus } from "./view.ts";
 
 function analyze(files: Record<string, string>) {
   const paths = Object.keys(files);
@@ -88,36 +88,18 @@ describe("analyzeCodebase", () => {
 });
 
 describe("buildCodemapView", () => {
-  const analysis = analyze({
-    "packages/core/package.json": `{"name":"@acme/core"}`,
-    "packages/core/src/index.ts": "export const x = 1;",
-    "apps/web/package.json": `{"name":"@acme/web"}`,
-    "apps/web/src/main.ts": `import { x } from "@acme/core";`,
-    "apps/api/package.json": `{"name":"@acme/api"}`,
-    "apps/api/src/server.ts": `import { x } from "@acme/core";`,
-  });
+  it("keeps a small touched folder that the size limit would cut", () => {
+    const files: Record<string, string> = { "src/tiny/new.ts": "export {};" };
+    for (let index = 0; index < 20; index += 1) {
+      files[`src/big${index}/main.ts`] = "const x = 1;\n".repeat(100 + index);
+    }
+    const analysis = analyze(files);
+    const { touched, added } = parseNameStatus("A\0src/tiny/new.ts\0M\0src/big3/main.ts\0", 100);
 
-  it("rolls file imports up to the boxes shown at the root", () => {
-    const view = buildCodemapView(analysis, "");
-    expect(
-      view.nodes
-        .filter((node) => node.parentId === null)
-        .map((node) => node.id)
-        .toSorted(),
-    ).toEqual(["apps", "packages/core"]);
-    expect(view.edges).toContainEqual({ source: "apps/web", target: "packages/core", weight: 1 });
-    expect(view.edges).toContainEqual({ source: "apps/api", target: "packages/core", weight: 1 });
-  });
-
-  it("keeps what a zoomed-in box uses as an outside box named by its package", () => {
-    const view = buildCodemapView(analysis, "apps/web");
-    const outside = view.nodes.find((node) => node.external);
-    expect(outside).toMatchObject({ id: "packages/core", name: "@acme/core" });
-    expect(view.edges).toContainEqual({
-      source: "apps/web/src/main.ts",
-      target: "packages/core",
-      weight: 1,
-    });
-    expect(view.nodes.some((node) => node.id.startsWith("apps/api"))).toBe(false);
+    expect(added).toEqual(["src/tiny/new.ts"]);
+    expect(buildCodemapView(analysis, "").nodes.map((node) => node.id)).not.toContain("src/tiny");
+    expect(buildCodemapView(analysis, "", touched).nodes.map((node) => node.id)).toContain(
+      "src/tiny",
+    );
   });
 });

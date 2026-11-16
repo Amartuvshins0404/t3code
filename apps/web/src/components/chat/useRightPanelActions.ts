@@ -138,6 +138,11 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addDiffSurface();
   };
   const openChangesFromThreadPanelStable = useStableCallback(openChangesFromThreadPanel);
+  const openCodemapSurface = () => {
+    if (!activeThreadRef || !activeProject) return;
+    useRightPanelStore.getState().open(activeThreadRef, "codemap");
+  };
+  const openCodemapSurfaceStable = useStableCallback(openCodemapSurface);
   const addFilesSurface = () => {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
@@ -342,6 +347,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     onOpenTurnDiffStable,
     onToggleDiffStable,
     openChangesFromThreadPanelStable,
+    openCodemapSurfaceStable,
     openFileSurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
