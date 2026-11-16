@@ -170,6 +170,11 @@ Stopping a share, removing a member, changing a member's role or deleting the te
 once on every machine of yours that this device can reach. A teammate who is removed or changes
 role reconnects with their new access, or not at all.
 
+A task a teammate started stops when their access to its thread ends, and their queued messages
+are cancelled, also in a thread that is paused. Your own turns keep running, and you can continue a
+stopped thread by sending a message. One exception: some providers, such as Cursor, restart a turn
+to take a steering message, so a turn of yours that the teammate steered into stops too.
+
 Any other machine, for example one that is asleep, offline or owned by another teammate, does not
 hear about the change. Teammates already connected to it keep access for up to 10 minutes, until their session
 needs renewing and T3 Connect refuses it.

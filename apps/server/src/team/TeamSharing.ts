@@ -1,5 +1,6 @@
 import {
   CommandId,
+  type OrchestrationV2ThreadShell,
   type ProjectId,
   type ProjectTeamShare,
   TeamAccessError,
@@ -7,6 +8,7 @@ import {
   type TeamSharedOrganizations,
   type TeamThreadShareClearInput,
   type TeamThreadShareSetInput,
+  type ThreadId,
   type ThreadTeamShare,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -19,6 +21,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as PairingGrantStore from "../auth/PairingGrantStore.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
+import { isActiveRun } from "../orchestration-v2/CommandPolicy.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -29,6 +32,7 @@ import {
   writeTeamSharingState,
 } from "./sharedOrganizations.ts";
 import * as TeamConnectivity from "./TeamConnectivity.ts";
+import { sharedWithTeam } from "./TeamMemberAccess.ts";
 
 export class TeamSharing extends Context.Service<
   TeamSharing,
@@ -138,6 +142,7 @@ const make = Effect.gen(function* () {
         ),
       { discard: true },
     );
+    return shared.map((thread) => thread.id);
   });
 
   const unshareProjectsFor = Effect.fn("TeamSharing.unshareProjectsFor")(function* (
@@ -146,11 +151,11 @@ const make = Effect.gen(function* () {
     const rows = yield* projects
       .list()
       .pipe(Effect.mapError(() => internal("Could not read the projects.")));
-    yield* Effect.forEach(
+    const unshared = yield* Effect.forEach(
       rows.filter((row) => row.teamShare?.organizationId === organizationId),
       (row) => unshareProject(row.projectId, organizationId),
-      { discard: true },
     );
+    return unshared.flat();
   });
 
   const setProjectShare = Effect.fn("TeamSharing.setProjectShare")(function* (
@@ -190,7 +195,7 @@ const make = Effect.gen(function* () {
   const clearProjectShare = Effect.fn("TeamSharing.clearProjectShare")(function* (
     projectId: ProjectId,
   ) {
-    return yield* writes.withPermits(1)(
+    const unshared = yield* writes.withPermits(1)(
       Effect.gen(function* () {
         const current = Option.getOrUndefined(
           yield* projects
@@ -198,49 +203,109 @@ const make = Effect.gen(function* () {
             .pipe(Effect.mapError(() => internal("Could not read the project."))),
         );
         if (current === undefined) return yield* projectUnavailable();
-        if (current.teamShare === null) return;
-        yield* unshareProject(projectId, current.teamShare.organizationId);
+        if (current.teamShare === null) return [];
+        return yield* unshareProject(projectId, current.teamShare.organizationId);
       }),
     );
+    if (unshared.length === 0) return;
+    yield* stopTeamWork({
+      threads: (thread) => unshared.includes(thread.id),
+      reason: "The owner stopped sharing this project with the team.",
+    });
   });
 
-  const stopAgentAnswers = Effect.fn("TeamSharing.stopAgentAnswers")(
+  const stopThread = (threadId: ThreadId, reason: string) =>
+    commandId("stop").pipe(
+      Effect.flatMap((id) =>
+        orchestrator.dispatch({ type: "thread.stop", commandId: id, threadId, reason }),
+      ),
+      Effect.ignore({ log: "Warn", message: "Could not stop a teammate's turn." }),
+    );
+
+  const teammateRuns = Effect.fn("TeamSharing.teammateRuns")(function* (
+    threadId: ThreadId,
+    startedByUserId: string | undefined,
+  ) {
+    const { runs } = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
+    const open = runs.filter((run) => run.status === "queued" || isActiveRun(run));
+    if (open.length === 0) return [];
+    const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
+      messageIds: open.map((run) => run.userMessageId),
+    });
+    const fromTeammate = new Set(
+      messages.flatMap((message) => {
+        const member = message.context?.member;
+        return member !== undefined &&
+          (startedByUserId === undefined || member.userId === startedByUserId)
+          ? [message.id]
+          : [];
+      }),
+    );
+    return open.filter((run) => fromTeammate.has(run.userMessageId));
+  });
+
+  const stopTeammateTurns = Effect.fn("TeamSharing.stopTeammateTurns")(function* (
+    threadId: ThreadId,
+    startedByUserId: string | undefined,
+    reason: string,
+  ) {
+    const queued = (yield* teammateRuns(threadId, startedByUserId)).filter(
+      (run) => run.status === "queued",
+    );
+    yield* Effect.forEach(
+      queued,
+      (run) =>
+        commandId("queued-cancel").pipe(
+          Effect.flatMap((id) =>
+            orchestrator.dispatch({
+              type: "queued-run.cancel",
+              commandId: id,
+              threadId,
+              runId: run.id,
+            }),
+          ),
+          Effect.ignore({ log: "Warn", message: "Could not cancel a teammate's queued message." }),
+        ),
+      { discard: true },
+    );
+    if ((yield* teammateRuns(threadId, startedByUserId)).some(isActiveRun)) {
+      yield* stopThread(threadId, reason);
+    }
+  });
+
+  const stopTeamWork = Effect.fn("TeamSharing.stopTeamWork")(
     function* (input: {
-      readonly organizationId: string;
+      readonly threads: (thread: OrchestrationV2ThreadShell) => boolean;
       readonly startedByUserId?: string;
       readonly reason: string;
     }) {
       const snapshot = yield* orchestrator.getShellSnapshot();
-      const answering = snapshot.threads.filter(
-        (thread) =>
-          thread.activeRunId !== null &&
-          thread.teamShare?.organizationId === input.organizationId &&
-          thread.teamShare.agent !== undefined &&
-          (input.startedByUserId === undefined ||
-            thread.teamShare.agent.startedBy.userId === input.startedByUserId),
-      );
       yield* Effect.forEach(
-        answering,
-        (thread) =>
-          commandId("agent-stop").pipe(
-            Effect.flatMap((id) =>
-              orchestrator.dispatch({
-                type: "thread.stop",
-                commandId: id,
-                threadId: thread.id,
-                reason: input.reason,
-              }),
-            ),
-            Effect.ignore({ log: "Warn", message: "Could not stop a team agent's answer." }),
-          ),
+        snapshot.threads.filter(input.threads),
+        (thread) => {
+          const agent = thread.teamShare?.agent;
+          if (agent === undefined) {
+            return stopTeammateTurns(thread.id, input.startedByUserId, input.reason).pipe(
+              Effect.ignore({ log: "Warn", message: "Could not read a teammate's turns." }),
+            );
+          }
+          return thread.activeRunId !== null &&
+            (input.startedByUserId === undefined ||
+              agent.startedBy.userId === input.startedByUserId)
+            ? stopThread(thread.id, input.reason)
+            : Effect.void;
+        },
         { discard: true },
       );
     },
     (stop) =>
       withAgentAskLock(stop).pipe(
-        Effect.ignore({ log: "Warn", message: "Could not read the team agents' answers." }),
+        Effect.ignore({ log: "Warn", message: "Could not read the team's turns." }),
       ),
   );
+
+  const sharedWith = (organizationId: string) => (thread: OrchestrationV2ThreadShell) =>
+    thread.teamShare?.organizationId === organizationId;
 
   const listSharedOrganizations = read.pipe(
     Effect.map((organizationIds) => ({ organizationIds })),
@@ -266,9 +331,9 @@ const make = Effect.gen(function* () {
   const removeSharedOrganization = Effect.fn("TeamSharing.removeSharedOrganization")(function* (
     organizationId: string,
   ) {
-    const organizationIds = yield* writes.withPermits(1)(
+    const { organizationIds, unshared } = yield* writes.withPermits(1)(
       Effect.gen(function* () {
-        yield* unshareProjectsFor(organizationId);
+        const unshared = yield* unshareProjectsFor(organizationId);
         const state = yield* readState;
         const current = state.organizationIds;
         const next = current.filter((candidate) => candidate !== organizationId);
@@ -276,7 +341,7 @@ const make = Effect.gen(function* () {
           yield* writeState({ ...state, organizationIds: next });
         }
         yield* connectivity.sharedOrganizationsChanged(next);
-        return next;
+        return { organizationIds: next, unshared };
       }),
     );
     yield* pairingLinks
@@ -285,8 +350,8 @@ const make = Effect.gen(function* () {
     yield* sessions
       .revokeForOrganization(organizationId)
       .pipe(Effect.mapError(() => internal("Could not end the team's sessions.")));
-    yield* stopAgentAnswers({
-      organizationId,
+    yield* stopTeamWork({
+      threads: (thread) => sharedWith(organizationId)(thread) || unshared.includes(thread.id),
       reason: "The owner stopped sharing this machine with the team.",
     });
     return { organizationIds };
@@ -301,8 +366,8 @@ const make = Effect.gen(function* () {
     yield* sessions
       .revokeForOrganization(input.organizationId, input.userId)
       .pipe(Effect.mapError(() => internal("Could not end the teammate's sessions.")));
-    yield* stopAgentAnswers({
-      organizationId: input.organizationId,
+    yield* stopTeamWork({
+      threads: sharedWith(input.organizationId),
       startedByUserId: input.userId,
       reason: "The owner removed this teammate's access.",
     });
@@ -320,7 +385,20 @@ const make = Effect.gen(function* () {
         message: "An agent conversation stays shared with its team. Delete it instead.",
       });
     }
+    return thread.teamShare ?? null;
   });
+
+  const stopTeammatesWhoLostThread = (
+    threadId: ThreadId,
+    previous: ThreadTeamShare | null,
+    next: ThreadTeamShare | null,
+  ) =>
+    previous === null || sharedWithTeam(next, previous.organizationId, "steer")
+      ? Effect.void
+      : stopTeamWork({
+          threads: (thread) => thread.id === threadId,
+          reason: "The owner stopped letting the team steer this thread.",
+        });
 
   const setAgentSetting = Effect.fn("TeamSharing.setAgentSetting")(function* (
     organizationId: string,
@@ -339,7 +417,11 @@ const make = Effect.gen(function* () {
       }),
     );
     if (!setting.enabled) {
-      yield* stopAgentAnswers({ organizationId, reason: "The owner switched this agent off." });
+      yield* stopTeamWork({
+        threads: (thread) =>
+          sharedWith(organizationId)(thread) && thread.teamShare?.agent !== undefined,
+        reason: "The owner switched this agent off.",
+      });
     }
     return setting;
   });
@@ -347,7 +429,7 @@ const make = Effect.gen(function* () {
   const setThreadShare = Effect.fn("TeamSharing.setThreadShare")(function* (
     input: TeamThreadShareSetInput,
   ) {
-    yield* refuseAgentConversation(input.threadId);
+    const previous = yield* refuseAgentConversation(input.threadId);
     if (!(yield* read).includes(input.organizationId)) {
       return yield* new TeamAccessError({
         reason: "organization_not_shared",
@@ -369,13 +451,14 @@ const make = Effect.gen(function* () {
     if (!thread.teamShare || thread.teamShare.organizationId !== input.organizationId) {
       return yield* internal("The thread's share changed while it was being set.");
     }
+    yield* stopTeammatesWhoLostThread(input.threadId, previous, thread.teamShare);
     return thread.teamShare;
   });
 
   const clearThreadShare = Effect.fn("TeamSharing.clearThreadShare")(function* (
     input: TeamThreadShareClearInput,
   ) {
-    yield* refuseAgentConversation(input.threadId);
+    const previous = yield* refuseAgentConversation(input.threadId);
     yield* orchestrator
       .dispatch({
         type: "thread.team-share.clear",
@@ -383,6 +466,7 @@ const make = Effect.gen(function* () {
         threadId: input.threadId,
       })
       .pipe(Effect.mapError(threadUnavailable));
+    yield* stopTeammatesWhoLostThread(input.threadId, previous, null);
   });
 
   return TeamSharing.of({
