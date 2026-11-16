@@ -60,6 +60,7 @@ import { hasTeamAgentFileMention } from "../team/TeamAgentToolGuard.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import {
+  routedTeamShare,
   TeamConnectivityUnavailableError,
   TeamProviderRoutes,
   turnProviderSessionId,
@@ -721,15 +722,12 @@ export const layer: Layer.Layer<
       const inheritedBackgroundTurnItems = yield* projectionStore
         .getRuntimeRecoveryProjection(projection.thread.id)
         .pipe(Effect.map(selectInheritedBackgroundItems));
-      const teamShare =
-        projection.thread.teamShare ??
-        (projection.thread.lineage.relationshipToParent === "subagent" &&
-        projection.thread.lineage.rootThreadId !== projection.thread.id
-          ? yield* projectionStore.getThreadShell(projection.thread.lineage.rootThreadId).pipe(
-              Effect.map((root) => root?.teamShare),
-              Effect.orElseSucceed(() => undefined),
-            )
-          : undefined);
+      const teamShare = yield* routedTeamShare(projection.thread, (rootThreadId) =>
+        projectionStore.getThreadShell(rootThreadId).pipe(
+          Effect.map((root) => root?.teamShare),
+          Effect.orElseSucceed(() => undefined),
+        ),
+      );
       const teamRoute = yield* teamRoutes.routeTurn({
         teamShare,
         driver: providerThread.driver,

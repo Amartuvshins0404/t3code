@@ -170,8 +170,10 @@ import {
 } from "../../provider/Drivers/ClaudeSkillDispatch.ts";
 import {
   claudeLaunchArgDirectories,
+  claudeSettingsOverrides,
   customClaudeApiEndpointHost,
   discoverClaudeSkills,
+  readClaudeManagedSettingsFiles,
   readClaudeSettingsEnv,
 } from "../../provider/Drivers/ClaudeSkills.ts";
 import {
@@ -192,6 +194,10 @@ import {
   type TeamAgentToolDecision,
 } from "../../team/TeamAgentToolGuard.ts";
 import { teamAgentInstructions } from "../../team/teamAgentInstructions.ts";
+import {
+  CLAUDE_TEAM_PINNED_VARIABLES,
+  withoutTeamProxyKey,
+} from "../../team/TeamProviderRoutes.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
@@ -385,6 +391,27 @@ const CLAUDE_GROUP_WATCH_SCRIPT = [
   'exec "$@" 3<&-',
 ].join("\n");
 
+const CLAUDE_TEAM_KEY_FD = 4;
+
+const claudeTeamKeyHandover = (options: ClaudeSpawnOptions) => {
+  const { key, environment } = withoutTeamProxyKey(options.env);
+  return {
+    key,
+    env:
+      key === undefined
+        ? options.env
+        : { ...environment, CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: String(CLAUDE_TEAM_KEY_FD) },
+  };
+};
+
+const writeClaudeTeamKey = (child: NodeChildProcess.ChildProcess, key: string | undefined) => {
+  if (key === undefined) return;
+  const pipe = child.stdio[CLAUDE_TEAM_KEY_FD];
+  if (pipe === null || pipe === undefined || !("end" in pipe)) return;
+  pipe.on("error", () => {});
+  pipe.end(key);
+};
+
 /**
  * Kill the CLI's group on exit to stop MCP grandchildren; `onExit` stops its agent scope for
  * setsid daemons. The CLI keeps working after its pipes close, so a watcher stops the group on
@@ -396,17 +423,22 @@ export function spawnClaudeProcessGroup(
   onStderr: (text: string) => void = () => {},
   onStderrClose: () => void = () => {},
 ): ClaudeSpawnedProcess & Pick<NodeChildProcess.ChildProcess, "pid"> {
+  const teamKey = claudeTeamKeyHandover(options);
   const child = NodeChildProcess.spawn(
     "/bin/sh",
     ["-c", CLAUDE_GROUP_WATCH_SCRIPT, "t3-claude", options.command, ...options.args],
     {
       cwd: options.cwd,
-      env: options.env,
+      env: teamKey.env,
       signal: options.signal,
-      stdio: ["pipe", "pipe", "pipe", "pipe"],
+      stdio:
+        teamKey.key === undefined
+          ? ["pipe", "pipe", "pipe", "pipe"]
+          : ["pipe", "pipe", "pipe", "pipe", "pipe"],
       detached: true,
     },
   );
+  writeClaudeTeamKey(child, teamKey.key);
   // Always drained, so a chatty CLI never blocks on a full stderr pipe.
   child.stderr?.setEncoding("utf8").on("data", onStderr).once("close", onStderrClose);
   child.once("exit", () => {
@@ -1221,7 +1253,7 @@ const runClaudeWorker = Effect.fn("runClaudeWorker")(function* (input: {
       [...workerArguments, input.method, input.sessionId, encodeClaudeJson(input.options ?? {})],
       {
         env: {
-          ...input.environment,
+          ...withoutTeamProxyKey(input.environment).environment,
           ELECTRON_RUN_AS_NODE: "1",
         },
       },
@@ -1389,17 +1421,22 @@ export const layerQueryRunner: Layer.Layer<
                 }
                 return child;
               }
+              const teamKey = claudeTeamKeyHandover(spawnOptions);
               const child = NodeChildProcess.spawn(spawnOptions.command, spawnOptions.args, {
                 cwd: spawnOptions.cwd,
-                env: spawnOptions.env,
+                env: teamKey.env,
                 signal: spawnOptions.signal,
                 windowsHide: true,
-                stdio: ["pipe", "pipe", "pipe"],
+                stdio:
+                  teamKey.key === undefined
+                    ? ["pipe", "pipe", "pipe"]
+                    : ["pipe", "pipe", "pipe", "ignore", "pipe"],
               });
+              writeClaudeTeamKey(child, teamKey.key);
               child.stderr
-                .setEncoding("utf8")
+                ?.setEncoding("utf8")
                 .on("data", (chunk: string) => options.stderr?.(chunk));
-              return child;
+              return child as ClaudeSpawnedProcess;
             });
           let spawnedProcess: ClaudeSpawnedProcess | undefined;
           let processExited = false;
@@ -2007,6 +2044,7 @@ export function makeClaudeQueryOptions(input: {
       ? compactQuerySettings
       : ({
           ...compactQuerySettings,
+          ...(input.pinnedEnvironment === undefined ? {} : { apiKeyHelper: "" }),
           env: { ...compactQuerySettings?.env, ...flagEnvironment },
         } as ClaudeSdkSettings);
   const deviceInstructions = input.mcpServers !== undefined && input.deviceToolsAvailable === true;
@@ -13457,18 +13495,12 @@ export type ClaudeAdapterV2DriverEnv =
   | ProviderInstallationGate.ProviderInstallationGate
   | ServerConfig.ServerConfig;
 
-const CLAUDE_PINNED_ENVIRONMENT = new Set([
-  "ANTHROPIC_BASE_URL",
-  "ANTHROPIC_AUTH_TOKEN",
-  "ANTHROPIC_API_KEY",
-]);
-
 const claudePinnedEnvironment = (
   environment: ProviderAdapterDriverCreateInput<ClaudeSettings>["environment"],
 ): Readonly<Record<string, string>> =>
   Object.fromEntries(
     environment
-      .filter((variable) => CLAUDE_PINNED_ENVIRONMENT.has(variable.name))
+      .filter((variable) => CLAUDE_TEAM_PINNED_VARIABLES.has(variable.name))
       .map((variable) => [variable.name, variable.value]),
   );
 
@@ -13487,6 +13519,19 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     const serverConfig = yield* ServerConfig.ServerConfig;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
     const installationGate = yield* ProviderInstallationGate.ProviderInstallationGate;
+    if (hooks.pinProxyEnvironment === true) {
+      const managed = claudeSettingsOverrides(
+        yield* readClaudeManagedSettingsFiles(hostEnvironment),
+        CLAUDE_TEAM_PINNED_VARIABLES,
+      );
+      if (managed.length > 0) {
+        return yield* new ProviderAdapterDriverCreateError({
+          driver: CLAUDE_PROVIDER,
+          instanceId,
+          detail: `Claude's managed settings set ${managed.join(", ")}, which a team connection cannot override.`,
+        });
+      }
+    }
     const baseEnvironment = yield* mergeClaudeProcessEnvironment(
       config,
       environment,

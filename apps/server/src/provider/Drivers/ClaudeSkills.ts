@@ -596,6 +596,57 @@ export const readClaudeSettingsEnv = Effect.fn("readClaudeSettingsEnv")(function
   return settingsEnv;
 });
 
+const decodeCredentialSettings = Schema.decodeUnknownOption(
+  fromLenientJson(
+    Schema.Struct({
+      env: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+      apiKeyHelper: Schema.optional(Schema.Unknown),
+    }),
+  ),
+);
+
+const isSet = (value: unknown) => value !== undefined && value !== null && String(value) !== "";
+
+export const claudeSettingsOverrides = (
+  settingsFiles: ReadonlyArray<string>,
+  variables: ReadonlySet<string>,
+): ReadonlyArray<string> => {
+  const found = new Set<string>();
+  for (const contents of settingsFiles) {
+    const settings = Option.getOrUndefined(decodeCredentialSettings(contents));
+    for (const [name, value] of Object.entries(settings?.env ?? {})) {
+      if (variables.has(name) && isSet(value)) found.add(name);
+    }
+    if (isSet(settings?.apiKeyHelper)) found.add("apiKeyHelper");
+  }
+  return [...found];
+};
+
+export const readClaudeManagedSettingsFiles = Effect.fn("readClaudeManagedSettingsFiles")(
+  function* (environment: NodeJS.ProcessEnv) {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const managedPath = claudeManagedSettingsPath(path, yield* HostProcess.Platform, environment);
+    if (managedPath === undefined) return [];
+    const dropInDirectory = path.join(path.dirname(managedPath), "managed-settings.d");
+    const dropIns = yield* fileSystem
+      .readDirectory(dropInDirectory)
+      .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+    const contents = yield* Effect.forEach(
+      [
+        managedPath,
+        ...dropIns
+          .filter((name) => name.endsWith(".json") && !name.startsWith("."))
+          .toSorted()
+          .map((name) => path.join(dropInDirectory, name)),
+      ],
+      (settingsPath) =>
+        fileSystem.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => undefined)),
+    );
+    return contents.filter((text) => text !== undefined);
+  },
+);
+
 /** The host of an `ANTHROPIC_BASE_URL` that is not Anthropic's own API. */
 export function customClaudeApiEndpointHost(baseUrl: string | undefined): string | undefined {
   const endpoint = URL.parse(baseUrl?.trim() ?? "");
