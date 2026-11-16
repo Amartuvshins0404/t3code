@@ -80,6 +80,7 @@ import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as MasterAgent from "./masterAgent/MasterAgent.ts";
+import * as MasterAgentWatch from "./masterAgent/MasterAgentWatch.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import * as ProjectPlant from "./project/ProjectPlant.ts";
 import * as Codemap from "./codemap/Codemap.ts";
@@ -985,6 +986,7 @@ it.effect.each([
         Layer.mock(MasterAgent.MasterAgent)({
           threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
         }),
+        Layer.mock(MasterAgentWatch.MasterAgentWatch)({}),
         Layer.mock(ProjectPlant.ProjectPlant)({}),
         Layer.mock(Codemap.Codemap)({}),
         Layer.mock(ServerEnvironment.ServerEnvironment)({
@@ -1245,6 +1247,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       Layer.mock(MasterAgent.MasterAgent)({
         threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
       }),
+      Layer.mock(MasterAgentWatch.MasterAgentWatch)({}),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(Codemap.Codemap)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({
@@ -1516,6 +1519,7 @@ it.effect("a missing thread worktree gets its project's skills in the cwd snapsh
       Layer.mock(MasterAgent.MasterAgent)({
         threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
       }),
+      Layer.mock(MasterAgentWatch.MasterAgentWatch)({}),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(Codemap.Codemap)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
@@ -1608,6 +1612,7 @@ it.effect("a git action that fails partway still refreshes the repository status
       Layer.mock(MasterAgent.MasterAgent)({
         threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
       }),
+      Layer.mock(MasterAgentWatch.MasterAgentWatch)({}),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(Codemap.Codemap)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
@@ -1694,6 +1699,7 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
       Layer.mock(MasterAgent.MasterAgent)({
         threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
       }),
+      Layer.mock(MasterAgentWatch.MasterAgentWatch)({}),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(Codemap.Codemap)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
@@ -2078,6 +2084,7 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
       Layer.mock(MasterAgent.MasterAgent)({
         threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
       }),
+      Layer.mock(MasterAgentWatch.MasterAgentWatch)({}),
       Layer.mock(ProjectPlant.ProjectPlant)({}),
       Layer.mock(Codemap.Codemap)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
@@ -2229,6 +2236,7 @@ it.effect(
         Layer.mock(MasterAgent.MasterAgent)({
           threadId: Effect.fail(new MasterAgent.MasterAgentEnsureError({ stage: "thread-id" })),
         }),
+        Layer.mock(MasterAgentWatch.MasterAgentWatch)({}),
         Layer.mock(ProjectPlant.ProjectPlant)({}),
         Layer.mock(Codemap.Codemap)({}),
         Layer.mock(ServerEnvironment.ServerEnvironment)({}),

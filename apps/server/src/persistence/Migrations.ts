@@ -247,7 +247,7 @@ const ensureTeamColumns = Effect.fn("ensureTeamColumns")(function* () {
   }
 });
 
-const MASTER_AGENT_TABLES = ["master_agent", "master_agent_memory"] as const;
+const MASTER_AGENT_TABLES = ["master_agent", "master_agent_memory", "master_agent_watch"] as const;
 
 const masterAgentTablesMissing = Effect.fn("masterAgentTablesMissing")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -271,6 +271,14 @@ const ensureMasterAgentTables = Effect.fn("ensureMasterAgentTables")(function* (
       key TEXT PRIMARY KEY,
       content TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    ) WITHOUT ROWID
+  `;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS master_agent_watch (
+      thread_id TEXT PRIMARY KEY,
+      started_at TEXT NOT NULL,
+      notice TEXT,
+      batch_id TEXT
     ) WITHOUT ROWID
   `;
 });

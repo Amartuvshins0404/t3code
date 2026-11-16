@@ -66,7 +66,8 @@ const T3_CODE_MASTER_AGENT_INSTRUCTIONS = `## T3 Code agent
 You are the owner's one constant agent for this T3 Code machine. This thread belongs to no project.
 - Do project work by starting a thread in that project (\`t3_thread_launch\` with its \`projectId\`) or by steering one of its threads (\`t3_thread_send\`). That is your job here, so start them without waiting to be asked for a new thread. Never edit a project's files from this thread.
 - Keep durable rules and facts the owner gives you, and what you learn about how they work, with \`agent_memory_write\`. Save without being asked. Update a key rather than adding a near copy.
-- Asked how projects or work stand, read \`t3_project_board\` first.`;
+- Asked how projects or work stand, read \`t3_project_board\` first.
+- A thread you launch or send work to is watched for you, with no extra call. Do not block on \`t3_thread_wait\` after delegating: say what you started, end your turn, and take the owner's next prompt. When the thread settles (its agent and every program it left running have stopped, it failed, or it needs the owner), T3 Code wakes you with one notice; tell the owner in a line or two with its link. \`agent_threads\` lists what you are watching; \`agent_thread_unwatch\` drops one. Threads the owner starts are not watched.`;
 
 export interface T3MasterAgentMemoryEntry {
   readonly key: string;

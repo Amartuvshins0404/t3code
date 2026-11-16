@@ -25,6 +25,7 @@ import {
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentRpcSubscriptionAtomFamily,
 } from "./runtime.ts";
 import { createProject, deleteProject, updateProject } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
@@ -224,6 +225,15 @@ export function createProjectEnvironmentAtoms<R, E>(
       tag: WS_METHODS.masterAgentEnsure,
       scheduler: projectScheduler,
       concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
+    masterAgentWatches: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:master-agent:watches",
+      tag: WS_METHODS.masterAgentWatchesSubscribe,
+    }),
+    unwatchMasterAgentThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:master-agent:unwatch",
+      tag: WS_METHODS.masterAgentUnwatch,
+      scheduler: projectScheduler,
     }),
     createNew: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:create-new",

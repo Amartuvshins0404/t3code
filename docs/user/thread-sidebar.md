@@ -66,6 +66,13 @@ palette, or press `mod+alt+g`. It runs on this app's own machine. The agent's ch
 stays out of thread lists, search and the Projects page, and it can't be archived
 or deleted. A link to its thread opens the Agent page.
 
+When the agent starts or steers a thread, its turn ends right away, so you can keep
+talking to it. It watches that thread and tells you when the thread is done: its work
+and every program it left running have stopped, it failed, or it needs you. A thread
+waiting on PR checks or a helper is not done yet. Several threads that finish close
+together arrive as one update. **Watching N threads** in the Agent page header lists
+them; **Stop** drops one. Threads you start yourself are not watched.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

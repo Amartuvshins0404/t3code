@@ -13,6 +13,7 @@ import {
   teamAgentReadsAnotherTeam,
   teamAgentReadsOutsideProject,
 } from "../../threadAccess.ts";
+import * as MasterAgentWatch from "../../../masterAgent/MasterAgentWatch.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
@@ -202,7 +203,12 @@ const handlers = {
         Effect.gen(function* () {
           const scope = yield* McpInvocationContext.McpInvocationContext;
           const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-          return yield* service.sendToThread(scope, input);
+          const sent = yield* service.sendToThread(scope, input);
+          yield* MasterAgentWatch.watchIfRunning({
+            callerThreadId: scope.thread?.threadId,
+            threadId: input.threadId,
+          });
+          return sent;
         }),
     ),
     // There the thread's parent is here, so only this side can make a follow-up a task.

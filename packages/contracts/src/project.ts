@@ -530,6 +530,29 @@ export const MasterAgentEnsureResult = Schema.Struct({
 });
 export type MasterAgentEnsureResult = typeof MasterAgentEnsureResult.Type;
 
+/** `done` waits only for the agent thread to finish its own turn before the notice goes out. */
+export const MasterAgentWatchState = Schema.Literals([
+  "working",
+  "waiting_on_tasks",
+  "in_checks",
+  "needs_you",
+  "done",
+]);
+export type MasterAgentWatchState = typeof MasterAgentWatchState.Type;
+
+export const MasterAgentWatch = Schema.Struct({
+  threadId: ThreadId,
+  startedAt: Schema.String,
+  state: MasterAgentWatchState,
+});
+export type MasterAgentWatch = typeof MasterAgentWatch.Type;
+
+export const MasterAgentWatchList = Schema.Array(MasterAgentWatch);
+export type MasterAgentWatchList = typeof MasterAgentWatchList.Type;
+
+export const MasterAgentUnwatchInput = Schema.Struct({ threadId: ThreadId });
+export type MasterAgentUnwatchInput = typeof MasterAgentUnwatchInput.Type;
+
 export const ProjectCreateNewInput = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
 });

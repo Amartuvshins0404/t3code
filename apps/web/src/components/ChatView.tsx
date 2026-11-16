@@ -16,6 +16,7 @@ import {
 import { usePullRequestDraftThread } from "./chat/usePullRequestDraftThread";
 import { usePullRequestLinking } from "../hooks/usePullRequestLinking";
 import { useComposerSelection } from "./chat/useComposerSelection";
+import { MasterAgentWatches } from "./agent/MasterAgentWatches";
 import { useProjectCloneBanner } from "./chat/useProjectCloneBanner";
 import { useAttachmentPreviewHandoff } from "./chat/useAttachmentPreviewHandoff";
 import {
@@ -3334,11 +3335,16 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : null}
             {chatOnly ? (
-              <WorkspaceBreadcrumb ariaLabel="Agent breadcrumb">
-                <WorkspaceBreadcrumbItem current>
-                  <h1 className="truncate">{activeThread.title}</h1>
-                </WorkspaceBreadcrumbItem>
-              </WorkspaceBreadcrumb>
+              <>
+                <WorkspaceBreadcrumb ariaLabel="Agent breadcrumb">
+                  <WorkspaceBreadcrumbItem current>
+                    <h1 className="truncate">{activeThread.title}</h1>
+                  </WorkspaceBreadcrumbItem>
+                </WorkspaceBreadcrumb>
+                <div className="ml-auto shrink-0 [-webkit-app-region:no-drag]">
+                  <MasterAgentWatches environmentId={activeThread.environmentId} />
+                </div>
+              </>
             ) : (
               <>
                 {!rightPanelControlsAtRoot && !rightPanelControlsInPanel

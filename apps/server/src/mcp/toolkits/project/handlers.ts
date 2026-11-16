@@ -15,6 +15,7 @@ import { OrchestratorRuntimeModeAboveCeilingError } from "../../../orchestration
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
+import * as MasterAgentWatch from "../../../masterAgent/MasterAgentWatch.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ProjectPlant from "../../../project/ProjectPlant.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
@@ -305,6 +306,11 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         );
         const thread = result.projection.thread;
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);
+        if (run !== undefined)
+          yield* MasterAgentWatch.watchIfRunning({
+            callerThreadId: caller?.id,
+            threadId: thread.id,
+          });
         return {
           threadId: thread.id,
           link: McpInvocationContext.threadLinkFor(scope, thread.id, thread.title),

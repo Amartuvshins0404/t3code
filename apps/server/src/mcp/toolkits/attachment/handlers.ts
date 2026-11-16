@@ -10,6 +10,7 @@ import * as AssetSigner from "../../../assets/AssetSigner.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as Upload from "../../../assets/AttachmentUpload.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
+import * as MasterAgentWatch from "../../../masterAgent/MasterAgentWatch.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { newCommandId, readThread, unavailable } from "../../threadAccess.ts";
@@ -118,6 +119,10 @@ export const layer = McpToolAccess.toLayer(
                   : unavailable(),
               ),
             );
+            yield* MasterAgentWatch.watchIfRunning({
+              callerThreadId: caller?.id,
+              threadId: projection.thread.id,
+            });
             return {
               threadId: projection.thread.id,
               messageId,
