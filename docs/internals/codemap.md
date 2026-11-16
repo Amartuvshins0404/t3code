@@ -1,0 +1,23 @@
+# Codemap
+
+The project page can show a live diagram of the project's code instead of the thread board. This page records why it is built the way it is.
+
+## Decisions
+
+| Choice                                                                                              | Why                                                                                                                                                         | Rejected                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Zoom levels: project → packages and apps → folders → files                                          | Every codebase has folders and files, most have packages. Showing one level at a time keeps the canvas under a few hundred boxes, even for large monorepos. | Symbol-level graphs (functions, classes): thousands of nodes, unreadable.                                                                                  |
+| One saved model per project: an analysis plus a separate layer of human edits keyed by path         | A re-analyze replaces the analysis and keeps every move, rename, group and note. The agent writes to the same edit layer.                                   | A text DSL (LikeC4, Structurizr, D2): wrong place to store drags. Mermaid: no positions.                                                                   |
+| Extraction on the server, from git's file list, package manifests and a per-language import scanner | Works on any repo with no build and no extra install. Clients receive only the finished graph, so it works the same over remote and tunnel connections.     | Native tree-sitter: a native module in the desktop bundle. WASM tree-sitter: about 50 MB of grammars. SCIP and language servers: a toolchain per language. |
+| Cache the analysis by git commit plus working-tree changes                                          | The second open is instant; a changed tree re-analyzes in the background while the old map stays visible.                                                   | Re-analyzing on every open.                                                                                                                                |
+| Canvas: React Flow (`@xyflow/react`, MIT)                                                           | Built for editable node diagrams with groups. LikeC4 uses it for the same job.                                                                              | tldraw: paid licence for production. Excalidraw: freehand, boxes carry no meaning. Cytoscape and Sigma: no React editing model.                            |
+| Layout: elkjs layered layout, loaded only on the map view, only for boxes without a saved position  | Handles nested groups and edges between groups. Never moves what a person placed.                                                                           | dagre: weak with nested groups. Graphviz WASM: static, one-shot.                                                                                           |
+| Board stays as a second view                                                                        | The board is the daily view today. The map replaces it only once it carries threads and pull requests too.                                                  | Removing the board in the first slice.                                                                                                                     |
+| codegraph (`@colbymchenry/codegraph`) is not the engine                                             | Good symbol graph, but a 284 MB native install and symbol-level detail the map does not show.                                                               | —                                                                                                                                                          |
+
+## Slices
+
+1. Analyze button and a read-only map, with progress and caching.
+2. Move, rename, regroup, add and remove boxes; edits persist and survive a re-analyze.
+3. Threads and pull requests on the map: each box shows the work touching it.
+4. Change preview: for a prompt, the agent marks the boxes it will change and shows before and after side by side.

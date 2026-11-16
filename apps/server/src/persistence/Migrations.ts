@@ -247,18 +247,18 @@ const ensureTeamColumns = Effect.fn("ensureTeamColumns")(function* () {
   }
 });
 
-const MASTER_AGENT_TABLES = ["master_agent", "master_agent_memory"] as const;
+const FORK_TABLES = ["master_agent", "master_agent_memory", "codemap_projects"] as const;
 
-const masterAgentTablesMissing = Effect.fn("masterAgentTablesMissing")(function* () {
+const forkTablesMissing = Effect.fn("forkTablesMissing")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const tables = yield* sql<{ readonly name: string }>`
-    SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ${sql.in(MASTER_AGENT_TABLES)}
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ${sql.in(FORK_TABLES)}
   `;
-  return tables.length < MASTER_AGENT_TABLES.length;
+  return tables.length < FORK_TABLES.length;
 });
 
 // Upstream owns the migration ids, so fork-only tables are created here and not by a numbered migration.
-const ensureMasterAgentTables = Effect.fn("ensureMasterAgentTables")(function* () {
+const ensureForkTables = Effect.fn("ensureForkTables")(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`
     CREATE TABLE IF NOT EXISTS master_agent (
@@ -273,6 +273,13 @@ const ensureMasterAgentTables = Effect.fn("ensureMasterAgentTables")(function* (
       updated_at TEXT NOT NULL
     ) WITHOUT ROWID
   `;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS codemap_projects (
+      project_id TEXT PRIMARY KEY,
+      analyzed_at TEXT NOT NULL,
+      edits_json TEXT NOT NULL DEFAULT '{}'
+    ) WITHOUT ROWID
+  `;
 });
 
 // Mirrors the Migrator, which runs only ids above the highest recorded, plus the V2-preview reconciliation.
@@ -283,7 +290,7 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
   `;
   if (tables.length === 0) return true;
   if ((yield* missingTeamColumns()).length > 0) return true;
-  if (yield* masterAgentTablesMissing()) return true;
+  if (yield* forkTablesMissing()) return true;
   const rows = yield* sql<{ readonly latestId: number | null; readonly previewRows: number }>`
     SELECT
       MAX(migration_id) AS latestId,
@@ -314,7 +321,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
   ];
   yield* ensureTeamColumns();
-  yield* ensureMasterAgentTables();
+  yield* ensureForkTables();
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")
