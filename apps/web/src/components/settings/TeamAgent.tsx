@@ -90,7 +90,9 @@ function MyAgentControls({
 }) {
   const { environmentId } = machine;
   const canWrite = useAtomValue(serverEnvironment.setTeamAgent.permissionAtom(environmentId));
-  const projects = useProjects().filter((project) => project.environmentId === environmentId);
+  const projects = useProjects().filter(
+    (project) => project.environmentId === environmentId && project.isScratch !== true,
+  );
   const providers = useEnvironmentProviders().get(environmentId) ?? EMPTY_SERVER_PROVIDERS;
   const entries = deriveProviderInstanceEntries(providers).filter((entry) =>
     AGENT_DRIVERS.has(entry.driverKind),

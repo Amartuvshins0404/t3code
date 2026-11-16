@@ -1,5 +1,6 @@
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Runs the ripgrep that Claude's Grep runs, as Claude does, with a custom argv0.
 import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -39,6 +40,7 @@ import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterReg
 import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -207,6 +209,83 @@ describe("decideTeamAgentSetting", () => {
   });
 });
 
+it.effect("keeps the No project folder away from a team agent", () => {
+  const scratch = ProjectId.make("project-scratch");
+  const row = (projectId: ProjectId, title: string): ProjectStore.ProjectRow => ({
+    projectId,
+    title,
+    workspaceRoot: `/work/${projectId}`,
+    defaultModelSelection: null,
+    defaultThreadEnvMode: null,
+    autoPull: false,
+    faviconPath: null,
+    projectIcon: null,
+    scripts: [],
+    pinnedAt: null,
+    archivedAt: null,
+    createdAt: "2026-11-16T00:00:00.000Z",
+    updatedAt: "2026-11-16T00:00:00.000Z",
+    deletedAt: null,
+    teamShare: null,
+  });
+  const rows = [row(scratch, "No project"), row(web, "Web")];
+  let saved: TeamSharingState = {
+    organizationIds: ["org-a", "org-b"],
+    agents: {
+      "org-a": { enabled: true, projectIds: [scratch, web], modelSelection },
+      "org-b": { enabled: true, projectIds: [scratch], modelSelection },
+    },
+  };
+  return Effect.gen(function* () {
+    const agent = yield* TeamAgentService.TeamAgent;
+    const refused = yield* agent
+      .setAgent(
+        { organizationId: "org-a", enabled: true, projectIds: [scratch], modelSelection },
+        undefined,
+      )
+      .pipe(Effect.flip);
+    expect(refused.reason).toBe("agent_project_not_allowed");
+    expect(saved.agents).toEqual({
+      "org-a": { enabled: true, projectIds: [web], modelSelection },
+      "org-b": { enabled: false, projectIds: [], modelSelection },
+    });
+  }).pipe(
+    Effect.provide(
+      TeamAgentService.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            NodeCrypto.layer,
+            Layer.mock(TeamSharing.TeamSharing)({
+              readState: Effect.sync(() => saved),
+              setAgentSetting: (organizationId, setting) =>
+                Effect.sync(() => {
+                  saved = { ...saved, agents: { ...saved.agents, [organizationId]: setting } };
+                  return setting;
+                }),
+            }),
+            Layer.mock(ProjectStore.ProjectStoreV2)({
+              list: (options) =>
+                Effect.succeed(
+                  rows.filter((candidate) => options?.projectIds?.includes(candidate.projectId)),
+                ),
+            }),
+            Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+              namedProjectsRoot: "/work",
+              isScratchProject: (projectId) => Effect.succeed(projectId === scratch),
+            }),
+            Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+              getInstance: () => Effect.undefined,
+            }),
+            Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+            Layer.mock(ServerSettings.ServerSettingsService)({}),
+            Layer.mock(ServerSecretStore.ServerSecretStore)({}),
+          ),
+        ),
+      ),
+    ),
+  );
+});
+
 describe("teamAgentStatuses", () => {
   const projects = [{ projectId: web, title: "Web" }];
 
@@ -322,6 +401,10 @@ const makeTeamAgentLayer = (
             Effect.succeedSome({ projectId, archivedAt: null, teamShare: webShare } as never),
         }),
         Layer.mock(ProjectService.ProjectService)({ setTeamShare: () => Effect.void }),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: "/work",
+          isScratchProject: () => Effect.succeed(false),
+        }),
         Layer.mock(ServerSecretStore.ServerSecretStore)({
           get: (name) => Effect.succeed(Option.fromNullishOr(secretValues.get(name))),
           set: (name, value) =>

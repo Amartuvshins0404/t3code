@@ -25,6 +25,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { CLOUD_LINKED_USER_ID } from "../cloud/config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
@@ -240,6 +241,7 @@ export const ownerTeamPerson = Effect.fn("TeamAgent.ownerTeamPerson")(function* 
 const make = Effect.gen(function* () {
   const sharing = yield* TeamSharing.TeamSharing;
   const projects = yield* ProjectStore.ProjectStoreV2;
+  const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const settings = yield* ServerSettings.ServerSettingsService;
@@ -249,12 +251,39 @@ const make = Effect.gen(function* () {
   const internal = (message: string) => () => refused("internal", message);
   const uuid = random.uuidV4().pipe(Effect.orDie);
 
-  const listProjects = (projectIds: ReadonlyArray<ProjectId>) =>
-    projectIds.length === 0
-      ? Effect.succeed([])
-      : projects
-          .list({ projectIds })
-          .pipe(Effect.mapError(internal("Could not read the projects.")));
+  const withoutScratch = (projectIds: ReadonlyArray<ProjectId>) =>
+    Effect.filter(projectIds, (projectId) =>
+      managedFolders.isScratchProject(projectId).pipe(Effect.map((scratch) => !scratch)),
+    );
+
+  const listProjects = Effect.fn("TeamAgent.listProjects")(function* (
+    projectIds: ReadonlyArray<ProjectId>,
+  ) {
+    const allowed = yield* withoutScratch(projectIds);
+    if (allowed.length === 0) return [];
+    return yield* projects
+      .list({ projectIds: allowed })
+      .pipe(Effect.mapError(internal("Could not read the projects.")));
+  });
+
+  yield* Effect.gen(function* () {
+    const state = yield* sharing.readState;
+    for (const organizationId of state.organizationIds) {
+      const setting = state.agents[organizationId];
+      if (setting === undefined) continue;
+      const projectIds = yield* withoutScratch(setting.projectIds);
+      if (projectIds.length === setting.projectIds.length) continue;
+      yield* sharing.setAgentSetting(organizationId, {
+        ...setting,
+        projectIds,
+        enabled: setting.enabled && projectIds.length > 0,
+      });
+    }
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Could not take the No project folder out of saved team agents.", cause),
+    ),
+  );
 
   const modelInstance = (modelSelection: ModelSelection | undefined) =>
     modelSelection === undefined
