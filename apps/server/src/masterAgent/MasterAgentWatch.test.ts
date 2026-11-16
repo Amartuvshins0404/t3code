@@ -29,7 +29,7 @@ interface FakeThread {
   prWatching?: boolean;
   programRunning?: boolean;
   needsYou?: boolean;
-  checksWakeRunning?: boolean;
+  checksWake?: Status;
   lastMessage?: string;
 }
 
@@ -71,15 +71,15 @@ function makeFake() {
     if (thread === undefined) return { runs: [] };
     const runs = [run(threadId, thread.status)];
     const wake = {
-      ...run(threadId, "running"),
+      ...run(threadId, thread.checksWake ?? "running"),
       id: `wake-${threadId}`,
       ordinal: 2,
     } as OrchestrationV2Run;
-    if (thread.checksWakeRunning) runs.push(wake);
+    if (thread.checksWake !== undefined) runs.push(wake);
     return {
       runs,
       messages: [
-        ...(thread.checksWakeRunning
+        ...(thread.checksWake !== undefined
           ? [
               {
                 id: `checks-${threadId}`,
@@ -97,7 +97,7 @@ function makeFake() {
               {
                 id: `answer-${threadId}`,
                 threadId,
-                runId: runs[0]!.id,
+                runId: runs.at(-1)!.id,
                 role: "assistant",
                 text: thread.lastMessage,
                 createdAt: now,
@@ -244,12 +244,12 @@ it.effect(
         fake.threads.set(A, {
           ...fake.threads.get(A)!,
           prWatching: false,
-          checksWakeRunning: true,
+          checksWake: "running",
         });
         assert.deepStrictEqual(yield* stateAfterCheck, ["working"]);
         fake.threads.set(A, {
           ...fake.threads.get(A)!,
-          checksWakeRunning: false,
+          checksWake: "failed",
           programRunning: true,
         });
         assert.deepStrictEqual(yield* stateAfterCheck, ["waiting_on_tasks"]);
@@ -262,6 +262,7 @@ it.effect(
         assert.include(fake.dispatched[0]!.text, "Fix login");
         assert.include(fake.dispatched[0]!.text, "Shipped.");
         assert.include(fake.dispatched[0]!.text, "pull/7");
+        assert.include(fake.dispatched[0]!.text, " failed.");
       }),
     );
   },

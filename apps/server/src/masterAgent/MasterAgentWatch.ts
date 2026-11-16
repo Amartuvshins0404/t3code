@@ -45,6 +45,10 @@ const SETTLING_EVENTS: ReadonlySet<string> = new Set([
   "provider-thread.updated",
   "runtime-request.updated",
   "thread.pull-request-link-updated",
+  "thread.pull-request-synced",
+  "thread.archived",
+  "thread.deleted",
+  "run.background-work-cancelled",
 ]);
 const BUSY_RUN_STATUSES = ["preparing", "starting", "running", "waiting"] as const;
 /** Threads finishing within this window of each other reach the agent as one notice. */
@@ -191,6 +195,11 @@ export const make = Effect.gen(function* () {
     const rows = yield* store.claimNoticeBatch(yield* random.uuidV4());
     const batchId = rows[0]?.batchId;
     if (batchId == null) return;
+    const refused = (error: unknown) =>
+      Effect.logWarning("master agent notice was refused", { batchId, error }).pipe(
+        Effect.andThen(store.releaseNoticeBatch(batchId)),
+        Effect.as(false),
+      );
     const notices = rows.flatMap((row) => {
       const notice = decodeNotice(row.notice);
       return notice._tag === "Some" ? [{ threadId: row.threadId, ...notice.value }] : [];
@@ -214,10 +223,14 @@ export const make = Effect.gen(function* () {
         })
         .pipe(
           Effect.as(true),
-          // A rejected command replays its rejection forever, so the batch goes out again under a new id.
+          // Only a refusal that saved nothing frees the batch for a new id; anything else replays this id.
+          Effect.catchTags({
+            OrchestratorCommandPreviouslyRejectedError: (error) => refused(error),
+            OrchestratorThreadAboveModeLimitError: (error) => refused(error),
+            OrchestratorRuntimeModeAboveCeilingError: (error) => refused(error),
+          }),
           Effect.catch((error) =>
-            Effect.logWarning("master agent notice was refused", { batchId, error }).pipe(
-              Effect.andThen(store.releaseNoticeBatch(batchId)),
+            Effect.logWarning("master agent notice failed, will replay", { batchId, error }).pipe(
               Effect.as(false),
             ),
           ),

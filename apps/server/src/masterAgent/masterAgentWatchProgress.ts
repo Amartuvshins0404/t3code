@@ -8,6 +8,7 @@ import type {
 } from "@t3tools/contracts";
 import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 
 export type WatchRecords = Pick<
@@ -70,10 +71,18 @@ export function watchProgress(input: {
     visibleThreadPullRequests(shell.pullRequests ?? []).some((link) => link.watch !== undefined)
   )
     return { state: "in_checks" };
-  const status = progress.resultRun?.status;
+  // A PR-check wake run may have ended after the delegated result, so it says how the thread ended.
+  const resultRun =
+    records.runs
+      .filter(
+        (run) => run.status !== "rolled_back" && TERMINAL.has(run.status) && run.startedAt !== null,
+      )
+      .toSorted((a, b) => (runRanAfter(a, b) ? -1 : runRanAfter(b, a) ? 1 : 0))[0] ??
+    progress.resultRun;
+  const status = resultRun?.status;
   return {
     state: "done",
-    resultRun: progress.resultRun,
+    resultRun,
     end:
       status === "failed" || status === "interrupted" || status === "cancelled"
         ? status
