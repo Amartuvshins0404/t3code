@@ -101,7 +101,7 @@ const watchDependencies = [...dependencies, MasterAgentWatch.MasterAgentWatch];
 
 const AgentThreadsTool = Tool.make("agent_threads", {
   description:
-    "The threads you started or sent work to that T3 Code is watching for you, with their state: working, waiting_on_tasks (a helper or a program it left running), in_checks (waiting on a pull request), or done (your notice is on its way).",
+    "The threads you started or sent work to that T3 Code is watching for you, with their state: working, waiting_on_tasks (a helper or a program it left running), in_checks (waiting on a pull request), needs_you (you were told; it is still watched), or done (your notice is on its way).",
   success: Schema.Struct({
     threads: Schema.Array(
       Schema.Struct({

@@ -29,6 +29,7 @@ interface FakeThread {
   prWatching?: boolean;
   programRunning?: boolean;
   needsYou?: boolean;
+  checksWakeRunning?: boolean;
   lastMessage?: string;
 }
 
@@ -69,10 +70,28 @@ function makeFake() {
     const thread = threads.get(threadId);
     if (thread === undefined) return { runs: [] };
     const runs = [run(threadId, thread.status)];
+    const wake = {
+      ...run(threadId, "running"),
+      id: `wake-${threadId}`,
+      ordinal: 2,
+    } as OrchestrationV2Run;
+    if (thread.checksWakeRunning) runs.push(wake);
     return {
       runs,
-      messages:
-        thread.lastMessage === undefined
+      messages: [
+        ...(thread.checksWakeRunning
+          ? [
+              {
+                id: `checks-${threadId}`,
+                threadId,
+                runId: wake.id,
+                role: "user",
+                text: "Checks failed.",
+                notification: { source: { kind: "monitor" }, outcome: "failed", summary: "#7" },
+              } as unknown as OrchestrationV2ThreadProjection["messages"][number],
+            ]
+          : []),
+        ...(thread.lastMessage === undefined
           ? []
           : [
               {
@@ -84,7 +103,8 @@ function makeFake() {
                 createdAt: now,
                 updatedAt: now,
               } as unknown as OrchestrationV2ThreadProjection["messages"][number],
-            ],
+            ]),
+      ],
       turnItems: [],
       providerTurns: [],
       subagents: [],
@@ -220,9 +240,16 @@ it.effect(
         assert.deepStrictEqual(yield* stateAfterCheck, ["working"]);
         fake.threads.set(A, { ...fake.threads.get(A)!, status: "completed", prWatching: true });
         assert.deepStrictEqual(yield* stateAfterCheck, ["in_checks"]);
+        // Checks failed: the watch ends and its wake run starts in the same step.
         fake.threads.set(A, {
           ...fake.threads.get(A)!,
           prWatching: false,
+          checksWakeRunning: true,
+        });
+        assert.deepStrictEqual(yield* stateAfterCheck, ["working"]);
+        fake.threads.set(A, {
+          ...fake.threads.get(A)!,
+          checksWakeRunning: false,
           programRunning: true,
         });
         assert.deepStrictEqual(yield* stateAfterCheck, ["waiting_on_tasks"]);
@@ -239,6 +266,34 @@ it.effect(
     );
   },
 );
+
+it.effect("says a thread needs the owner, then still reports how it ends", () => {
+  const fake = makeFake();
+  return withService(fake, ({ start }) =>
+    Effect.gen(function* () {
+      const watches = yield* start();
+      fake.threads.set(A, { title: "Deploy", status: "running", needsYou: true });
+      yield* watches.watch({ callerThreadId: MASTER, threadId: A });
+      yield* watches.check;
+      yield* watches.check;
+      assert.strictEqual(fake.dispatched.length, 1);
+      assert.include(fake.dispatched[0]!.text, "waiting for the owner");
+      assert.deepStrictEqual(
+        (yield* watches.list.pipe(Effect.orDie)).map((watch) => watch.state),
+        ["needs_you"],
+      );
+
+      fake.threads.set(A, { title: "Deploy", status: "running" });
+      yield* watches.check;
+      fake.threads.set(A, { title: "Deploy", status: "completed" });
+      yield* watches.check;
+      assert.strictEqual(fake.dispatched.length, 2);
+      assert.include(fake.dispatched[1]!.text, "Deploy");
+      assert.include(fake.dispatched[1]!.text, "finished");
+      assert.deepStrictEqual(yield* watches.list.pipe(Effect.orDie), []);
+    }),
+  );
+});
 
 it.effect("holds notices while the agent is mid-turn and delivers them as one", () => {
   const fake = makeFake();

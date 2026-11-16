@@ -37,6 +37,15 @@ const StoredNotice = Schema.fromJsonString(
 const encodeNotice = Schema.encodeSync(StoredNotice);
 const decodeNotice = Schema.decodeUnknownOption(StoredNotice);
 
+/** What can settle a watched thread or end the agent's turn; streaming output cannot. */
+const SETTLING_EVENTS: ReadonlySet<string> = new Set([
+  "run.created",
+  "run.updated",
+  "subagent.updated",
+  "provider-thread.updated",
+  "runtime-request.updated",
+  "thread.pull-request-link-updated",
+]);
 const BUSY_RUN_STATUSES = ["preparing", "starting", "running", "waiting"] as const;
 /** Threads finishing within this window of each other reach the agent as one notice. */
 const GATHER = "1 second";
@@ -70,25 +79,35 @@ export const make = Effect.gen(function* () {
   const lock = yield* Semaphore.make(1);
   const wakeups = yield* Queue.sliding<void>(1);
   const listRef = yield* SubscriptionRef.make<MasterAgentWatchList>([]);
-  const states = new Map<ThreadId, Exclude<MasterAgentWatchState, "done">>();
+  const states = new Map<ThreadId, Exclude<MasterAgentWatchState, "done" | "needs_you">>();
+  let published = "";
   const followed = new Set<string>();
 
   const toList = (rows: ReadonlyArray<MasterAgentStore.MasterAgentWatchRow>) =>
     rows.map((row) => ({
       threadId: row.threadId,
       startedAt: row.startedAt,
-      state: row.notice !== null ? ("done" as const) : (states.get(row.threadId) ?? "working"),
+      state:
+        row.notice === MasterAgentStore.NEEDS_YOU_TOLD
+          ? ("needs_you" as const)
+          : row.notice !== null
+            ? ("done" as const)
+            : (states.get(row.threadId) ?? "working"),
     }));
 
   const publish = Effect.gen(function* () {
     const rows = yield* store.listWatches;
     const master = yield* store.readThreadId;
     followed.clear();
-    if (master !== null) followed.add(master);
+    if (master !== null && rows.length > 0) followed.add(master);
     for (const row of rows) followed.add(row.threadId);
     for (const threadId of states.keys())
       if (!rows.some((row) => row.threadId === threadId)) states.delete(threadId);
-    yield* SubscriptionRef.set(listRef, toList(rows));
+    const list = toList(rows);
+    const key = list.map((w) => `${w.threadId} ${w.startedAt} ${w.state}`).join("\n");
+    if (key === published) return;
+    published = key;
+    yield* SubscriptionRef.set(listRef, list);
   });
 
   const lastMessage = Effect.fn("MasterAgentWatch.lastMessage")(function* (
@@ -124,7 +143,13 @@ export const make = Effect.gen(function* () {
             },
           );
     let progress = watchProgress({ shell, records, resultPending: false });
-    if (progress.state === "done" && progress.end !== "gone" && progress.end !== "needs_you") {
+    const told = row.notice === MasterAgentStore.NEEDS_YOU_TOLD;
+    if (
+      progress.state === "done" &&
+      progress.end !== "gone" &&
+      progress.end !== "needs_you" &&
+      (row.notice === null || told)
+    ) {
       const pending = yield* engine.delegatedTaskResultPending(row.threadId);
       if (pending) progress = watchProgress({ shell, records, resultPending: true });
     }
@@ -133,7 +158,7 @@ export const make = Effect.gen(function* () {
       if (row.notice !== null) yield* store.setWatchNotice({ ...row, notice: null });
       return;
     }
-    if (row.notice !== null) return;
+    if (told ? progress.end === "needs_you" : row.notice !== null) return;
     const title = shell?.title ?? "Thread";
     const message =
       progress.resultRun === undefined || progress.end === "gone" || progress.end === "needs_you"
@@ -166,27 +191,40 @@ export const make = Effect.gen(function* () {
     const rows = yield* store.claimNoticeBatch(yield* random.uuidV4());
     const batchId = rows[0]?.batchId;
     if (batchId == null) return;
-    const lines = rows.flatMap((row) => {
+    const notices = rows.flatMap((row) => {
       const notice = decodeNotice(row.notice);
-      return notice._tag === "Some" ? [notice.value] : [];
+      return notice._tag === "Some" ? [{ threadId: row.threadId, ...notice.value }] : [];
     });
-    if (lines.length > 0) {
-      const { text, notification } = watchNoticeMessage(lines);
+    const keep = notices.filter((notice) => notice.end === "needs_you").map((n) => n.threadId);
+    if (notices.length > 0) {
+      const { text, notification } = watchNoticeMessage(notices);
       // Fixed ids: a restart before the batch is removed replays this command, not a second notice.
-      yield* engine.dispatch({
-        type: "message.dispatch",
-        commandId: CommandId.make(`master-agent-watch:${batchId}`),
-        threadId: master,
-        messageId: MessageId.make(`message:master-agent-watch:${batchId}`),
-        text,
-        notification,
-        attachments: [],
-        dispatchMode: { type: "queue_after_active" },
-        createdBy: "agent",
-        creationSource: "server",
-      });
+      const sent = yield* engine
+        .dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`master-agent-watch:${batchId}`),
+          threadId: master,
+          messageId: MessageId.make(`message:master-agent-watch:${batchId}`),
+          text,
+          notification,
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "agent",
+          creationSource: "server",
+        })
+        .pipe(
+          Effect.as(true),
+          // A rejected command replays its rejection forever, so the batch goes out again under a new id.
+          Effect.catch((error) =>
+            Effect.logWarning("master agent notice was refused", { batchId, error }).pipe(
+              Effect.andThen(store.releaseNoticeBatch(batchId)),
+              Effect.as(false),
+            ),
+          ),
+        );
+      if (!sent) return;
     }
-    yield* store.removeNoticeBatch(batchId);
+    yield* store.finishNoticeBatch({ batchId, keep });
   });
 
   const check: MasterAgentWatch["Service"]["check"] = Effect.gen(function* () {
@@ -239,13 +277,14 @@ export const make = Effect.gen(function* () {
           Stream.make(undefined),
           Stream.fromQueue(wakeups),
           engine.streamDomainEvents.pipe(
-            Stream.filter((event) => followed.has(event.threadId)),
-            Stream.map(() => undefined),
-            Stream.catchCause((cause) =>
-              Stream.fromEffect(
-                Effect.logWarning("master agent watch event stream failed", { cause }),
-              ).pipe(Stream.drain),
+            Stream.filter(
+              (event) => SETTLING_EVENTS.has(event.type) && followed.has(event.threadId),
             ),
+            Stream.map(() => undefined),
+            Stream.tapError((cause) =>
+              Effect.logWarning("master agent watch event stream failed", { cause }),
+            ),
+            Stream.retry(Schedule.spaced("5 seconds")),
           ),
           Stream.fromSchedule(Schedule.spaced(SWEEP)).pipe(Stream.map(() => undefined)),
         ],

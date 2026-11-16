@@ -18,7 +18,7 @@ export type WatchRecords = Pick<
 export type WatchEnd = "completed" | "failed" | "interrupted" | "cancelled" | "needs_you" | "gone";
 
 export type WatchProgress =
-  | { readonly state: Exclude<MasterAgentWatchState, "done"> }
+  | { readonly state: Exclude<MasterAgentWatchState, "done" | "needs_you"> }
   | {
       readonly state: "done";
       readonly end: WatchEnd;
@@ -45,6 +45,13 @@ export function watchProgress(input: {
   if (shell === null || shell.deletedAt != null) return { state: "done", end: "gone" };
   if (records.runtimeRequests.some((request) => request.status === "pending"))
     return { state: "done", end: "needs_you" };
+  // Delegated progress skips PR-check wake runs, but a thread working on one is not done.
+  if (
+    records.runs.some(
+      (run) => !TERMINAL.has(run.status) && !(run.status === "queued" && run.queueHeld === true),
+    )
+  )
+    return { state: "working" };
   const progress = delegatedTaskProgress(records);
   if (progress.state === "working") {
     // Rolled back past all its work with nothing running: there is no answer left to wait for.

@@ -535,6 +535,7 @@ export const MasterAgentWatchState = Schema.Literals([
   "working",
   "waiting_on_tasks",
   "in_checks",
+  "needs_you",
   "done",
 ]);
 export type MasterAgentWatchState = typeof MasterAgentWatchState.Type;

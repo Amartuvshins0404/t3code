@@ -23,6 +23,7 @@ const STATE_LABEL: Record<MasterAgentWatchState, string> = {
   working: "Working",
   waiting_on_tasks: "Waiting on a helper or program",
   in_checks: "Waiting on PR checks",
+  needs_you: "Waiting for you",
   done: "Done, telling the agent",
 };
 

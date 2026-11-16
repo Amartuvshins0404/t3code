@@ -27,6 +27,9 @@ export const MasterAgentWatchRow = Schema.Struct({
 });
 export type MasterAgentWatchRow = typeof MasterAgentWatchRow.Type;
 
+/** A delivered "needs you" notice: the watch stays on to report how the thread ends. */
+export const NEEDS_YOU_TOLD = "needs-you-told";
+
 export class MasterAgentStore extends Context.Service<
   MasterAgentStore,
   {
@@ -69,7 +72,13 @@ export class MasterAgentStore extends Context.Service<
     readonly claimNoticeBatch: (
       batchId: string,
     ) => Effect.Effect<ReadonlyArray<MasterAgentWatchRow>, MasterAgentStoreError>;
-    readonly removeNoticeBatch: (batchId: string) => Effect.Effect<void, MasterAgentStoreError>;
+    /** Ends a delivered batch; `keep` rows were told the thread needs the owner and stay watched. */
+    readonly finishNoticeBatch: (input: {
+      readonly batchId: string;
+      readonly keep: ReadonlyArray<ThreadId>;
+    }) => Effect.Effect<void, MasterAgentStoreError>;
+    /** Returns an undeliverable batch to the queue, to go out under a new id. */
+    readonly releaseNoticeBatch: (batchId: string) => Effect.Effect<void, MasterAgentStoreError>;
   }
 >()("t3/persistence/MasterAgentStore") {}
 
@@ -223,7 +232,7 @@ const make = Effect.gen(function* () {
         if (owed[0] === undefined) {
           yield* sql`
             UPDATE master_agent_watch SET batch_id = ${batchId}
-            WHERE notice IS NOT NULL AND batch_id IS NULL
+            WHERE notice IS NOT NULL AND notice != ${NEEDS_YOU_TOLD} AND batch_id IS NULL
           `;
         }
         return yield* selectBatch(claimed);
@@ -232,9 +241,22 @@ const make = Effect.gen(function* () {
         Effect.mapError(toStoreError("MasterAgentStore.claimNoticeBatch")),
       );
     }),
-    removeNoticeBatch: Effect.fn("MasterAgentStore.removeNoticeBatch")(function* (batchId) {
-      yield* sql`DELETE FROM master_agent_watch WHERE batch_id = ${batchId}`.pipe(
-        Effect.mapError(toStoreError("MasterAgentStore.removeNoticeBatch")),
+    finishNoticeBatch: Effect.fn("MasterAgentStore.finishNoticeBatch")(function* (input) {
+      yield* Effect.gen(function* () {
+        if (input.keep.length > 0)
+          yield* sql`
+            UPDATE master_agent_watch SET batch_id = NULL, notice = ${NEEDS_YOU_TOLD}
+            WHERE batch_id = ${input.batchId} AND thread_id IN ${sql.in(input.keep)}
+          `;
+        yield* sql`DELETE FROM master_agent_watch WHERE batch_id = ${input.batchId}`;
+      }).pipe(
+        sql.withTransaction,
+        Effect.mapError(toStoreError("MasterAgentStore.finishNoticeBatch")),
+      );
+    }),
+    releaseNoticeBatch: Effect.fn("MasterAgentStore.releaseNoticeBatch")(function* (batchId) {
+      yield* sql`UPDATE master_agent_watch SET batch_id = NULL WHERE batch_id = ${batchId}`.pipe(
+        Effect.mapError(toStoreError("MasterAgentStore.releaseNoticeBatch")),
       );
     }),
   });
