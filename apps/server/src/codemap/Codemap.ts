@@ -20,8 +20,14 @@ import { checkpointRefForScopeOrdinal } from "../orchestration-v2/CheckpointServ
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import { analyzeCodebase, type CodemapAnalysis, filesToRead } from "./analyze.ts";
-import { buildCodemapView, parseNameStatus } from "./view.ts";
+import {
+  analyzeCodebase,
+  type CodemapAnalysis,
+  countLines,
+  filesToRead,
+  isManifest,
+} from "./analyze.ts";
+import { buildCodemapView, dirtyPaths, parseNameStatus } from "./view.ts";
 
 interface CachedAnalysis {
   readonly key: string;
@@ -38,6 +44,9 @@ interface ThreadWorkspace {
 
 const MAX_CACHED_WORKSPACES = 8;
 const MAX_CHANGED_PATHS = 2_000;
+const MAX_READ_BYTES = 1024 * 1024;
+const MAX_FILES = 100_000;
+const MAX_DIRTY_STATS = 2_000;
 
 export class Codemap extends Context.Service<
   Codemap,
@@ -58,7 +67,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const cache = new Map<string, CachedAnalysis>();
-  const lock = yield* Semaphore.make(1);
+  const locks = new Map<string, Semaphore.Semaphore>();
 
   const run = (cwd: string, operation: string, args: ReadonlyArray<string>, maxBytes: number) =>
     git
@@ -126,17 +135,39 @@ const make = Effect.gen(function* () {
     return parseNameStatus(diff.value.stdout, MAX_CHANGED_PATHS);
   });
 
+  const fileStamp = (cwd: string, file: string) =>
+    fs.lstat(path.join(cwd, file)).pipe(
+      Effect.map(
+        (info) =>
+          `${info.type}:${info.size}:${Option.match(info.mtime, {
+            onNone: () => 0,
+            onSome: (date) => date.getTime(),
+          })}`,
+      ),
+      Effect.orElseSucceed(() => ""),
+    );
+
   const freshnessKey = Effect.fn("Codemap.freshnessKey")(function* (cwd: string) {
     const head = yield* run(cwd, "head", ["rev-parse", "--is-inside-work-tree", "HEAD"], 4096);
-    if (Option.isNone(head) || !head.value.stdout.startsWith("true")) return null;
+    if (Option.isNone(head)) return { _tag: "failed", reason: "read_failed" } as const;
+    if (!head.value.stdout.startsWith("true"))
+      return { _tag: "failed", reason: "not_a_repository" } as const;
     const status = yield* run(
       cwd,
       "status",
       ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
       4 * 1024 * 1024,
     );
-    if (Option.isNone(status)) return null;
-    return `${head.value.stdout.trim()}\u0000${status.value.stdout}`;
+    if (Option.isNone(status) || status.value.exitCode !== 0)
+      return { _tag: "failed", reason: "read_failed" } as const;
+    const dirty = dirtyPaths(status.value.stdout).slice(0, MAX_DIRTY_STATS);
+    const stamps = yield* Effect.forEach(dirty, (file) => fileStamp(cwd, file), {
+      concurrency: 32,
+    });
+    return {
+      _tag: "fresh",
+      key: [head.value.stdout.trim(), status.value.stdout, ...stamps].join("\u0000"),
+    } as const;
   });
 
   const ensureAnalysis = Effect.fn("Codemap.ensureAnalysis")(function* (cwd: string, key: string) {
@@ -149,20 +180,30 @@ const make = Effect.gen(function* () {
       64 * 1024 * 1024,
     );
     if (Option.isNone(listing) || listing.value.exitCode !== 0) return null;
-    const files = listing.value.stdout.split("\u0000").filter((file) => file.length > 0);
-    const texts = new Map<string, string>();
+    const files = listing.value.stdout
+      .split("\u0000")
+      .filter((file) => file.length > 0)
+      .slice(0, MAX_FILES);
+    const lineCounts = new Map<string, number>();
+    const manifests = new Map<string, string>();
     yield* Effect.forEach(
       filesToRead(files),
       (file) =>
-        fs.readFileString(path.join(cwd, file)).pipe(
-          Effect.tap((text) => Effect.sync(() => texts.set(file, text))),
+        Effect.gen(function* () {
+          const bytes = yield* readSource(cwd, file);
+          if (bytes === null) return;
+          lineCounts.set(file, countLines(bytes));
+          if (isManifest(file)) manifests.set(file, new TextDecoder().decode(bytes));
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
           Effect.ignore,
         ),
       { concurrency: 48, discard: true },
     );
     const next: CachedAnalysis = {
       key,
-      analysis: analyzeCodebase({ files, texts }),
+      analysis: analyzeCodebase({ files, lineCounts, manifests }),
       totalFiles: files.length,
       analyzedAt: DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis)),
     };
@@ -173,6 +214,14 @@ const make = Effect.gen(function* () {
     return next;
   });
 
+  const lockFor = (cwd: string) => {
+    const existing = locks.get(cwd);
+    if (existing) return existing;
+    const created = Semaphore.makeUnsafe(1);
+    locks.set(cwd, created);
+    return created;
+  };
+
   const read: Codemap["Service"]["read"] = Effect.fn("Codemap.read")(function* ({
     projectId,
     focusId,
@@ -180,13 +229,14 @@ const make = Effect.gen(function* () {
   }) {
     const projectRoot = yield* loadRoot(projectId);
     const workspace = threadId === undefined ? null : yield* threadWorkspace(threadId);
-    const workspaceKey = workspace === null ? null : yield* freshnessKey(workspace.cwd);
-    const cwd = workspaceKey === null ? projectRoot : (workspace?.cwd ?? projectRoot);
-    const key = workspaceKey ?? (yield* freshnessKey(projectRoot));
-    if (key === null) return { _tag: "unavailable", reason: "not_a_repository" } as const;
-    const result = yield* lock.withPermits(1)(ensureAnalysis(cwd, key));
+    const workspaceFresh = workspace === null ? null : yield* freshnessKey(workspace.cwd);
+    const useWorkspace = workspace !== null && workspaceFresh?._tag === "fresh";
+    const cwd = useWorkspace ? workspace.cwd : projectRoot;
+    const fresh = useWorkspace ? workspaceFresh : yield* freshnessKey(projectRoot);
+    if (fresh._tag === "failed") return { _tag: "unavailable", reason: fresh.reason } as const;
+    const result = yield* lockFor(cwd).withPermits(1)(ensureAnalysis(cwd, fresh.key));
     if (result === null) return { _tag: "unavailable", reason: "read_failed" } as const;
-    const changes = yield* threadChanges(workspaceKey === null ? null : workspace);
+    const changes = yield* threadChanges(useWorkspace ? workspace : null);
     return {
       _tag: "ready",
       view: buildCodemapView(result.analysis, focusId, changes.touched),
@@ -200,3 +250,12 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(Codemap, make);
+
+export const readSource = Effect.fn("Codemap.readSource")(function* (cwd: string, file: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const target = path.join(cwd, file);
+  const info = yield* fs.lstat(target);
+  if (info.type !== "File" || info.size > MAX_READ_BYTES) return null;
+  return yield* fs.readFile(target);
+});

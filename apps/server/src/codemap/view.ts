@@ -105,3 +105,15 @@ export function buildCodemapView(
     hiddenChildren: focus.children.length - top.length,
   };
 }
+
+export function dirtyPaths(porcelain: string): ReadonlyArray<string> {
+  const fields = porcelain.split("\u0000");
+  const paths: string[] = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const entry = fields[index] ?? "";
+    if (entry.length < 4) continue;
+    paths.push(entry.slice(3));
+    if (entry[0] === "R" || entry[0] === "C") index += 1;
+  }
+  return paths;
+}

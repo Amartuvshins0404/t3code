@@ -1,89 +1,44 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { analyzeCodebase, filesToRead } from "./analyze.ts";
-import { buildCodemapView, parseNameStatus } from "./view.ts";
+import { analyzeCodebase, countLines, filesToRead, isManifest } from "./analyze.ts";
+import { buildCodemapView, dirtyPaths, parseNameStatus } from "./view.ts";
 
 function analyze(files: Record<string, string>) {
   const paths = Object.keys(files);
-  const readable = new Set(filesToRead(paths));
-  const texts = new Map(Object.entries(files).filter(([path]) => readable.has(path)));
-  return analyzeCodebase({ files: paths, texts });
-}
-
-function linked(analysis: ReturnType<typeof analyze>, from: string, to: string) {
-  return analysis.edges.get(from)?.has(to) ?? false;
+  const lineCounts = new Map<string, number>();
+  const manifests = new Map<string, string>();
+  for (const file of filesToRead(paths)) {
+    const text = files[file] ?? "";
+    lineCounts.set(file, countLines(new TextEncoder().encode(text)));
+    if (isManifest(file)) manifests.set(file, text);
+  }
+  return analyzeCodebase({ files: paths, lineCounts, manifests });
 }
 
 describe("analyzeCodebase", () => {
-  it.each([
-    {
-      language: "TypeScript, relative and workspace package imports",
-      files: {
-        "packages/core/package.json": `{"name":"@acme/core"}`,
-        "packages/core/src/index.ts": "export const x = 1;",
-        "apps/web/package.json": `{"name":"@acme/web"}`,
-        "apps/web/src/main.ts": `import { x } from "@acme/core";\nimport "./util.js";`,
-        "apps/web/src/util.ts": "export {};",
-      },
-      edges: [
-        ["apps/web/src/main.ts", "packages/core"],
-        ["apps/web/src/main.ts", "apps/web/src/util.ts"],
-      ],
-    },
-    {
-      language: "Python, relative and absolute imports",
-      files: {
-        "src/pkg/__init__.py": "",
-        "src/pkg/models.py": "from .exceptions import Boom\nimport pkg.utils",
-        "src/pkg/exceptions.py": "class Boom(Exception): pass",
-        "src/pkg/utils.py": "",
-      },
-      edges: [
-        ["src/pkg/models.py", "src/pkg/exceptions.py"],
-        ["src/pkg/models.py", "src/pkg/utils.py"],
-      ],
-    },
-    {
-      language: "Go, module imports resolve to package folders",
-      files: {
-        "go.mod": "module example.com/tool\n\ngo 1.22",
-        "cmd/main.go": `package main\n\nimport (\n\t"fmt"\n\t"example.com/tool/internal/store"\n)`,
-        "internal/store/store.go": "package store",
-      },
-      edges: [["cmd/main.go", "internal/store"]],
-    },
-    {
-      language: "Rust, mod declarations and crate paths",
-      files: {
-        "Cargo.toml": `[package]\nname = "tool"`,
-        "src/main.rs": "mod config;\nuse crate::search::run;",
-        "src/config.rs": "",
-        "src/search.rs": "pub fn run() {}",
-      },
-      edges: [
-        ["src/main.rs", "src/config.rs"],
-        ["src/main.rs", "src/search.rs"],
-      ],
-    },
-  ])("links files for $language", ({ files, edges }) => {
-    const analysis = analyze(files);
-    for (const [from = "", to = ""] of edges)
-      expect(linked(analysis, from, to), `${from} -> ${to}`).toBe(true);
-  });
-
-  it("names workspace packages from their manifests and ignores vendored code", () => {
+  it("names packages from their manifests, sizes folders by lines and marks vendored code", () => {
     const analysis = analyze({
       "packages/core/package.json": `{"name":"@acme/core"}`,
-      "packages/core/index.ts": "",
-      "node_modules/left-pad/index.js": "",
+      "packages/core/src/index.ts": "a\nb\nc",
+      "packages/core/src/util.ts": "a",
       "vendor/lib/a.go": "package lib",
     });
     expect(analysis.nodes.get("packages/core")).toMatchObject({
       kind: "package",
       name: "@acme/core",
     });
-    expect(analysis.languages.map((entry) => entry.language)).not.toContain("Go");
-    expect(analysis.languages).toContainEqual({ language: "TypeScript", files: 1 });
+    expect(analysis.nodes.get("packages/core/src")).toMatchObject({ files: 2, lines: 4 });
+    expect(analysis.nodes.get("vendor/lib")?.vendored).toBe(true);
+  });
+});
+
+describe("dirtyPaths", () => {
+  it("reads modified, untracked and renamed paths from git status -z", () => {
+    expect(dirtyPaths(" M src/a.ts\0?? new.ts\0R  src/b.ts\0src/old-b.ts\0")).toEqual([
+      "src/a.ts",
+      "new.ts",
+      "src/b.ts",
+    ]);
   });
 });
 

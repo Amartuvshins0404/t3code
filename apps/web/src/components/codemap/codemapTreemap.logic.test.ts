@@ -39,7 +39,13 @@ function folder(id: string, parentId: string | null, lines: number): CodemapView
 describe("touchedFiles", () => {
   it("marks thread-added files new, sums turns, and points at the latest turn", () => {
     const files = touchedFiles(
-      [checkpoint(1, [["src/a.ts", 3, 1]]), checkpoint(2, [["src/a.ts", 2, 0], ["src/b.ts", 4, 0]])],
+      [
+        checkpoint(1, [["src/a.ts", 3, 1]]),
+        checkpoint(2, [
+          ["src/a.ts", 2, 0],
+          ["src/b.ts", 4, 0],
+        ]),
+      ],
       ["src/b.ts"],
     );
     expect(files).toEqual([
