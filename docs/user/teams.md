@@ -129,8 +129,10 @@ and enters the hub's address and one of its client access keys. The key goes to 
 screen shows it again. Members see the address and who set it. An admin can **Replace** or
 **Remove** it.
 
-Then every thread shared with the team that uses Claude or Codex runs through the team's hub, for
-the owner's and teammates' messages alike. Other providers stay on the owner's accounts. Stop
+Then every thread shared with the team that uses Claude or Codex runs through the team's hub with
+the team's key, for the owner's and teammates' messages alike. The owner's own Claude settings and
+environment do not change that: Bedrock, Vertex and other provider switches, an API key helper, and
+custom headers are turned off for team threads. Other providers stay on the owner's accounts. Stop
 sharing the thread and its next message is back on the owner's accounts.
 
 - The share dialog and the header badge say what the thread runs on. Teammates see it under the
@@ -145,6 +147,9 @@ sharing the thread and its next message is back on the owner's accounts.
   threads on that machine still run on your accounts.
 - If the team has a key but the machine cannot get it, for example while T3 Connect is unreachable,
   messages in team threads fail until it is back. They do not fall back to your accounts.
+- Claude's managed settings, the ones set for every user of the machine, cannot be turned off. If
+  they choose another provider, address, key, key helper or headers, Claude messages in team threads
+  fail instead of running on them.
 - Commands the agent runs do not get the key, so asking the agent to print its environment does
   not show it. This protects the key from the agent's commands, not from someone who controls your
   machine: a teammate with **Steer** on a full-access thread can change files on it.
