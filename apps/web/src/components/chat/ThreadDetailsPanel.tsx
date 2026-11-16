@@ -32,8 +32,9 @@ import {
 import { ThreadDetailsItemsMenuItems } from "./ThreadDetailsItemsMenu";
 import { resolveThreadDetailsVisibility, THREAD_DETAILS_ITEMS } from "./threadDetailsItems";
 import { useClientSettings } from "../../hooks/useSettings";
+import { useFilesystemReadAccess } from "../../state/filesystem";
 import { cn } from "../../lib/utils";
-import { SlidersHorizontalIcon } from "lucide-react";
+import { MapIcon, SlidersHorizontalIcon } from "lucide-react";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -78,6 +79,7 @@ interface ThreadDetailsPanelProps extends Pick<
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest: () => void;
   onOpenChanges?: () => void;
+  onOpenCodemap?: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
   onUpdateProjectScript: (
@@ -90,6 +92,7 @@ interface ThreadDetailsPanelProps extends Pick<
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const visible = useClientSettings(resolveThreadDetailsVisibility);
+  const fileAccess = useFilesystemReadAccess(props.environmentId);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
@@ -160,6 +163,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             props.gitCwd !== null &&
             props.activeProjectName !== undefined &&
             (visible.gitActions || (visible.changes && props.isGitRepo)),
+          codemap: props.onOpenCodemap !== undefined && visible.codemap && fileAccess.canReadFiles,
         };
         return (
           <>
@@ -222,7 +226,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 </ThreadDetailsSection>
               ) : null}
 
-              {props.gitCwd && (show.branch || show.git) ? (
+              {props.gitCwd && (show.branch || show.git || show.codemap) ? (
                 <ThreadDetailsSection
                   headingId="thread-details-version-control-heading"
                   title="Version Control"
@@ -244,6 +248,17 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         {...(props.draftId ? { draftId: props.draftId } : {})}
                         {...(props.onOpenChanges ? { onOpenChanges: props.onOpenChanges } : {})}
                       />
+                    ) : null}
+                    {show.codemap ? (
+                      <ThreadDetailsControl
+                        size="sm"
+                        variant="ghost"
+                        part="row"
+                        onClick={props.onOpenCodemap}
+                      >
+                        <MapIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
+                        <span className={THREAD_DETAILS_PANEL_LABEL_CLASS}>Code map</span>
+                      </ThreadDetailsControl>
                     ) : null}
                   </div>
                 </ThreadDetailsSection>

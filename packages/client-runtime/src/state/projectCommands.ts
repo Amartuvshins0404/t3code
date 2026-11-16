@@ -97,6 +97,11 @@ export function createProjectEnvironmentAtoms<R, E>(
     staleTimeMs: 15_000,
   });
   return {
+    readCodemap: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:read-codemap",
+      tag: WS_METHODS.codemapRead,
+      staleTimeMs: 10_000,
+    }),
     readPlant,
     plant: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:plant",

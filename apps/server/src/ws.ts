@@ -236,6 +236,7 @@ import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import * as MasterAgent from "./masterAgent/MasterAgent.ts";
 import * as ProjectPlant from "./project/ProjectPlant.ts";
+import * as Codemap from "./codemap/Codemap.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
@@ -1439,6 +1440,7 @@ export const layerWsRpc = (
       const scratchThreadPromotion = yield* ScratchThreadPromotion.ScratchThreadPromotion;
       const masterAgent = yield* MasterAgent.MasterAgent;
       const projectPlant = yield* ProjectPlant.ProjectPlant;
+      const codemap = yield* Codemap.Codemap;
       const eventLoopMonitor = yield* EventLoopMonitor.EventLoopMonitor;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
 
@@ -3067,6 +3069,7 @@ export const layerWsRpc = (
               ),
             ),
         [WS_METHODS.projectsReadPlant]: (input) => projectPlant.readStatus(input),
+        [WS_METHODS.codemapRead]: (input) => codemap.read(input),
         [WS_METHODS.projectsPlant]: (input) =>
           projectPlant.start({ ...input, createdBy: "user", creationSource: "web" }),
         [WS_METHODS.projectCloneCancel]: (input) =>

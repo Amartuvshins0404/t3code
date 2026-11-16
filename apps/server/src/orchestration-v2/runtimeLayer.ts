@@ -17,6 +17,7 @@ import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.
 import * as AgentSessionImporter from "../project/AgentSessionImporter.ts";
 import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import * as ProjectPlant from "../project/ProjectPlant.ts";
+import * as Codemap from "../codemap/Codemap.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -318,6 +319,9 @@ const layerScratchThreadPromotionProvided = ScratchThreadPromotion.layer.pipe(
     ),
   ),
 );
+const layerCodemapProvided = Codemap.layer.pipe(
+  Layer.provide(Layer.merge(layerProjectService, layerThreadManagementProvided)),
+);
 const layerProjectPlantProvided = ProjectPlant.layer.pipe(
   Layer.provide(
     Layer.mergeAll(layerProjectService, layerThreadLaunchProvided, layerThreadManagementProvided),
@@ -417,6 +421,7 @@ export const layerProduction = Layer.mergeAll(
   layerScratchThreadPromotionProvided,
   layerMasterAgent,
   layerProjectPlantProvided,
+  layerCodemapProvided,
   layerSecretRequestsProvided,
   GuestShareService.layer.pipe(
     Layer.provide(Layer.merge(layerOrchestratorProvided, layerCommandOutputHubProvided)),

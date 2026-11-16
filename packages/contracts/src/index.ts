@@ -36,6 +36,7 @@ export * from "./vcs.ts";
 export * from "./sourceControl.ts";
 export * from "./projectClone.ts";
 export * from "./projectPlant.ts";
+export * from "./codemap.ts";
 export * from "./speech.ts";
 export * from "./pullRequest.ts";
 export * from "./pullRequestReviewGuide.ts";
