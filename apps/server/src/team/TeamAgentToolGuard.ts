@@ -52,7 +52,14 @@ const SECRET_NAMES = [
   "id_ed25519*",
 ];
 
-const SECRET_NAME_PATTERNS = SECRET_NAMES.map(
+const SECRET_GLOBS = SECRET_NAMES.flatMap((name) => [
+  name,
+  `#${name}#`,
+  ...(name.endsWith("*") ? [] : [`${name}.*`, `${name}~`]),
+  ...(/^[.*]/.test(name) ? [] : [`.${name}.*`]),
+]);
+
+const SECRET_NAME_PATTERNS = SECRET_GLOBS.map(
   (name) =>
     new RegExp(`^${name.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*")}$`, "iu"),
 );
@@ -63,7 +70,7 @@ const foldFileName = (segment: string) =>
     .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
     .toLowerCase();
 
-export const TEAM_AGENT_SECRET_READ_DENY_RULES = SECRET_NAMES.flatMap((name) => [
+export const TEAM_AGENT_SECRET_READ_DENY_RULES = SECRET_GLOBS.flatMap((name) => [
   `Read(**/${name})`,
   `Read(**/${name}/**)`,
 ]);
@@ -71,7 +78,7 @@ export const TEAM_AGENT_SECRET_READ_DENY_RULES = SECRET_NAMES.flatMap((name) => 
 const anyCaseGlob = (name: string) =>
   name.replace(/[a-z]/gi, (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`);
 
-const TEAM_AGENT_GREP_SECRET_EXCLUSION = `!{${SECRET_NAMES.map(anyCaseGlob).join(",")}}`;
+const TEAM_AGENT_GREP_SECRET_EXCLUSION = `!{${SECRET_GLOBS.map(anyCaseGlob).join(",")}}`;
 
 const SECRET_REFUSAL =
   "Secret files such as .env, keys, credentials and .git or .ssh folders are never readable here.";
