@@ -210,7 +210,7 @@ describe("what clients receive", () => {
     }
   });
 
-  it("starts Codex on the team proxy after the owner's own launch args", () => {
+  it("starts Codex on the team proxy without the owner's own launch args", () => {
     const config = teamProviderConfig(
       "codex",
       { launchArgs: "-c model_provider=owner" },
@@ -222,9 +222,9 @@ describe("what clients receive", () => {
     );
     const overrides = argv.filter((_, index) => argv[index - 1] === "-c");
     expect(strays).toEqual([]);
-    expect(overrides.findLast((arg) => arg.startsWith("model_provider="))).toBe(
+    expect(overrides.filter((arg) => arg.startsWith("model_provider="))).toEqual([
       "model_provider=t3team",
-    );
+    ]);
     expect(overrides).toContain("model_providers.t3team.base_url=https://proxy.test/base/v1");
     expect(overrides).toContain('model_providers.t3team.auth.command="/bin/sh"');
     expect(overrides).toContain('model_providers.t3team.auth.args=["-c","cat <&3"]');
