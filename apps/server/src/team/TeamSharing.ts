@@ -281,7 +281,7 @@ const make = Effect.gen(function* () {
     }) {
       const snapshot = yield* orchestrator.getShellSnapshot();
       yield* Effect.forEach(
-        snapshot.threads.filter((thread) => thread.activeRunId !== null && input.threads(thread)),
+        snapshot.threads.filter(input.threads),
         (thread) => {
           const agent = thread.teamShare?.agent;
           if (agent === undefined) {
@@ -289,8 +289,9 @@ const make = Effect.gen(function* () {
               Effect.ignore({ log: "Warn", message: "Could not read a teammate's turns." }),
             );
           }
-          return input.startedByUserId === undefined ||
-            agent.startedBy.userId === input.startedByUserId
+          return thread.activeRunId !== null &&
+            (input.startedByUserId === undefined ||
+              agent.startedBy.userId === input.startedByUserId)
             ? stopThread(thread.id, input.reason)
             : Effect.void;
         },

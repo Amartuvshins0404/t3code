@@ -540,14 +540,27 @@ const teamThreads = Effect.gen(function* () {
   yield* send(hostTask, "ana-after-host", ana, "queue_after_active");
   const benTask = yield* sharedThread("thread-ben", ben);
   yield* send(benTask, "ben-task", ben, "start_immediately");
-  return { sharing, anaTask, hostTask, benTask };
+  const pausedTask = yield* sharedThread("thread-paused");
+  yield* send(pausedTask, "host-paused", undefined, "start_immediately");
+  yield* send(pausedTask, "ana-paused", ana, "queue_after_active");
+  const orchestrator = yield* Orchestrator.OrchestratorV2;
+  yield* orchestrator.dispatch({
+    type: "thread.stop",
+    commandId: CommandId.make("stop-paused"),
+    threadId: pausedTask,
+  });
+  return { sharing, anaTask, hostTask, benTask, pausedTask };
 });
 
 it.effect(
   "removing a teammate stops the turns they started and cancels their queued messages, but not the host's or another teammate's",
   () =>
     Effect.gen(function* () {
-      const { sharing, anaTask, hostTask, benTask } = yield* teamThreads;
+      const { sharing, anaTask, hostTask, benTask, pausedTask } = yield* teamThreads;
+      expect(yield* runStates(pausedTask)).toEqual([
+        "host-paused:interrupted",
+        "ana-paused:queued:held",
+      ]);
 
       yield* sharing.revokeMemberAccess({ organizationId: "org-a", userId: ana.userId });
 
@@ -561,7 +574,18 @@ it.effect(
         "ana-after-host:cancelled",
       ]);
       expect(yield* runStates(benTask)).toEqual(["ben-task:starting"]);
+      expect(yield* runStates(pausedTask)).toEqual([
+        "host-paused:interrupted",
+        "ana-paused:cancelled:held",
+      ]);
       expect((yield* answering).toSorted()).toEqual([hostTask, benTask].toSorted());
+
+      yield* send(pausedTask, "host-resumes", undefined, "start_immediately");
+      expect(yield* runStates(pausedTask)).toEqual([
+        "host-paused:interrupted",
+        "ana-paused:cancelled:held",
+        "host-resumes:starting",
+      ]);
     }).pipe(Effect.provide(makeTeamAgentLayer())),
 );
 
@@ -592,9 +616,9 @@ it.effect.each([
   },
 ])("$action stops every teammate's turn and leaves the host's running", ({ act }) =>
   Effect.gen(function* () {
-    const { sharing, anaTask, hostTask, benTask } = yield* teamThreads;
+    const { sharing, anaTask, hostTask, benTask, pausedTask } = yield* teamThreads;
 
-    yield* act(sharing, [anaTask, hostTask, benTask]);
+    yield* act(sharing, [anaTask, hostTask, benTask, pausedTask]);
 
     expect(yield* runStates(anaTask)).toEqual([
       "ana-task:interrupted",
@@ -602,6 +626,10 @@ it.effect.each([
       "ana-after-ana:cancelled",
     ]);
     expect(yield* runStates(hostTask)).toEqual(["host-task:starting", "ana-after-host:cancelled"]);
+    expect(yield* runStates(pausedTask)).toEqual([
+      "host-paused:interrupted",
+      "ana-paused:cancelled:held",
+    ]);
     expect(yield* runStates(benTask)).toEqual(["ben-task:interrupted"]);
     expect(yield* answering).toEqual([hostTask]);
   }).pipe(Effect.provide(makeTeamAgentLayer())),
