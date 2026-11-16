@@ -1,5 +1,6 @@
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Runs the ripgrep that Claude's Grep runs, as Claude does, with a custom argv0.
 import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProjectId,
@@ -13,14 +14,23 @@ import {
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import type { TeamSharingState } from "./sharedOrganizations.ts";
+import * as TeamAgent from "./TeamAgent.ts";
 import { decideTeamAgentAsk, decideTeamAgentSetting, teamAgentStatuses } from "./TeamAgent.ts";
 import { decideTeamAgentToolUse } from "./TeamAgentToolGuard.ts";
+import * as TeamSharing from "./TeamSharing.ts";
 
 const web = ProjectId.make("project-web");
 const api = ProjectId.make("project-api");
@@ -177,6 +187,73 @@ describe("decideTeamAgentSetting", () => {
     const decision = set({ enabled: false, projectIds: [] }, ProviderDriverKind.make("codex"));
     expect(Result.getOrThrow(decision)).toMatchObject({ enabled: false, projectIds: [] });
   });
+});
+
+it.effect("keeps the No project folder away from a team agent", () => {
+  const scratch = ProjectId.make("project-scratch");
+  const row = (projectId: ProjectId, title: string): ProjectStore.ProjectRow => ({
+    projectId,
+    title,
+    workspaceRoot: `/work/${projectId}`,
+    defaultModelSelection: null,
+    defaultThreadEnvMode: null,
+    autoPull: false,
+    faviconPath: null,
+    projectIcon: null,
+    scripts: [],
+    pinnedAt: null,
+    archivedAt: null,
+    createdAt: "2026-11-16T00:00:00.000Z",
+    updatedAt: "2026-11-16T00:00:00.000Z",
+    deletedAt: null,
+  });
+  const rows = [row(scratch, "No project"), row(web, "Web")];
+  return Effect.gen(function* () {
+    const agent = yield* TeamAgent.TeamAgent;
+    const refused = yield* agent
+      .setAgent(
+        { organizationId: "org-a", enabled: true, projectIds: [scratch], modelSelection },
+        undefined,
+      )
+      .pipe(Effect.flip);
+    expect(refused.reason).toBe("agent_project_not_allowed");
+    const statuses = yield* agent.getAgents(undefined);
+    expect(statuses.agents.map((status) => status.projects)).toEqual([
+      [{ projectId: web, title: "Web" }],
+    ]);
+  }).pipe(
+    Effect.provide(
+      TeamAgent.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            NodeCrypto.layer,
+            Layer.mock(TeamSharing.TeamSharing)({
+              readState: Effect.succeed({
+                organizationIds: ["org-a"],
+                agents: { "org-a": { enabled: true, projectIds: [scratch, web], modelSelection } },
+              }),
+            }),
+            Layer.mock(ProjectStore.ProjectStoreV2)({
+              list: (options) =>
+                Effect.succeed(
+                  rows.filter((candidate) => options?.projectIds?.includes(candidate.projectId)),
+                ),
+            }),
+            Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+              namedProjectsRoot: "/work",
+              isScratchProject: (projectId) => Effect.succeed(projectId === scratch),
+            }),
+            Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+              getInstance: () => Effect.undefined,
+            }),
+            Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+            Layer.mock(ServerSettings.ServerSettingsService)({}),
+            Layer.mock(ServerSecretStore.ServerSecretStore)({}),
+          ),
+        ),
+      ),
+    ),
+  );
 });
 
 describe("teamAgentStatuses", () => {

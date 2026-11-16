@@ -26,6 +26,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { CLOUD_LINKED_USER_ID } from "../cloud/config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
@@ -220,6 +221,7 @@ const questionTitle = (text: string) => {
 const make = Effect.gen(function* () {
   const sharing = yield* TeamSharing.TeamSharing;
   const projects = yield* ProjectStore.ProjectStoreV2;
+  const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const settings = yield* ServerSettings.ServerSettingsService;
@@ -235,7 +237,16 @@ const make = Effect.gen(function* () {
       ? Effect.succeed([])
       : projects
           .list({ projectIds })
-          .pipe(Effect.mapError(internal("Could not read the projects.")));
+          .pipe(
+            Effect.mapError(internal("Could not read the projects.")),
+            Effect.flatMap(
+              Effect.filter((row) =>
+                managedFolders
+                  .isScratchProject(row.projectId)
+                  .pipe(Effect.map((scratch) => !scratch)),
+              ),
+            ),
+          );
 
   const modelInstance = (modelSelection: ModelSelection | undefined) =>
     modelSelection === undefined
