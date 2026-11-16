@@ -10,6 +10,7 @@ import {
   type CliproxyLocalStatus,
   type CliproxyLocalVersion,
   CliproxyManageError,
+  type CliproxyRoute,
   type CliproxyRouting,
   type CliproxySetAccountEnabledInput,
   type CliproxySetRoutingInput,
@@ -76,6 +77,7 @@ export class UsageLimitSources extends Context.Service<
       input: CliproxyAddProvidersInput,
     ) => Effect.Effect<CliproxyAddProvidersResult, CliproxyLocalError>;
     readonly disconnect: Effect.Effect<void, CliproxyLocalError>;
+    readonly revealRoute: Effect.Effect<CliproxyRoute | null>;
     readonly revealManagementKey: (
       sourceId: UsageLimitSourceId,
     ) => Effect.Effect<string, UsageLimitSourceError>;
@@ -115,6 +117,14 @@ function isLocalHub(configUrl: string, localUrl: string): boolean {
   }
 }
 
+function isLocalUrl(url: string): boolean {
+  try {
+    return LOCAL_HOSTS.has(new URL(url).hostname);
+  } catch {
+    return true;
+  }
+}
+
 function hubUrl(configUrl: string): string {
   return (configUrl.includes("://") ? configUrl : `http://${configUrl}`).replace(/\/+$/, "");
 }
@@ -131,15 +141,31 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
 
 const CODEX_CLIENT_KEY_VARIABLE = "CLIPROXY_API_KEY";
 
+const CODEX_BASE_URL_OVERRIDE = "model_providers.cliproxy.base_url=";
+
 const codexProxyLaunchArgs = (url: string) =>
   [
     "model_provider=cliproxy",
     "model_providers.cliproxy.name=CLIProxyAPI",
-    `model_providers.cliproxy.base_url=${new URL("v1", `${url}/`).toString()}`,
+    `${CODEX_BASE_URL_OVERRIDE}${new URL("v1", `${url}/`).toString()}`,
     `model_providers.cliproxy.env_key=${CODEX_CLIENT_KEY_VARIABLE}`,
   ]
     .map((override) => `-c ${override}`)
     .join(" ");
+
+function codexProxyUrl(instance: ProviderInstanceConfig | undefined): string {
+  const config = instance?.config;
+  const launchArgs =
+    config !== null && typeof config === "object" && "launchArgs" in config
+      ? config.launchArgs
+      : undefined;
+  if (typeof launchArgs !== "string") return "";
+  const baseUrl = launchArgs
+    .split(/\s+/)
+    .find((argument) => argument.startsWith(CODEX_BASE_URL_OVERRIDE))
+    ?.slice(CODEX_BASE_URL_OVERRIDE.length);
+  return baseUrl?.replace(/\/v1\/?$/, "") ?? "";
+}
 
 function proxyInstances(url: string, clientKey: string, input: CliproxyAddProvidersInput) {
   return [
@@ -279,6 +305,45 @@ export const make = Effect.gen(function* () {
     }
     return { config, managementKey };
   });
+
+  const readVariable = Effect.fn("UsageLimitSources.readVariable")(function* (
+    instance: ProviderInstanceConfig | undefined,
+    name: string,
+  ) {
+    const value = instance?.environment?.find((variable) => variable.name === name)?.value;
+    if (value === undefined) return "";
+    if (typeof value === "string") return value.trim();
+    const [secret] = yield* secrets.read([value]);
+    return secret?.trim() ?? "";
+  });
+
+  const revealRoute = Effect.gen(function* () {
+    const { providerInstances, usageLimitSources } = yield* settingsService.getSettings;
+    const claude = providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID];
+    const codex = providerInstances[CLIPROXY_CODEX_INSTANCE_ID];
+    const reachable = (route: { readonly url: string; readonly clientKey: string }) =>
+      route.clientKey !== "" && !isLocalUrl(route.url);
+    const claudeRoute = {
+      url: yield* readVariable(claude, "ANTHROPIC_BASE_URL"),
+      clientKey: yield* readVariable(claude, "ANTHROPIC_AUTH_TOKEN"),
+    };
+    const route = reachable(claudeRoute)
+      ? claudeRoute
+      : {
+          url: codexProxyUrl(codex),
+          clientKey: yield* readVariable(codex, CODEX_CLIENT_KEY_VARIABLE),
+        };
+    if (!reachable(route)) return null;
+    const managementKeys = yield* Effect.forEach(Object.values(usageLimitSources), (config) =>
+      readManagementKey(config).pipe(Effect.map((key) => key.trim())),
+    );
+    // An unreadable management key cannot be ruled out as the one the provider runs on.
+    if (managementKeys.includes("")) return null;
+    return { ...route, managesProxy: managementKeys.includes(route.clientKey) };
+  }).pipe(
+    Effect.orElseSucceed(() => null),
+    Effect.withSpan("UsageLimitSources.revealRoute"),
+  );
 
   const revealManagementKey = Effect.fn("UsageLimitSources.revealManagementKey")(function* (
     sourceId: UsageLimitSourceId,
@@ -700,6 +765,7 @@ export const make = Effect.gen(function* () {
     setNewLocalKey,
     addLocalProviders,
     disconnect,
+    revealRoute,
     revealManagementKey,
     listAccounts,
     startSignIn,

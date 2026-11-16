@@ -2863,6 +2863,7 @@ export const layerWsRpc = (
           usageLimitSources.addLocalProviders(input),
         [WS_METHODS.cliproxyLocalRevealKey]: (input) =>
           usageLimitSources.revealManagementKey(input.sourceId),
+        [WS_METHODS.cliproxyRevealRoute]: (_input) => usageLimitSources.revealRoute,
         [WS_METHODS.cliproxyDisconnect]: (_input) => usageLimitSources.disconnect,
         [WS_METHODS.cliproxyAccountsList]: (input) =>
           usageLimitSources.listAccounts(input.sourceId),

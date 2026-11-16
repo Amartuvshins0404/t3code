@@ -6,7 +6,12 @@ import {
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, ScopedThreadRef, TeamConnectivityStatus } from "@t3tools/contracts";
+import type {
+  CliproxyRoute,
+  EnvironmentId,
+  ScopedThreadRef,
+  TeamConnectivityStatus,
+} from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
@@ -17,7 +22,13 @@ import {
 } from "~/cloud/managedRelayState";
 import { teammateConnectionAtom } from "~/cloud/teamWorkspace";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { readConnectedEnvironmentIds, useEnvironment } from "~/state/environments";
+import { cliproxyRevealRoute } from "~/state/cliproxy";
+import {
+  readConnectedEnvironmentIds,
+  readPrimaryEnvironmentId,
+  useEnvironment,
+} from "~/state/environments";
+import { environmentPresentations } from "~/state/presentation";
 import { serverEnvironment } from "~/state/server";
 import { environmentThreadDetails, environmentThreadShells } from "~/state/threads";
 
@@ -65,12 +76,44 @@ function relayAccountId(): string {
   return accountId;
 }
 
-async function refreshMachines(): Promise<void> {
-  const owned = readConnectedEnvironmentIds().filter(
+function ownedMachines(): ReadonlyArray<EnvironmentId> {
+  return readConnectedEnvironmentIds().filter(
     (environmentId) => !appAtomRegistry.get(teammateConnectionAtom(environmentId)),
   );
+}
+
+export interface SavedProxy extends CliproxyRoute {
+  readonly machine: string;
+}
+
+const SAVED_PROXY_WAIT_MS = 2_000;
+
+export async function readSavedProxy(): Promise<SavedProxy | null> {
+  const primary = readPrimaryEnvironmentId();
+  const machines = ownedMachines().toSorted(
+    (left, right) => Number(right === primary) - Number(left === primary),
+  );
+  for (const environmentId of machines) {
+    const result = await Promise.race([
+      runAtomCommand(
+        appAtomRegistry,
+        cliproxyRevealRoute,
+        { environmentId, input: {} },
+        { reportFailure: false },
+      ),
+      new Promise<null>((resolve) => setTimeout(resolve, SAVED_PROXY_WAIT_MS, null)),
+    ]);
+    if (result?._tag !== "Success" || result.value === null) continue;
+    const machine = appAtomRegistry.get(environmentPresentations.presentationAtom(environmentId))
+      ?.entry.target.label;
+    return { ...result.value, machine: machine ?? "this machine" };
+  }
+  return null;
+}
+
+async function refreshMachines(): Promise<void> {
   await Promise.allSettled(
-    owned.map(async (environmentId) => {
+    ownedMachines().map(async (environmentId) => {
       const supported =
         appAtomRegistry.get(serverEnvironment.configValueAtom(environmentId))?.environment
           .capabilities.teamConnectivity === true;

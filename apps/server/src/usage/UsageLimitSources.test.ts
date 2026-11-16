@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
   CLIPROXY_CLAUDE_INSTANCE_ID,
+  CLIPROXY_CODEX_INSTANCE_ID,
   ProviderDriverKind,
   ProviderInstanceId,
   SecretProviderId,
@@ -181,9 +182,12 @@ it.effect("a connected proxy gets providers for the accounts it pools until it d
     expect(Object.keys(connected.providerInstances).toSorted()).toEqual([
       CLIPROXY_CLAUDE_INSTANCE_ID,
       "claudeAgent_work",
+      CLIPROXY_CODEX_INSTANCE_ID,
     ]);
     const clientKey = connected.usageLimitSources[UsageLimitSourceId.make("hub")]?.clientKey;
     expect(clientKeys).toEqual([{ old: clientKey, new: clientKey }]);
+    const route = { url: "https://hub.test:8317", clientKey, managesProxy: false };
+    expect(yield* sources.revealRoute).toEqual(route);
     expect(connected.providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID]).toMatchObject({
       enabled: true,
       environment: [
@@ -202,61 +206,122 @@ it.effect("a connected proxy gets providers for the accounts it pools until it d
     expect(turnedOff.providerInstances[CLIPROXY_CLAUDE_INSTANCE_ID]?.enabled).toBe(false);
     expect(clientKeys).toHaveLength(1);
 
+    yield* settingsService.updateProviderInstance({
+      operation: "remove",
+      instanceId: CLIPROXY_CLAUDE_INSTANCE_ID,
+    });
+    expect(yield* sources.revealRoute).toEqual(route);
+
     yield* sources.disconnect;
     const settings = yield* settingsService.getSettings;
     expect(settings.usageLimitSources).toEqual({});
     expect(Object.keys(settings.providerInstances)).toEqual(["claudeAgent_work"]);
+    expect(yield* sources.revealRoute).toBeNull();
   }).pipe(
-    Effect.provide([
-      ServerSettings.layerTest({
-        usageLimitSources: {
-          [UsageLimitSourceId.make("hub")]: {
-            kind: "cliproxy",
-            url: "https://hub.test:8317",
-            managementKey: "management-key",
-            enabled: true,
-          },
-        },
-        providerInstances: {
-          [ProviderInstanceId.make("claudeAgent_work")]: {
-            driver: ProviderDriverKind.make("claudeAgent"),
-          },
-        },
-      }),
-      Layer.mock(BackgroundPolicy.BackgroundPolicy)({
-        shouldRunScopeWork: () => Effect.succeed(false),
-      }),
-      Layer.succeed(SecretResolver.SecretResolver, {
-        label: (provider) => Effect.succeed(provider),
-        read: (references) => Effect.succeed(references.map(() => undefined)),
-        invalidate: () => Effect.void,
-      }),
-      Layer.succeed(
-        HttpClient.HttpClient,
-        HttpClient.make((request) =>
-          Effect.sync(() => {
-            const path = new URL(request.url).pathname;
-            if (path.endsWith("/auth-files")) {
-              return HttpClientResponse.fromWeb(
-                request,
-                Response.json({
-                  files: [
-                    { id: "claude-a.json", auth_index: "1", provider: "claude", email: "a@x.test" },
-                  ],
-                }),
-              );
-            }
-            if (path.endsWith("/api-keys") && request.body._tag === "Uint8Array") {
-              clientKeys.push(JSON.parse(new TextDecoder().decode(request.body.body)));
-            }
-            return HttpClientResponse.fromWeb(request, Response.json({}));
-          }),
-        ),
-      ),
-      NodeCrypto.layer,
-      NodeServices.layer,
-      Layer.mock(ProcessRunner.ProcessRunner)({}),
-    ]),
+    Effect.provide(connectedHub({ url: "https://hub.test:8317", clientKeys })),
     Effect.scoped,
   );
 });
+
+it.effect.each([
+  {
+    hub: "refuses new keys",
+    url: "https://hub.test:8317",
+    refusesNewKeys: true,
+    expected: { url: "https://hub.test:8317", clientKey: "management-key", managesProxy: true },
+  },
+  {
+    hub: "only answers on this machine",
+    url: "http://127.0.0.1:8317",
+    refusesNewKeys: false,
+    expected: null,
+  },
+  {
+    hub: "keeps its management key where it cannot be read",
+    url: "https://hub.test:8317",
+    refusesNewKeys: false,
+    managementKeyUnreadable: true,
+    expected: null,
+  },
+])("reveals the route of a proxy that $hub", ({ expected, ...hub }) =>
+  Effect.gen(function* () {
+    const sources = yield* UsageLimitSources.make;
+    yield* sources.refresh;
+    expect(yield* sources.revealRoute).toEqual(expected);
+  }).pipe(Effect.provide(connectedHub(hub)), Effect.scoped),
+);
+
+function connectedHub(hub: {
+  readonly url: string;
+  readonly clientKeys?: Array<unknown>;
+  readonly refusesNewKeys?: boolean;
+  readonly managementKeyUnreadable?: boolean;
+}) {
+  return Layer.mergeAll(
+    ServerSettings.layerTest({
+      usageLimitSources: {
+        [UsageLimitSourceId.make("hub")]: {
+          kind: "cliproxy",
+          url: hub.url,
+          managementKey: hub.managementKeyUnreadable
+            ? { provider: SecretProviderId.make("homelab"), reference: "locked#key" }
+            : "management-key",
+          enabled: true,
+        },
+      },
+      providerInstances: {
+        [ProviderInstanceId.make("claudeAgent_work")]: {
+          driver: ProviderDriverKind.make("claudeAgent"),
+        },
+        ...(hub.managementKeyUnreadable
+          ? {
+              [CLIPROXY_CLAUDE_INSTANCE_ID]: {
+                driver: ProviderDriverKind.make("claudeAgent"),
+                environment: [
+                  { name: "ANTHROPIC_BASE_URL", value: hub.url, sensitive: false },
+                  { name: "ANTHROPIC_AUTH_TOKEN", value: "provider-key", sensitive: true },
+                ],
+              },
+            }
+          : {}),
+      },
+    }),
+    Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+      shouldRunScopeWork: () => Effect.succeed(false),
+    }),
+    Layer.succeed(SecretResolver.SecretResolver, {
+      label: (provider) => Effect.succeed(provider),
+      read: (references) => Effect.succeed(references.map(() => undefined)),
+      invalidate: () => Effect.void,
+    }),
+    Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) =>
+        Effect.sync(() => {
+          const path = new URL(request.url).pathname;
+          if (path.endsWith("/auth-files")) {
+            return HttpClientResponse.fromWeb(
+              request,
+              Response.json({
+                files: [
+                  { id: "claude-a.json", auth_index: "1", provider: "claude", email: "a@x.test" },
+                  { id: "codex-b.json", auth_index: "2", provider: "codex", email: "b@x.test" },
+                ],
+              }),
+            );
+          }
+          if (path.endsWith("/api-keys") && request.body._tag === "Uint8Array") {
+            if (hub.refusesNewKeys) {
+              return HttpClientResponse.fromWeb(request, new Response(null, { status: 500 }));
+            }
+            hub.clientKeys?.push(JSON.parse(new TextDecoder().decode(request.body.body)));
+          }
+          return HttpClientResponse.fromWeb(request, Response.json({}));
+        }),
+      ),
+    ),
+    NodeCrypto.layer,
+    NodeServices.layer,
+    Layer.mock(ProcessRunner.ProcessRunner)({}),
+  );
+}

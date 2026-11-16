@@ -130,6 +130,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.cliproxyLocalConnect]: "usage",
   [WS_METHODS.cliproxyLocalSetNewKey]: "usage",
   [WS_METHODS.cliproxyLocalRevealKey]: "usage",
+  [WS_METHODS.cliproxyRevealRoute]: "usage",
   [WS_METHODS.cliproxyLocalAddProviders]: "usage",
   [WS_METHODS.cliproxyDisconnect]: "usage",
   [WS_METHODS.cliproxyAccountsList]: "usage",

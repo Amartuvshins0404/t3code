@@ -143,6 +143,13 @@ export type CliproxyConnectLocalInput = typeof CliproxyConnectLocalInput.Type;
 export const CliproxySourceInput = Schema.Struct({ sourceId: UsageLimitSourceId });
 export type CliproxySourceInput = typeof CliproxySourceInput.Type;
 
+export const CliproxyRoute = Schema.Struct({
+  url: TrimmedNonEmptyString,
+  clientKey: TrimmedNonEmptyString,
+  managesProxy: Schema.Boolean,
+});
+export type CliproxyRoute = typeof CliproxyRoute.Type;
+
 export const CliproxyAddProvidersInput = Schema.Struct({
   claude: Schema.Boolean,
   codex: Schema.Boolean,

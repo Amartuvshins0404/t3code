@@ -11,7 +11,9 @@ import {
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import {
   proxyHost,
+  readSavedProxy,
   removeTeamConnectivity,
+  type SavedProxy,
   saveTeamConnectivity,
   TEAM_CONNECTIVITY_SECTION_ID,
   useMachineConnectivity,
@@ -47,10 +49,18 @@ const isProxyUrl = Schema.is(RelayTeamConnectivityUrl);
 export function TeamConnectivitySection({ team }: { readonly team: CloudTeamSummary }) {
   const connectivity = useManagedRelayTeamConnectivity(team.id);
   const admin = canManageTeam(team.role);
-  const [editing, setEditing] = useState(false);
+  const [editor, setEditor] = useState<
+    "closed" | "opening" | { readonly saved: SavedProxy | null }
+  >("closed");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const record = connectivity.status === "ready" ? connectivity.record : null;
+
+  const openEditor = async () => {
+    setEditor("opening");
+    const saved = await readSavedProxy();
+    setEditor((current) => (current === "opening" ? { saved } : current));
+  };
 
   const remove = async () => {
     setRemoving(true);
@@ -93,7 +103,12 @@ export function TeamConnectivitySection({ team }: { readonly team: CloudTeamSumm
             control={
               admin ? (
                 <>
-                  <Button size="xs" variant="outline" onClick={() => setEditing(true)}>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={editor === "opening"}
+                    onClick={() => void openEditor()}
+                  >
                     Replace
                   </Button>
                   <Button
@@ -113,7 +128,12 @@ export function TeamConnectivitySection({ team }: { readonly team: CloudTeamSumm
         <SettingsRow
           title="No team connection"
           control={
-            <Button size="xs" variant="outline" onClick={() => setEditing(true)}>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={editor === "opening"}
+              onClick={() => void openEditor()}
+            >
               Connect
             </Button>
           }
@@ -122,11 +142,12 @@ export function TeamConnectivitySection({ team }: { readonly team: CloudTeamSumm
         <SettingsRow title="No team connection" description="Ask a team admin to connect one." />
       )}
 
-      {editing ? (
+      {typeof editor === "object" ? (
         <ConnectProxyDialog
           team={team}
           replacing={record !== null}
-          onClose={() => setEditing(false)}
+          saved={editor.saved}
+          onClose={() => setEditor("closed")}
         />
       ) : null}
 
@@ -160,20 +181,24 @@ export function TeamConnectivitySection({ team }: { readonly team: CloudTeamSumm
 function ConnectProxyDialog({
   team,
   replacing,
+  saved,
   onClose,
 }: {
   readonly team: CloudTeamSummary;
   readonly replacing: boolean;
+  readonly saved: SavedProxy | null;
   readonly onClose: () => void;
 }) {
-  const [url, setUrl] = useState("");
-  const [accessKey, setAccessKey] = useState("");
+  const [url, setUrl] = useState(saved?.url ?? "");
+  const [accessKey, setAccessKey] = useState(saved?.clientKey ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const trimmedUrl = url.trim();
   const trimmedKey = accessKey.trim();
   const urlValid = isProxyUrl(trimmedUrl);
   const canSubmit = urlValid && trimmedKey.length > 0 && !pending;
+  const savedKey = saved !== null && trimmedKey === saved.clientKey ? saved : null;
+  const filled = savedKey !== null && trimmedUrl === savedKey.url;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -243,6 +268,18 @@ function ConnectProxyDialog({
                 onChange={(event) => setAccessKey(event.target.value)}
               />
             </div>
+            {savedKey === null ? null : savedKey.managesProxy ? (
+              <p role="alert" className="text-xs text-warning">
+                This key is from the CLI Proxy on {savedKey.machine} and also manages that proxy.
+                Every teammate's machine will hold it. Enter a client access key instead to keep it
+                private.
+              </p>
+            ) : filled ? (
+              <p className="text-xs text-muted-foreground">
+                Filled in from the CLI Proxy on {savedKey.machine}. Change either field to use
+                another one.
+              </p>
+            ) : null}
             {error ? (
               <p role="alert" className="text-xs text-destructive">
                 {error}

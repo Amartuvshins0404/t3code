@@ -389,6 +389,7 @@ import {
   CliproxyAccount,
   CliproxyAccountInput,
   CliproxyManageError,
+  CliproxyRoute,
   CliproxyRouting,
   CliproxySetAccountEnabledInput,
   CliproxySetRoutingInput,
@@ -644,6 +645,7 @@ export const WS_METHODS = {
   cliproxyLocalConnect: "cliproxy.local.connect",
   cliproxyLocalSetNewKey: "cliproxy.local.setNewKey",
   cliproxyLocalRevealKey: "cliproxy.local.revealKey",
+  cliproxyRevealRoute: "cliproxy.revealRoute",
   cliproxyLocalAddProviders: "cliproxy.local.addProviders",
   cliproxyDisconnect: "cliproxy.disconnect",
   cliproxyAccountsList: "cliproxy.accounts.list",
@@ -1172,6 +1174,12 @@ const WsCliproxyLocalRevealKeyRpc = Rpc.make(WS_METHODS.cliproxyLocalRevealKey, 
   payload: CliproxySourceInput,
   success: Schema.String,
   error: Schema.Union([UsageLimitSourceError, EnvironmentAuthorizationError]),
+});
+
+const WsCliproxyRevealRouteRpc = Rpc.make(WS_METHODS.cliproxyRevealRoute, {
+  payload: Schema.Struct({}),
+  success: Schema.NullOr(CliproxyRoute),
+  error: EnvironmentAuthorizationError,
 });
 
 const WsCliproxyLocalAddProvidersRpc = Rpc.make(WS_METHODS.cliproxyLocalAddProviders, {
@@ -2471,6 +2479,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsCliproxyLocalConnectRpc,
   WsCliproxyLocalSetNewKeyRpc,
   WsCliproxyLocalRevealKeyRpc,
+  WsCliproxyRevealRouteRpc,
   WsCliproxyLocalAddProvidersRpc,
   WsCliproxyDisconnectRpc,
   WsCliproxyAccountsListRpc,
