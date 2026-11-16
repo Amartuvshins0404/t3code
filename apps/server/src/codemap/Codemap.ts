@@ -129,7 +129,16 @@ const make = Effect.gen(function* () {
     const diff = yield* run(
       workspace.cwd,
       "threadChanges",
-      ["diff", "--name-status", "--no-renames", "-z", workspace.baseline, workspace.latest],
+      [
+        "-c",
+        "diff.relative=false",
+        "diff",
+        "--name-status",
+        "--no-renames",
+        "-z",
+        workspace.baseline,
+        workspace.latest,
+      ],
       4 * 1024 * 1024,
     );
     if (Option.isNone(diff) || diff.value.exitCode !== 0) return none;
