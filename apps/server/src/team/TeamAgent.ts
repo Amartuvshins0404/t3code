@@ -20,7 +20,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import * as Semaphore from "effect/Semaphore";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { CLOUD_LINKED_USER_ID } from "../cloud/config.ts";
@@ -248,7 +247,6 @@ const make = Effect.gen(function* () {
   const settings = yield* ServerSettings.ServerSettingsService;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const random = yield* SecureRandom.SecureRandom;
-  const asks = yield* Semaphore.make(1);
 
   const internal = (message: string) => () => refused("internal", message);
   const uuid = random.uuidV4().pipe(Effect.orDie);
@@ -362,7 +360,7 @@ const make = Effect.gen(function* () {
         modelEnabled: instance?.enabled === true,
       }),
     );
-    yield* asks.withPermits(1)(sharing.setAgentSetting(input.organizationId, setting));
+    yield* sharing.setAgentSetting(input.organizationId, setting);
     const statuses = yield* getAgents(undefined);
     const status = statuses.agents.find((agent) => agent.organizationId === input.organizationId);
     if (status === undefined) return yield* refused("internal", "The agent setting was not saved.");
@@ -434,7 +432,7 @@ const make = Effect.gen(function* () {
     input: TeamAgentAskInput,
     member: TeamMemberIdentity | undefined,
   ) {
-    return yield* asks.withPermits(1)(
+    return yield* sharing.withAgentAskLock(
       Effect.gen(function* () {
         const state = yield* sharing.readState;
         const setting = teamAgentSetting(state, input.organizationId);

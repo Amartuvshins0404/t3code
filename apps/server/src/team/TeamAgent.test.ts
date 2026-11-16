@@ -13,15 +13,20 @@ import {
   type TeamAgentSetInput,
   type TeamMemberIdentity,
   TEAM_AGENT_QUESTION_MAX_LENGTH,
+  ThreadId,
 } from "@t3tools/contracts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { describe, expect, it } from "@effect/vitest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
@@ -44,7 +49,7 @@ import * as TeamAgentService from "./TeamAgent.ts";
 import { decideTeamAgentAsk, decideTeamAgentSetting, teamAgentStatuses } from "./TeamAgent.ts";
 import { decideTeamAgentToolUse, TEAM_AGENT_SECRET_READ_DENY_RULES } from "./TeamAgentToolGuard.ts";
 import * as TeamConnectivity from "./TeamConnectivity.ts";
-import { decideTeamMemberCommand } from "./TeamMemberAccess.ts";
+import { decideTeamMemberCommand, teamPerson } from "./TeamMemberAccess.ts";
 import * as TeamSharing from "./TeamSharing.ts";
 
 const web = ProjectId.make("project-web");
@@ -326,9 +331,52 @@ const ana: TeamMemberIdentity = {
   organizationSlug: "team-a",
   role: "member",
 };
-const makeTeamAgentLayer = (secretValues = new Map<string, Uint8Array>()) =>
-  TeamAgentService.layer.pipe(
-    Layer.provideMerge(TeamSharing.layer),
+const webShare = {
+  organizationId: "org-a",
+  sharedAt: "2026-11-15T00:00:00.000Z",
+  modelSelection,
+  runtimeMode: "full-access",
+};
+const makeTeamAgentLayer = (
+  hooks: {
+    readonly beforeAgentCount?: Effect.Effect<void>;
+    readonly onOwnerChange?: Effect.Effect<void>;
+    readonly failStop?: Effect.Effect<boolean>;
+    readonly revoked?: Array<string>;
+  } = {},
+) => {
+  const secretValues = new Map<string, Uint8Array>();
+  const ownerChanged = hooks.onOwnerChange ?? Effect.void;
+  const revoke = (store: string) => (organizationId: string, userId?: string) =>
+    Effect.sync(
+      () => void hooks.revoked?.push([store, organizationId, userId].join(" ").trim()),
+    ).pipe(Effect.andThen(ownerChanged), Effect.as(0));
+  const stopFaults = Layer.effect(
+    Orchestrator.OrchestratorV2,
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      return Orchestrator.OrchestratorV2.of({
+        ...orchestrator,
+        dispatch: (command) =>
+          command.type === "thread.stop" && hooks.failStop !== undefined
+            ? hooks.failStop.pipe(
+                Effect.flatMap((fail) =>
+                  fail
+                    ? Effect.fail(
+                        new Orchestrator.OrchestratorDispatchError({
+                          commandId: command.commandId,
+                          commandType: command.type,
+                        }),
+                      )
+                    : orchestrator.dispatch(command),
+                ),
+              )
+            : orchestrator.dispatch(command),
+      });
+    }),
+  );
+  return TeamAgentService.layer.pipe(
+    Layer.provideMerge(TeamSharing.layer.pipe(Layer.provide(stopFaults))),
     Layer.provide(
       Layer.unwrap(
         Effect.gen(function* () {
@@ -336,7 +384,10 @@ const makeTeamAgentLayer = (secretValues = new Map<string, Uint8Array>()) =>
           return Layer.mock(ThreadManagementService.ThreadManagementService)({
             dispatch: orchestrator.dispatch,
             getThreadRecords: orchestrator.getThreadRecords,
-            getShellSnapshot: (options) => orchestrator.getShellSnapshot(options),
+            getShellSnapshot: (options) =>
+              (hooks.beforeAgentCount ?? Effect.void).pipe(
+                Effect.andThen(orchestrator.getShellSnapshot(options)),
+              ),
           });
         }),
       ),
@@ -344,25 +395,31 @@ const makeTeamAgentLayer = (secretValues = new Map<string, Uint8Array>()) =>
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ProjectStore.ProjectStoreV2)({
-          list: () => Effect.succeed([{ projectId: web, title: "Web" }] as never),
+          list: () =>
+            Effect.succeed([{ projectId: web, title: "Web", teamShare: webShare }] as never),
+          get: (projectId) =>
+            Effect.succeedSome({ projectId, archivedAt: null, teamShare: webShare } as never),
         }),
-        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(ProjectService.ProjectService)({ setTeamShare: () => Effect.void }),
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
           namedProjectsRoot: "/work",
           isScratchProject: () => Effect.succeed(false),
         }),
         Layer.mock(ServerSecretStore.ServerSecretStore)({
           get: (name) => Effect.succeed(Option.fromNullishOr(secretValues.get(name))),
-          set: (name, value) => Effect.sync(() => void secretValues.set(name, value)),
+          set: (name, value) =>
+            Effect.sync(() => void secretValues.set(name, value)).pipe(
+              Effect.andThen(ownerChanged),
+            ),
           remove: (name) => Effect.sync(() => void secretValues.delete(name)),
         }),
         Layer.mock(SessionStore.SessionStore)({
           cookieName: "t3",
           legacyCookieName: undefined,
-          revokeForOrganization: () => Effect.succeed(0),
+          revokeForOrganization: revoke("sessions"),
         }),
         Layer.mock(PairingGrantStore.PairingGrantStore)({
-          revokeForOrganization: () => Effect.succeed(0),
+          revokeForOrganization: revoke("pairing links"),
         }),
         Layer.mock(TeamConnectivity.TeamConnectivity)({
           sharedOrganizationsChanged: () => Effect.void,
@@ -387,6 +444,7 @@ const makeTeamAgentLayer = (secretValues = new Map<string, Uint8Array>()) =>
       ),
     ),
   );
+};
 
 const answering = Orchestrator.OrchestratorV2.pipe(
   Effect.flatMap((orchestrator) => orchestrator.getShellSnapshot()),
@@ -488,6 +546,262 @@ it.effect("removing the asking teammate, then unsharing the machine, stops their
     yield* sharing.removeSharedOrganization("org-a");
     expect(yield* answering).toEqual([]);
   }).pipe(Effect.provide(makeTeamAgentLayer())),
+);
+
+const ben: TeamMemberIdentity = { ...ana, userId: "user-ben", name: "Ben" };
+
+const sharedThread = (id: string, startedBy?: TeamMemberIdentity) =>
+  Orchestrator.OrchestratorV2.pipe(
+    Effect.flatMap((orchestrator) =>
+      orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`create-${id}`),
+        threadId: ThreadId.make(id),
+        projectId: web,
+        title: id,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        teamShare: {
+          organizationId: "org-a",
+          access: "steer",
+          ...(startedBy === undefined ? {} : { startedBy: teamPerson(startedBy) }),
+        },
+      }),
+    ),
+    Effect.as(ThreadId.make(id)),
+  );
+
+const send = (
+  threadId: ThreadId,
+  id: string,
+  from: TeamMemberIdentity | undefined,
+  type: "start_immediately" | "queue_after_active",
+) =>
+  Orchestrator.OrchestratorV2.pipe(
+    Effect.flatMap((orchestrator) =>
+      orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(`send-${id}`),
+        threadId,
+        messageId: MessageId.make(id),
+        text: `Message ${id}`,
+        attachments: [],
+        ...(from === undefined
+          ? {}
+          : { context: { version: 1 as const, records: [], member: teamPerson(from) } }),
+        dispatchMode: { type },
+        createdBy: "user",
+        creationSource: "web",
+      }),
+    ),
+  );
+
+const runStates = (threadId: ThreadId) =>
+  Orchestrator.OrchestratorV2.pipe(
+    Effect.flatMap((orchestrator) => orchestrator.getThreadRecords(threadId, ["runs"])),
+    Effect.map((records) =>
+      records.runs.map(
+        (run) => `${run.userMessageId}:${run.status}${run.queueHeld === true ? ":held" : ""}`,
+      ),
+    ),
+  );
+
+const teamThreads = Effect.gen(function* () {
+  const sharing = yield* TeamSharing.TeamSharing;
+  yield* sharing.addSharedOrganization("org-a");
+  const anaTask = yield* sharedThread("thread-ana", ana);
+  yield* send(anaTask, "ana-task", ana, "start_immediately");
+  yield* send(anaTask, "host-after-ana", undefined, "queue_after_active");
+  yield* send(anaTask, "ana-after-ana", ana, "queue_after_active");
+  const hostTask = yield* sharedThread("thread-host");
+  yield* send(hostTask, "host-task", undefined, "start_immediately");
+  yield* send(hostTask, "ana-after-host", ana, "queue_after_active");
+  const benTask = yield* sharedThread("thread-ben", ben);
+  yield* send(benTask, "ben-task", ben, "start_immediately");
+  const pausedTask = yield* sharedThread("thread-paused");
+  yield* send(pausedTask, "host-paused", undefined, "start_immediately");
+  yield* send(pausedTask, "ana-paused", ana, "queue_after_active");
+  const orchestrator = yield* Orchestrator.OrchestratorV2;
+  yield* orchestrator.dispatch({
+    type: "thread.stop",
+    commandId: CommandId.make("stop-paused"),
+    threadId: pausedTask,
+  });
+  return { sharing, anaTask, hostTask, benTask, pausedTask };
+});
+
+it.effect(
+  "removing a teammate stops the turns they started and cancels their queued messages, but not the host's or another teammate's",
+  () =>
+    Effect.gen(function* () {
+      const { sharing, anaTask, hostTask, benTask, pausedTask } = yield* teamThreads;
+      expect(yield* runStates(pausedTask)).toEqual([
+        "host-paused:interrupted",
+        "ana-paused:queued:held",
+      ]);
+
+      yield* sharing.revokeMemberAccess({ organizationId: "org-a", userId: ana.userId });
+
+      expect(yield* runStates(anaTask)).toEqual([
+        "ana-task:interrupted",
+        "host-after-ana:queued:held",
+        "ana-after-ana:cancelled",
+      ]);
+      expect(yield* runStates(hostTask)).toEqual([
+        "host-task:starting",
+        "ana-after-host:cancelled",
+      ]);
+      expect(yield* runStates(benTask)).toEqual(["ben-task:starting"]);
+      expect(yield* runStates(pausedTask)).toEqual([
+        "host-paused:interrupted",
+        "ana-paused:cancelled:held",
+      ]);
+      expect((yield* answering).toSorted()).toEqual([hostTask, benTask].toSorted());
+
+      yield* send(pausedTask, "host-resumes", undefined, "start_immediately");
+      expect(yield* runStates(pausedTask)).toEqual([
+        "host-paused:interrupted",
+        "ana-paused:cancelled:held",
+        "host-resumes:starting",
+      ]);
+    }).pipe(Effect.provide(makeTeamAgentLayer())),
+);
+
+it.effect.each([
+  {
+    action: "unsharing the machine",
+    act: (sharing: TeamSharing.TeamSharing["Service"]) => sharing.removeSharedOrganization("org-a"),
+  },
+  {
+    action: "unsharing the team project",
+    act: (sharing: TeamSharing.TeamSharing["Service"]) => sharing.clearProjectShare(web),
+  },
+  {
+    action: "unsharing each thread",
+    act: (sharing: TeamSharing.TeamSharing["Service"], threadIds: ReadonlyArray<ThreadId>) =>
+      Effect.forEach(threadIds, (threadId) => sharing.clearThreadShare({ threadId }), {
+        discard: true,
+      }),
+  },
+  {
+    action: "lowering each thread to view only",
+    act: (sharing: TeamSharing.TeamSharing["Service"], threadIds: ReadonlyArray<ThreadId>) =>
+      Effect.forEach(
+        threadIds,
+        (threadId) => sharing.setThreadShare({ threadId, organizationId: "org-a", access: "view" }),
+        { discard: true },
+      ),
+  },
+])("$action stops every teammate's turn and leaves the host's running", ({ act }) =>
+  Effect.gen(function* () {
+    const { sharing, anaTask, hostTask, benTask, pausedTask } = yield* teamThreads;
+
+    yield* act(sharing, [anaTask, hostTask, benTask, pausedTask]);
+
+    expect(yield* runStates(anaTask)).toEqual([
+      "ana-task:interrupted",
+      "host-after-ana:queued:held",
+      "ana-after-ana:cancelled",
+    ]);
+    expect(yield* runStates(hostTask)).toEqual(["host-task:starting", "ana-after-host:cancelled"]);
+    expect(yield* runStates(pausedTask)).toEqual([
+      "host-paused:interrupted",
+      "ana-paused:cancelled:held",
+    ]);
+    expect(yield* runStates(benTask)).toEqual(["ben-task:interrupted"]);
+    expect(yield* answering).toEqual([hostTask]);
+  }).pipe(Effect.provide(makeTeamAgentLayer())),
+);
+
+it.effect("unsharing ends the team's access and stops the other answers when one stop fails", () =>
+  Effect.gen(function* () {
+    const stopFailed = yield* Ref.make(false);
+    const revoked: Array<string> = [];
+    yield* Effect.gen(function* () {
+      const sharing = yield* TeamSharing.TeamSharing;
+      const teamAgent = yield* TeamAgentService.TeamAgent;
+      yield* sharing.addSharedOrganization("org-a");
+      yield* teamAgent.setAgent(
+        { organizationId: "org-a", enabled: true, projectIds: [web], modelSelection },
+        undefined,
+      );
+      const ben = { ...ana, userId: "user-ben", name: "Ben" };
+      yield* teamAgent.askAgent({ organizationId: "org-a", text: "Auth?" }, ana);
+      yield* teamAgent.askAgent({ organizationId: "org-a", text: "Cache?" }, ben);
+
+      const unshared = yield* sharing.removeSharedOrganization("org-a").pipe(Effect.exit);
+
+      expect(revoked).toEqual(["pairing links org-a", "sessions org-a"]);
+      expect(yield* answering).toHaveLength(1);
+      expect(Exit.isSuccess(unshared)).toBe(true);
+    }).pipe(
+      Effect.provide(
+        makeTeamAgentLayer({
+          failStop: Ref.getAndSet(stopFailed, true).pipe(Effect.map((failed) => !failed)),
+          revoked,
+        }),
+      ),
+    );
+  }),
+);
+
+it.effect.each([
+  {
+    action: "switching the agent off",
+    act: (teamAgent: TeamAgentService.TeamAgent["Service"]) =>
+      teamAgent.setAgent(
+        { organizationId: "org-a", enabled: false, projectIds: [web], modelSelection },
+        undefined,
+      ),
+  },
+  {
+    action: "removing the asking teammate",
+    act: (
+      _teamAgent: TeamAgentService.TeamAgent["Service"],
+      sharing: TeamSharing.TeamSharing["Service"],
+    ) => sharing.revokeMemberAccess({ organizationId: "org-a", userId: ana.userId }),
+  },
+])("$action while a question is being checked leaves it not answering", ({ act }) =>
+  Effect.gen(function* () {
+    const checking = yield* Deferred.make<void>();
+    const ownerActed = yield* Deferred.make<void>();
+    yield* Effect.gen(function* () {
+      const sharing = yield* TeamSharing.TeamSharing;
+      const teamAgent = yield* TeamAgentService.TeamAgent;
+      yield* sharing.addSharedOrganization("org-a");
+      yield* teamAgent.setAgent(
+        { organizationId: "org-a", enabled: true, projectIds: [web], modelSelection },
+        undefined,
+      );
+      const asking = yield* teamAgent
+        .askAgent({ organizationId: "org-a", text: "Where is auth handled?" }, ana)
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(checking);
+
+      yield* act(teamAgent, sharing);
+      yield* Fiber.join(asking);
+
+      expect(yield* answering).toEqual([]);
+    }).pipe(
+      Effect.provide(
+        makeTeamAgentLayer({
+          beforeAgentCount: Deferred.succeed(checking, undefined).pipe(
+            Effect.andThen(Deferred.await(ownerActed)),
+          ),
+          onOwnerChange: Deferred.isDone(checking).pipe(
+            Effect.flatMap((paused) =>
+              paused ? Deferred.succeed(ownerActed, undefined) : Effect.void,
+            ),
+          ),
+        }),
+      ),
+    );
+  }),
 );
 
 const secretCopies = [
