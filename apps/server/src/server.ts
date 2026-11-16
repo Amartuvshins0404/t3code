@@ -12,6 +12,7 @@ import * as TeamAgent from "./team/TeamAgent.ts";
 import * as TeamProjects from "./team/TeamProjects.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
+import * as MasterAgentWatch from "./masterAgent/MasterAgentWatch.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
 // Effect wraps this raw Node HTTP server after its startup and write-error guards attach.
 // @effect-diagnostics nodeBuiltinImport:off
@@ -683,6 +684,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(PullRequestWatchReactor.layer),
     Layer.provide(layerPullRequestService),
     Layer.provide(ProjectionStoreV2.layer),
+  ),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const service = yield* MasterAgentWatch.MasterAgentWatch;
+      yield* service.start();
+    }),
   ),
   Layer.effectDiscard(
     Effect.gen(function* () {

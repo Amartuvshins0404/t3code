@@ -58,6 +58,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.projectsCreateFromThread]: AuthOrchestrationOperateScope,
   // Creates the agent thread the first time, so only those who may start threads may open it.
   [WS_METHODS.masterAgentEnsure]: AuthOrchestrationOperateScope,
+  [WS_METHODS.masterAgentUnwatch]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsPlant]: AuthOrchestrationOperateScope,
   [WS_METHODS.sourceControlCloneRepository]: AuthSourceControlWriteScope,
   [WS_METHODS.sourceControlPublishRepository]: AuthSourceControlWriteScope,

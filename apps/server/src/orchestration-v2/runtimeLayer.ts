@@ -23,6 +23,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
 import * as MasterAgent from "../masterAgent/MasterAgent.ts";
+import * as MasterAgentWatch from "../masterAgent/MasterAgentWatch.ts";
 import * as MasterAgentStore from "../persistence/MasterAgentStore.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
@@ -327,6 +328,9 @@ const layerProjectPlantProvided = ProjectPlant.layer.pipe(
     Layer.mergeAll(layerProjectService, layerThreadLaunchProvided, layerThreadManagementProvided),
   ),
 );
+export const layerMasterAgentWatch = MasterAgentWatch.layer.pipe(
+  Layer.provide(Layer.mergeAll(MasterAgentStore.layer, layerOrchestratorProvided)),
+);
 export const layerMasterAgent = MasterAgent.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -420,6 +424,7 @@ export const layerProduction = Layer.mergeAll(
   layerScheduledTaskProvided,
   layerScratchThreadPromotionProvided,
   layerMasterAgent,
+  layerMasterAgentWatch,
   layerProjectPlantProvided,
   layerCodemapProvided,
   layerSecretRequestsProvided,

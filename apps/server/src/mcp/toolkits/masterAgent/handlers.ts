@@ -2,6 +2,7 @@ import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import * as MasterAgent from "../../../masterAgent/MasterAgent.ts";
+import * as MasterAgentWatch from "../../../masterAgent/MasterAgentWatch.ts";
 import { masterAgentMemoryEntryBytes } from "../../../persistence/MasterAgentStore.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -34,7 +35,7 @@ const requireMasterThread = Effect.gen(function* () {
   if (!(yield* isMasterThread(masterAgent, scope.thread?.threadId))) {
     return yield* new OrchestratorMcpFailure({
       code: "capability_denied",
-      message: "Only the agent thread has memory.",
+      message: "Only the agent thread has memory and watched threads.",
     });
   }
 });
@@ -71,6 +72,30 @@ export const layer = McpToolAccess.toLayer(MasterAgentToolkit, {
           })),
         })),
       };
+    }),
+  ),
+  agent_threads: McpToolAccess.readsAsCaller(() =>
+    Effect.gen(function* () {
+      yield* requireMasterThread;
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const watches = yield* MasterAgentWatch.MasterAgentWatch;
+      const list = yield* watches.list.pipe(Effect.mapError(unavailable));
+      return {
+        threads: list.map((watch) => ({
+          threadId: watch.threadId,
+          link: McpInvocationContext.threadLinkFor(scope, watch.threadId),
+          state: watch.state,
+          watchedSince: watch.startedAt,
+        })),
+      };
+    }),
+  ),
+  agent_thread_unwatch: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      yield* requireMasterThread;
+      const watches = yield* MasterAgentWatch.MasterAgentWatch;
+      yield* watches.unwatch(input.threadId).pipe(Effect.mapError(unavailable));
+      return { threadId: input.threadId };
     }),
   ),
   agent_memory_write: McpToolAccess.actsAsCaller((input) =>

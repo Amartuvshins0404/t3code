@@ -8,6 +8,8 @@ const AGENT_THREAD_TOOLS: ReadonlySet<string> = new Set([
   "agent_memory_read",
   "agent_memory_write",
   "t3_project_board",
+  "agent_threads",
+  "agent_thread_unwatch",
 ]);
 
 /** What a deferring client lists before it searches. Pi's extension declares the same three. */

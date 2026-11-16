@@ -235,6 +235,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import * as MasterAgent from "./masterAgent/MasterAgent.ts";
+import * as MasterAgentWatch from "./masterAgent/MasterAgentWatch.ts";
 import * as ProjectPlant from "./project/ProjectPlant.ts";
 import * as Codemap from "./codemap/Codemap.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
@@ -1439,6 +1440,7 @@ export const layerWsRpc = (
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
       const scratchThreadPromotion = yield* ScratchThreadPromotion.ScratchThreadPromotion;
       const masterAgent = yield* MasterAgent.MasterAgent;
+      const masterAgentWatch = yield* MasterAgentWatch.MasterAgentWatch;
       const projectPlant = yield* ProjectPlant.ProjectPlant;
       const codemap = yield* Codemap.Codemap;
       const eventLoopMonitor = yield* EventLoopMonitor.EventLoopMonitor;
@@ -3048,6 +3050,14 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.masterAgentEnsure]: () =>
           masterAgent.ensure.pipe(
+            Effect.mapError(
+              (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+            ),
+          ),
+        [WS_METHODS.masterAgentWatchesSubscribe]: () => masterAgentWatch.changes,
+        [WS_METHODS.masterAgentUnwatch]: (input) =>
+          masterAgentWatch.unwatch(input.threadId).pipe(
+            Effect.as({}),
             Effect.mapError(
               (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
             ),

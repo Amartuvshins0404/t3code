@@ -30,6 +30,7 @@ import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
 import * as MasterAgent from "../masterAgent/MasterAgent.ts";
+import * as MasterAgentWatch from "../masterAgent/MasterAgentWatch.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
@@ -1765,6 +1766,7 @@ it.effect("lists and runs the memory and board tools only for the agent thread",
               }),
           }),
         ),
+        Layer.provide(Layer.mock(MasterAgentWatch.MasterAgentWatch)({})),
         Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
         Layer.provide(ServerSettings.layerTest()),
         Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
@@ -1832,6 +1834,8 @@ it.effect("lists and runs the memory and board tools only for the agent thread",
       expect(yield* listed("agentToken")).toEqual([
         "agent_memory_read",
         "agent_memory_write",
+        "agent_thread_unwatch",
+        "agent_threads",
         "t3_project_board",
       ]);
       expect(yield* listed("otherToken")).toEqual([]);
