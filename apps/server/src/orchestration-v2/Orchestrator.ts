@@ -26,7 +26,6 @@ import {
   CommandId,
   type GuestMessageId,
   isCompactionCommandMessage,
-  isListedThreadLineage,
   isOrchestrationV2WorkActive,
   isProviderNativeSubagentThread,
   MessageId,
@@ -3458,11 +3457,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const delegatedFrom = command.linkOrigin === undefined ? undefined : command.delegatedFrom;
     const project = yield* projects.get(command.projectId).pipe(mapDispatchError(command));
     const teamShare = teamShareAtCreation({
-      inherited: undefined,
       requested: command.teamShare,
-      project: yield* projectToShareFrom(project, command.threadId),
+      project:
+        delegatedFrom === undefined
+          ? yield* projectToShareFrom(project, command.threadId)
+          : undefined,
       sharedAt: DateTime.formatIso(now),
     });
     const thread: OrchestrationV2AppThread = {
@@ -3470,7 +3472,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       creationSource: command.creationSource,
       id: command.threadId,
       projectId: command.projectId,
-      ...(teamShare == null ? {} : { teamShare }),
+      ...(teamShare === undefined ? {} : { teamShare }),
       title: command.title,
       providerInstanceId: command.modelSelection.instanceId,
       modelSelection: command.modelSelection,
@@ -3482,9 +3484,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       pullRequests: [],
       ...(command.linkOrigin === undefined ? {} : { linkOrigin: command.linkOrigin }),
       // Only stamped work names a remote parent, so a client cannot claim one.
-      ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
-        ? {}
-        : { delegatedFrom: command.delegatedFrom }),
+      ...(delegatedFrom === undefined ? {} : { delegatedFrom }),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,
@@ -5338,27 +5338,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         createdAt: now,
       })
       .pipe(mapDispatchError(command));
-    const forkTeamShare = isListedThreadLineage(targetThread.lineage)
-      ? teamShareAtCreation({
-          inherited: targetThread.teamShare,
-          requested: undefined,
-          project: yield* projectToShareFrom(
-            yield* projects.get(targetThread.projectId).pipe(mapDispatchError(command)),
-            command.targetThreadId,
-          ),
-          sharedAt: DateTime.formatIso(now),
-        })
-      : targetThread.teamShare;
 
     yield* emitEvent({
       type: "thread.created",
       threadId: command.targetThreadId,
       providerInstanceId: targetThread.providerInstanceId,
       occurredAt: now,
-      payload:
-        forkTeamShare === targetThread.teamShare
-          ? targetThread
-          : { ...targetThread, teamShare: forkTeamShare ?? null },
+      payload: targetThread,
     });
     yield* emitEvent({
       type: "context-transfer.created",
