@@ -184,6 +184,9 @@ export function planProjectCommand(input: {
     case "project.meta.update": {
       const project = activeProject;
       if (project === undefined) return missingProject();
+      if (command.archived === true && project.archivedAt === null && project.teamShare !== null) {
+        return invariant("Stop sharing this project with the team before you archive it.");
+      }
       if (
         command.projectIcon?.kind === "monogram" &&
         Array.from(monogramSegmenter.segment(command.projectIcon.text)).length > 2
@@ -229,7 +232,6 @@ export function planProjectCommand(input: {
           ...(command.archived === undefined
             ? {}
             : { archivedAt: command.archived ? (project.archivedAt ?? occurredAt) : null }),
-          ...(command.archived === true && project.teamShare !== null ? { teamShare: null } : {}),
           updatedAt: occurredAt,
         },
       });

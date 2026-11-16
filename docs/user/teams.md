@@ -77,7 +77,8 @@ it cannot be shared with a team.
 To change the model or access, use **Team sharing** in the project's menu or **Change** in **Settings
 → Team → Team projects**. To stop, choose **Stop sharing with team** or **Stop sharing** there. The
 team loses the project and every thread in it that was shared with the team. Stopping sharing the
-machine, or archiving or deleting the project, ends it too.
+machine, or deleting the project, ends it too. A team project cannot be archived: stop sharing it
+first.
 
 ## Ask a teammate's agent
 
