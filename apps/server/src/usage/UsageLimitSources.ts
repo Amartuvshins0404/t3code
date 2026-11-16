@@ -334,10 +334,11 @@ export const make = Effect.gen(function* () {
           clientKey: yield* readVariable(codex, CODEX_CLIENT_KEY_VARIABLE),
         };
     if (!reachable(route)) return null;
-    const managementKeys = yield* Effect.forEach(
-      Object.values(usageLimitSources),
-      readManagementKey,
+    const managementKeys = yield* Effect.forEach(Object.values(usageLimitSources), (config) =>
+      readManagementKey(config).pipe(Effect.map((key) => key.trim())),
     );
+    // An unreadable management key cannot be ruled out as the one the provider runs on.
+    if (managementKeys.includes("")) return null;
     return { ...route, managesProxy: managementKeys.includes(route.clientKey) };
   }).pipe(
     Effect.orElseSucceed(() => null),

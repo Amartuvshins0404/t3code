@@ -236,18 +236,26 @@ it.effect.each([
     refusesNewKeys: false,
     expected: null,
   },
-])("reveals the route of a proxy that $hub", ({ url, refusesNewKeys, expected }) =>
+  {
+    hub: "keeps its management key where it cannot be read",
+    url: "https://hub.test:8317",
+    refusesNewKeys: false,
+    managementKeyUnreadable: true,
+    expected: null,
+  },
+])("reveals the route of a proxy that $hub", ({ expected, ...hub }) =>
   Effect.gen(function* () {
     const sources = yield* UsageLimitSources.make;
     yield* sources.refresh;
     expect(yield* sources.revealRoute).toEqual(expected);
-  }).pipe(Effect.provide(connectedHub({ url, refusesNewKeys })), Effect.scoped),
+  }).pipe(Effect.provide(connectedHub(hub)), Effect.scoped),
 );
 
 function connectedHub(hub: {
   readonly url: string;
   readonly clientKeys?: Array<unknown>;
   readonly refusesNewKeys?: boolean;
+  readonly managementKeyUnreadable?: boolean;
 }) {
   return Layer.mergeAll(
     ServerSettings.layerTest({
@@ -255,7 +263,9 @@ function connectedHub(hub: {
         [UsageLimitSourceId.make("hub")]: {
           kind: "cliproxy",
           url: hub.url,
-          managementKey: "management-key",
+          managementKey: hub.managementKeyUnreadable
+            ? { provider: SecretProviderId.make("homelab"), reference: "locked#key" }
+            : "management-key",
           enabled: true,
         },
       },
@@ -263,6 +273,17 @@ function connectedHub(hub: {
         [ProviderInstanceId.make("claudeAgent_work")]: {
           driver: ProviderDriverKind.make("claudeAgent"),
         },
+        ...(hub.managementKeyUnreadable
+          ? {
+              [CLIPROXY_CLAUDE_INSTANCE_ID]: {
+                driver: ProviderDriverKind.make("claudeAgent"),
+                environment: [
+                  { name: "ANTHROPIC_BASE_URL", value: hub.url, sensitive: false },
+                  { name: "ANTHROPIC_AUTH_TOKEN", value: "provider-key", sensitive: true },
+                ],
+              },
+            }
+          : {}),
       },
     }),
     Layer.mock(BackgroundPolicy.BackgroundPolicy)({

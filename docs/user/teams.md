@@ -131,7 +131,8 @@ and enters the hub's address and one of its client access keys. If one of your c
 already uses a CLI Proxy that other machines can reach, the form opens with that machine's address
 and key filled in, so you only choose **Save**; change either field to give the team a different
 hub or key. The form warns you when that key is the hub's management key: every teammate's machine
-would hold it, so enter a client access key instead to keep it private. The key goes to T3
+would hold it, so enter a client access key instead to keep it private. It stays empty when the
+hub's management key cannot be read to check that. The key goes to T3
 Connect and no screen shows it again. Members see the address and who set it. An admin can
 **Replace** or **Remove** it.
 
