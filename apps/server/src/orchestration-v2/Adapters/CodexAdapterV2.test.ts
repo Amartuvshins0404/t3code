@@ -70,6 +70,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
+import { CODEX_TEAM_KEY_COMMAND } from "../../team/TeamProviderRoutes.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
@@ -10563,9 +10564,12 @@ describe("CodexAdapterV2 app-server process", () => {
                 "-c",
                 [
                   'printf "server=%s\\n" "$(env | tr "\\n" " ")"',
-                  'printf "auth=%s\\n" "$(/bin/sh -c "/bin/cat /dev/fd/3 2>/dev/null")"',
-                  'printf "shell=%s\\n" "$(/bin/sh -c "env; /bin/cat /dev/fd/3 2>/dev/null" | tr "\\n" " ")"',
+                  'printf "auth=%s\\n" "$("$@" 2>/dev/null)"',
+                  'printf "shell=%s\\n" "$(/bin/sh -c "env; cat 2>/dev/null <&3" | tr "\\n" " ")"',
                 ].join("; "),
+                "t3-fake-codex",
+                CODEX_TEAM_KEY_COMMAND.command,
+                ...CODEX_TEAM_KEY_COMMAND.args,
               ],
               env,
               extendEnv: false,

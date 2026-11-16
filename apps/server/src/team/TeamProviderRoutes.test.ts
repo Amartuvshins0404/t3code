@@ -221,8 +221,8 @@ describe("what clients receive", () => {
       "model_provider=t3team",
     );
     expect(overrides).toContain("model_providers.t3team.base_url=https://proxy.test/base/v1");
-    expect(overrides).toContain('model_providers.t3team.auth.command="/bin/cat"');
-    expect(overrides).toContain('model_providers.t3team.auth.args=["/dev/fd/3"]');
+    expect(overrides).toContain('model_providers.t3team.auth.command="/bin/sh"');
+    expect(overrides).toContain('model_providers.t3team.auth.args=["-c","cat <&3"]');
     expect(overrides.some((arg) => arg.includes("env_key"))).toBe(false);
     expect(overrides).toContain("features.shell_snapshot=false");
     expect(codexLaunchArgModelProvider(config.launchArgs)).toBe("t3team");

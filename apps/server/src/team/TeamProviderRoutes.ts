@@ -219,6 +219,10 @@ export const turnProviderSessionId = (input: {
 
 const TEAM_PROXY_KEY_VARIABLE = "T3_TEAM_PROXY_API_KEY";
 export const CODEX_TEAM_KEY_FD = 3;
+export const CODEX_TEAM_KEY_COMMAND = {
+  command: "/bin/sh",
+  args: ["-c", `cat <&${CODEX_TEAM_KEY_FD}`],
+} as const;
 const CLAUDE_PROXY_VARIABLES = new Set([
   "ANTHROPIC_BASE_URL",
   "ANTHROPIC_AUTH_TOKEN",
@@ -237,8 +241,8 @@ const codexTeamLaunchArgs = (url: string) =>
     "model_provider=t3team",
     "model_providers.t3team.name=Team CLI Proxy",
     `model_providers.t3team.base_url=${new URL("v1", `${url.replace(/\/+$/, "")}/`).toString()}`,
-    'model_providers.t3team.auth.command="/bin/cat"',
-    `model_providers.t3team.auth.args=["/dev/fd/${CODEX_TEAM_KEY_FD}"]`,
+    `model_providers.t3team.auth.command=${JSON.stringify(CODEX_TEAM_KEY_COMMAND.command)}`,
+    `model_providers.t3team.auth.args=${JSON.stringify(CODEX_TEAM_KEY_COMMAND.args)}`,
     "features.shell_snapshot=false",
   ]
     .map((override) => `-c "${override.replace(/["\\$`]/g, "\\$&")}"`)

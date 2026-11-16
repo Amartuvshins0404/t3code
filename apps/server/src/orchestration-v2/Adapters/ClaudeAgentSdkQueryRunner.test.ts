@@ -770,9 +770,9 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Claude CLI pro
       const cli = fakeClaudeCli(
         [
           'fd="$CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR"',
-          'printf "key=%s\\n" "$( [ -n "$fd" ] && cat "/dev/fd/$fd")"',
+          'printf "key=%s\\n" "$( [ -n "$fd" ] && cat <&"$fd")"',
           'printf "cli=%s\\n" "$(env | tr "\\n" " ")"',
-          'printf "shell=%s\\n" "$(/bin/sh -c "env; [ -n \\"$fd\\" ] && cat /dev/fd/$fd" | tr "\\n" " ")"',
+          'printf "shell=%s\\n" "$(/bin/sh -c "env; [ -n \\"$fd\\" ] && cat 2>/dev/null <&$fd" | tr "\\n" " ")"',
         ].join("\n"),
       );
       const dir = NodePath.dirname(cli);
