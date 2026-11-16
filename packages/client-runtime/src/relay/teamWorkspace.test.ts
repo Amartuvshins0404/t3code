@@ -7,6 +7,7 @@ import {
   planTeamConnections,
   shareMachineWithTeam,
   stopSharingMachine,
+  teamPanel,
   threadComposerMode,
   threadConnectivity,
   workspaceListsThread,
@@ -98,6 +99,91 @@ describe("workspace scope", () => {
     expect(joined.register).toEqual(["teammate-machine"]);
     expect(joined.remove).toEqual([]);
     expect(joined.tracked).toEqual(["teammate-machine"]);
+  });
+});
+
+describe("team projects in the team panel", () => {
+  const machines = [
+    { environmentId: "my-machine", ownerUserId: "me" },
+    { environmentId: "bat-machine", ownerUserId: "bat" },
+  ];
+  const project = (
+    environmentId: string,
+    id: string,
+    title: string,
+    organizationId: string | null,
+  ) => ({
+    environmentId,
+    id,
+    title,
+    archivedAt: null,
+    teamShare: organizationId === null ? null : { organizationId },
+  });
+  const thread = (
+    id: string,
+    environmentId: string,
+    projectId: string,
+    updatedAt: string,
+    share: { organizationId: string; agent?: { startedBy: { userId: string; name: string } } },
+  ) => ({
+    id,
+    environmentId,
+    projectId,
+    updatedAt,
+    archivedAt: null,
+    source: { teamShare: share },
+  });
+
+  it("lists another member's team project and leaves out projects not shared with this team", () => {
+    const panel = teamPanel({
+      teamId: "team-a",
+      machines,
+      projects: [
+        project("bat-machine", "api", "api", "team-a"),
+        project("my-machine", "web", "web", "team-a"),
+        project("bat-machine", "secret", "secret", null),
+        project("my-machine", "other-team", "other", "team-b"),
+        project("stranger-machine", "far", "far", "team-a"),
+      ],
+      threads: [],
+    });
+    expect(panel.projects.map((entry) => entry.project.id)).toEqual(["api", "web"]);
+  });
+
+  it("puts a team project's thread under the project only, and keeps agent conversations under the person", () => {
+    const panel = teamPanel({
+      teamId: "team-a",
+      machines,
+      projects: [project("bat-machine", "api", "api", "team-a")],
+      threads: [
+        thread("old", "bat-machine", "api", "2026-11-01", { organizationId: "team-a" }),
+        thread("new", "bat-machine", "api", "2026-11-02", { organizationId: "team-a" }),
+        thread("loose", "bat-machine", "private-project", "2026-11-03", {
+          organizationId: "team-a",
+        }),
+        thread("ask", "bat-machine", "api", "2026-11-04", {
+          organizationId: "team-a",
+          agent: { startedBy: { userId: "me", name: "Me" } },
+        }),
+        thread("elsewhere", "bat-machine", "api", "2026-11-05", { organizationId: "team-b" }),
+      ],
+    });
+    expect(panel.projects[0]?.threads.map((entry) => entry.id)).toEqual(["new", "old"]);
+    expect(panel.threadsByPerson.get("bat")?.map((entry) => entry.id)).toEqual(["ask", "loose"]);
+    expect(panel.threadsByPerson.get("me")).toBeUndefined();
+  });
+
+  it("leaves Personal unchanged for threads in my own shared project", () => {
+    const personal: WorkspaceScope = { kind: "personal", teamOnlyEnvironmentIds: new Set() };
+    expect(
+      workspaceListsThread(personal, {
+        environmentId: "my-machine",
+        teamShare: teamShare("team-a"),
+      }),
+    ).toBe(true);
+    expect(workspaceListsThread(personal, { environmentId: "my-machine", teamShare: null })).toBe(
+      true,
+    );
   });
 });
 

@@ -52,6 +52,7 @@ import { Skeleton } from "../ui/skeleton";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { TeamAgentSection } from "./TeamAgent";
+import { TeamProjectsSection } from "./TeamProjects";
 import { TeamConnectivitySection } from "./TeamConnectivity";
 import { TeamSharedMachinesSection } from "./TeamSharedMachines";
 
@@ -381,6 +382,8 @@ function TeamDetail({
       <TeamSharedMachinesSection team={team} />
 
       <TeamAgentSection team={team} />
+
+      <TeamProjectsSection team={team} />
 
       <TeamConnectivitySection team={team} />
 

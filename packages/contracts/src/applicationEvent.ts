@@ -15,6 +15,7 @@ import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import type { OrchestrationV2StoredEvent } from "./orchestrationV2.ts";
 import { ProjectScript, StoredProjectIcon } from "./project.ts";
+import { ProjectTeamShare } from "./team.ts";
 
 export const OrchestrationClientOrigin = Schema.Struct({
   surface: Schema.optional(ClientSurface),
@@ -62,6 +63,7 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  teamShare: Schema.optional(Schema.NullOr(ProjectTeamShare)),
   updatedAt: IsoDateTime,
 });
 export type ApplicationProjectMetaUpdatedPayload = typeof ApplicationProjectMetaUpdatedPayload.Type;

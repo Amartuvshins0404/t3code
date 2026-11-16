@@ -26,6 +26,7 @@ import {
   CommandId,
   type GuestMessageId,
   isCompactionCommandMessage,
+  isListedThreadLineage,
   isOrchestrationV2WorkActive,
   isProviderNativeSubagentThread,
   MessageId,
@@ -103,6 +104,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ProjectStore from "./ProjectStore.ts";
+import { teamShareAtCreation } from "./teamShareAtCreation.ts";
 import {
   isCheckpointRestoreIsolated,
   SHARED_WORKSPACE_RESTORE_MESSAGE,
@@ -3407,6 +3409,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       { concurrency: 1, discard: true },
     );
 
+  const projectToShareFrom = Effect.fn("orchestrationV2.projectToShareFrom")(function* (
+    project: Option.Option<ProjectStore.ProjectRow>,
+    threadId: ThreadId,
+  ) {
+    const row = Option.getOrUndefined(project);
+    if (row?.teamShare == null) return row;
+    const projectionError = (cause: unknown) =>
+      new OrchestratorProjectionError({ threadId, cause });
+    const masterThreadId = yield* masterAgentStore.readThreadId.pipe(
+      Effect.mapError(projectionError),
+    );
+    if (masterThreadId === null) return row;
+    if (masterThreadId === threadId) return undefined;
+    const master = yield* projectionStore
+      .getThread(masterThreadId)
+      .pipe(
+        Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+        Effect.mapError(projectionError),
+      );
+    return master?.projectId === row.projectId ? undefined : row;
+  });
+
   const dispatchThreadCreate = Effect.fn("orchestrationV2.dispatch.threadCreate")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.create" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -3434,11 +3458,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const project = yield* projects.get(command.projectId).pipe(mapDispatchError(command));
+    const teamShare = teamShareAtCreation({
+      inherited: undefined,
+      requested: command.teamShare,
+      project: yield* projectToShareFrom(project, command.threadId),
+      sharedAt: DateTime.formatIso(now),
+    });
     const thread: OrchestrationV2AppThread = {
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
       projectId: command.projectId,
+      ...(teamShare == null ? {} : { teamShare }),
       title: command.title,
       providerInstanceId: command.modelSelection.instanceId,
       modelSelection: command.modelSelection,
@@ -5306,13 +5338,27 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         createdAt: now,
       })
       .pipe(mapDispatchError(command));
+    const forkTeamShare = isListedThreadLineage(targetThread.lineage)
+      ? teamShareAtCreation({
+          inherited: targetThread.teamShare,
+          requested: undefined,
+          project: yield* projectToShareFrom(
+            yield* projects.get(targetThread.projectId).pipe(mapDispatchError(command)),
+            command.targetThreadId,
+          ),
+          sharedAt: DateTime.formatIso(now),
+        })
+      : targetThread.teamShare;
 
     yield* emitEvent({
       type: "thread.created",
       threadId: command.targetThreadId,
       providerInstanceId: targetThread.providerInstanceId,
       occurredAt: now,
-      payload: targetThread,
+      payload:
+        forkTeamShare === targetThread.teamShare
+          ? targetThread
+          : { ...targetThread, teamShare: forkTeamShare ?? null },
     });
     yield* emitEvent({
       type: "context-transfer.created",

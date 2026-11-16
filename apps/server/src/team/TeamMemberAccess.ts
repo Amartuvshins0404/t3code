@@ -39,6 +39,7 @@ const TEAM_MEMBER_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.teamGetConnectivity,
   WS_METHODS.teamGetAgents,
   WS_METHODS.teamAskAgent,
+  WS_METHODS.teamStartProjectThread,
 ]);
 
 const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
@@ -49,6 +50,7 @@ const THREADLESS_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.teamGetConnectivity,
   WS_METHODS.teamGetAgents,
   WS_METHODS.teamAskAgent,
+  WS_METHODS.teamStartProjectThread,
 ]);
 
 const TEAM_MEMBER_HTTP_ENDPOINTS: ReadonlySet<string> = new Set([
@@ -276,8 +278,15 @@ export function makeTeamShellFilter(organizationId: string) {
   const sentProjects = new Set<ProjectId>();
   const visible = (thread: OrchestrationV2ThreadShell) =>
     sharedWithTeam(thread.teamShare, organizationId);
+  const teamProject = (project: OrchestrationProjectShell | undefined) =>
+    project?.teamShare?.organizationId === organizationId && project.archivedAt == null;
   const projectInUse = (projectId: ProjectId) =>
+    teamProject(projects.get(projectId)) ||
     [...visibleThreads.values()].some((candidate) => candidate === projectId);
+  const forTeammate = (project: OrchestrationProjectShell): OrchestrationProjectShell => ({
+    ...project,
+    scripts: [],
+  });
 
   return (item: OrchestrationV2ShellStreamItem): ReadonlyArray<OrchestrationV2ShellStreamItem> => {
     switch (item.kind) {
@@ -291,7 +300,9 @@ export function makeTeamShellFilter(organizationId: string) {
         for (const thread of [...threads, ...archivedThreads]) {
           visibleThreads.set(thread.id, thread.projectId);
         }
-        const shownProjects = item.snapshot.projects.filter((project) => projectInUse(project.id));
+        const shownProjects = item.snapshot.projects
+          .filter((project) => projectInUse(project.id))
+          .map(forTeammate);
         for (const project of shownProjects) sentProjects.add(project.id);
         const { olderSettled: _olderSettled, ...snapshot } = item.snapshot;
         const filtered = {
@@ -309,7 +320,12 @@ export function makeTeamShellFilter(organizationId: string) {
       }
       case "project.updated":
         projects.set(item.project.id, item.project);
-        return sentProjects.has(item.project.id) ? [item] : [];
+        if (projectInUse(item.project.id)) {
+          sentProjects.add(item.project.id);
+          return [{ ...item, project: forTeammate(item.project) }];
+        }
+        if (!sentProjects.delete(item.project.id)) return [];
+        return [{ kind: "project.removed", sequence: item.sequence, projectId: item.project.id }];
       case "project.removed":
         projects.delete(item.projectId);
         if (!sentProjects.delete(item.projectId)) return [];
@@ -320,7 +336,10 @@ export function makeTeamShellFilter(organizationId: string) {
           const project = projects.get(item.thread.projectId);
           if (sentProjects.has(item.thread.projectId) || project === undefined) return [item];
           sentProjects.add(project.id);
-          return [{ kind: "project.updated", sequence: item.sequence, project }, item];
+          return [
+            { kind: "project.updated", sequence: item.sequence, project: forTeammate(project) },
+            item,
+          ];
         }
         return removeThread(item.thread.id, item.sequence, item.location);
       }

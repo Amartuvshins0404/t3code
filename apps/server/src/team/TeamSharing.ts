@@ -1,5 +1,7 @@
 import {
   CommandId,
+  type ProjectId,
+  type ProjectTeamShare,
   TeamAccessError,
   type TeamMemberAccessRevokeInput,
   type TeamSharedOrganizations,
@@ -11,12 +13,15 @@ import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 
 import * as PairingGrantStore from "../auth/PairingGrantStore.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import {
   readTeamSharingState,
   type TeamAgentSetting,
@@ -44,6 +49,11 @@ export class TeamSharing extends Context.Service<
     readonly clearThreadShare: (
       input: TeamThreadShareClearInput,
     ) => Effect.Effect<void, TeamAccessError>;
+    readonly setProjectShare: (
+      projectId: ProjectId,
+      teamShare: ProjectTeamShare,
+    ) => Effect.Effect<void, TeamAccessError>;
+    readonly clearProjectShare: (projectId: ProjectId) => Effect.Effect<void, TeamAccessError>;
     readonly readState: Effect.Effect<TeamSharingState, TeamAccessError>;
     readonly setAgentSetting: (
       organizationId: string,
@@ -61,6 +71,8 @@ const make = Effect.gen(function* () {
   const sessions = yield* SessionStore.SessionStore;
   const pairingLinks = yield* PairingGrantStore.PairingGrantStore;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const projects = yield* ProjectStore.ProjectStoreV2;
+  const projectService = yield* ProjectService.ProjectService;
   const random = yield* SecureRandom.SecureRandom;
   const connectivity = yield* TeamConnectivity.TeamConnectivity;
   const writes = yield* Semaphore.make(1);
@@ -79,6 +91,115 @@ const make = Effect.gen(function* () {
       Effect.map((uuid) => CommandId.make(`server:team-share:${label}:${uuid}`)),
       Effect.orDie,
     );
+
+  const projectUnavailable = () =>
+    new TeamAccessError({
+      reason: "project_unavailable",
+      message: "This project is not available.",
+    });
+
+  const commitProjectShare = (projectId: ProjectId, teamShare: ProjectTeamShare | null) =>
+    commandId(teamShare === null ? "project-clear" : "project-set").pipe(
+      Effect.flatMap((id) => projectService.setTeamShare({ commandId: id, projectId, teamShare })),
+      Effect.mapError((cause) =>
+        cause._tag === "ProjectNotFoundError" || cause._tag === "ProjectInvalidError"
+          ? projectUnavailable()
+          : internal("Could not save the project's share."),
+      ),
+    );
+
+  const unshareProject = Effect.fn("TeamSharing.unshareProject")(function* (
+    projectId: ProjectId,
+    organizationId: string,
+  ) {
+    yield* commitProjectShare(projectId, null);
+    const snapshot = yield* orchestrator
+      .getShellSnapshot({ projectId })
+      .pipe(Effect.mapError(() => internal("Could not read the project's threads.")));
+    const shared = [...snapshot.threads, ...snapshot.archivedThreads].filter(
+      (thread) =>
+        thread.teamShare?.organizationId === organizationId && thread.teamShare.agent === undefined,
+    );
+    yield* Effect.forEach(
+      shared,
+      (thread) =>
+        commandId("project-thread-clear").pipe(
+          Effect.flatMap((id) =>
+            orchestrator.dispatch({
+              type: "thread.team-share.clear",
+              commandId: id,
+              threadId: thread.id,
+            }),
+          ),
+          Effect.mapError(() => internal("Could not unshare a thread in the project.")),
+        ),
+      { discard: true },
+    );
+  });
+
+  const unshareProjectsFor = Effect.fn("TeamSharing.unshareProjectsFor")(function* (
+    organizationId: string,
+  ) {
+    const rows = yield* projects
+      .list()
+      .pipe(Effect.mapError(() => internal("Could not read the projects.")));
+    yield* Effect.forEach(
+      rows.filter((row) => row.teamShare?.organizationId === organizationId),
+      (row) => unshareProject(row.projectId, organizationId),
+      { discard: true },
+    );
+  });
+
+  const setProjectShare = Effect.fn("TeamSharing.setProjectShare")(function* (
+    projectId: ProjectId,
+    teamShare: ProjectTeamShare,
+  ) {
+    return yield* writes.withPermits(1)(
+      Effect.gen(function* () {
+        if (!(yield* read).includes(teamShare.organizationId)) {
+          return yield* new TeamAccessError({
+            reason: "organization_not_shared",
+            message: "Share this machine with the team before sharing a project with it.",
+          });
+        }
+        const current = Option.getOrUndefined(
+          yield* projects
+            .get(projectId)
+            .pipe(Effect.mapError(() => internal("Could not read the project."))),
+        );
+        if (current === undefined || current.archivedAt !== null) {
+          return yield* projectUnavailable();
+        }
+        const previous = current.teamShare;
+        if (previous !== null && previous.organizationId !== teamShare.organizationId) {
+          return yield* internal(
+            "This project is shared with another team. Stop sharing it there first.",
+          );
+        }
+        yield* commitProjectShare(projectId, {
+          ...teamShare,
+          sharedAt: previous?.sharedAt ?? teamShare.sharedAt,
+        });
+      }),
+    );
+  });
+
+  const clearProjectShare = Effect.fn("TeamSharing.clearProjectShare")(function* (
+    projectId: ProjectId,
+  ) {
+    return yield* writes.withPermits(1)(
+      Effect.gen(function* () {
+        const current = Option.getOrUndefined(
+          yield* projects
+            .get(projectId)
+            .pipe(Effect.mapError(() => internal("Could not read the project."))),
+        );
+        if (current === undefined) return yield* projectUnavailable();
+        if (current.teamShare === null) return;
+        yield* unshareProject(projectId, current.teamShare.organizationId);
+      }),
+    );
+  });
 
   const listSharedOrganizations = read.pipe(
     Effect.map((organizationIds) => ({ organizationIds })),
@@ -106,6 +227,7 @@ const make = Effect.gen(function* () {
   ) {
     const organizationIds = yield* writes.withPermits(1)(
       Effect.gen(function* () {
+        yield* unshareProjectsFor(organizationId);
         const state = yield* readState;
         const current = state.organizationIds;
         const next = current.filter((candidate) => candidate !== organizationId);
@@ -217,6 +339,8 @@ const make = Effect.gen(function* () {
     revokeMemberAccess,
     setThreadShare,
     clearThreadShare,
+    setProjectShare,
+    clearProjectShare,
     readState,
     setAgentSetting,
   });

@@ -129,6 +129,7 @@ import * as TeamPresence from "./team/TeamPresence.ts";
 import * as TeamSharing from "./team/TeamSharing.ts";
 import * as TeamConnectivity from "./team/TeamConnectivity.ts";
 import * as TeamAgent from "./team/TeamAgent.ts";
+import * as TeamProjects from "./team/TeamProjects.ts";
 import {
   decideTeamMemberCommand,
   TEAM_AGENT_REFUSAL_DETAILS,
@@ -1484,6 +1485,7 @@ export const layerWsRpc = (
       const teamPresence = yield* TeamPresence.TeamPresence;
       const teamConnectivity = yield* TeamConnectivity.TeamConnectivity;
       const teamAgent = yield* TeamAgent.TeamAgent;
+      const teamProjects = yield* TeamProjects.TeamProjects;
       const teamMember = currentSession.member;
       const presenceClientId = yield* random.uuidV4();
       yield* teamPresence.join({
@@ -2424,6 +2426,12 @@ export const layerWsRpc = (
         [WS_METHODS.teamGetAgents]: (_input) => teamAgent.getAgents(teamMember),
         [WS_METHODS.teamSetAgent]: (input) => teamAgent.setAgent(input, teamMember),
         [WS_METHODS.teamAskAgent]: (input) => teamAgent.askAgent(input, teamMember),
+        [WS_METHODS.teamSetProjectShare]: (input) =>
+          teamProjects.setProjectShare(input, teamMember),
+        [WS_METHODS.teamClearProjectShare]: (input) =>
+          teamProjects.clearProjectShare(input, teamMember),
+        [WS_METHODS.teamStartProjectThread]: (input) =>
+          teamProjects.startProjectThread(input, teamMember),
         [WS_METHODS.teamReportPresence]: (input) => teamPresence.report(presenceClientId, input),
         [WS_METHODS.teamSubscribePresence]: (_input) =>
           teamPresence.changes.pipe(

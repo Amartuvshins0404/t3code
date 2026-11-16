@@ -1,12 +1,16 @@
 import { canManageTeam } from "@t3tools/client-runtime/cloud-auth";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { TeamWorkspace } from "@t3tools/client-runtime/relay";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftRightIcon,
   BotIcon,
+  FolderPlusIcon,
   MessageCircleIcon,
   PlugIcon,
   PlusIcon,
   SettingsIcon,
+  SquarePenIcon,
   UserPlusIcon,
 } from "lucide-react";
 
@@ -17,6 +21,8 @@ import {
   useActiveWorkspace,
   useCloudTeamsState,
 } from "../../cloud/cloudTeams";
+import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useProjects } from "../../state/entities";
 import { AppLogo } from "../AppLogo";
 import {
   ADDON_ICON_CLASS,
@@ -27,7 +33,13 @@ import {
 import { TEAM_CONNECTIVITY_SECTION_ID } from "./teamConnectivity";
 import { TeamMark, TEAM_ROLE_LABELS } from "./teamPresentation";
 import { TEAM_AGENT_SECTION_ID, useTeamAgentStatuses, useTeamPeople } from "./teamAgents";
-import { openAskAgentDialog, openCreateTeamDialog, openInviteTeamDialog } from "./teamUiStore";
+import {
+  openAskAgentDialog,
+  openCreateTeamDialog,
+  openInviteTeamDialog,
+  openTeamProjectDialog,
+  openTeamProjectThreadDialog,
+} from "./teamUiStore";
 
 export function useTeamPaletteItems(): ReadonlyArray<
   CommandPaletteActionItem | CommandPaletteSubmenuItem
@@ -43,6 +55,8 @@ export function useTeamPaletteItems(): ReadonlyArray<
     people.map((entry) => entry.person.userId),
     teamPeople.status === "personal" ? [] : teamPeople.machines,
   );
+  const projects = useProjects();
+  const handleNewThread = useNewThreadHandler();
   if (getCloudAuth() === null || !auth.isSignedIn) return [];
   const teams = teamsState.status === "signedOut" ? [] : teamsState.teams;
   const activeTeam = workspace.kind === "team" ? workspace.team : null;
@@ -117,8 +131,49 @@ export function useTeamPaletteItems(): ReadonlyArray<
         run: async () => openAskAgentDialog(activeTeam.id, person),
       });
     }
+    const machines = teamPeople.status === "personal" ? [] : teamPeople.machines;
+    const panel = TeamWorkspace.teamPanel({
+      teamId: activeTeam.id,
+      machines: machines.map((machine) => ({
+        environmentId: machine.environmentId,
+        ownerUserId: machine.owner.userId,
+      })),
+      projects,
+      threads: [],
+    });
+    for (const { project } of panel.projects) {
+      const machine = machines.find(
+        (candidate) => candidate.environmentId === project.environmentId,
+      );
+      if (!machine) continue;
+      items.push({
+        kind: "action",
+        value: `action:team-project-thread:${project.environmentId}:${project.id}`,
+        searchTerms: ["new thread", "team project", "shared project", project.title],
+        title: `New thread in ${project.title}`,
+        description: machine.isOwner
+          ? activeTeam.name
+          : `${machine.owner.name} · ${activeTeam.name}`,
+        icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          if (machine.isOwner) {
+            await handleNewThread(scopeProjectRef(project.environmentId, project.id));
+            return;
+          }
+          openTeamProjectThreadDialog(project.environmentId, project.id);
+        },
+      });
+    }
   }
   if (teams.length > 0) {
+    items.push({
+      kind: "action",
+      value: "action:start-team-project",
+      searchTerms: ["start", "team project", "shared project", "share project", "team"],
+      title: "Start a team project",
+      icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+      run: async () => openTeamProjectDialog({ teamId: activeTeam?.id ?? null }),
+    });
     items.push({
       kind: "action",
       value: "action:team-agent",

@@ -6,6 +6,7 @@ import {
   AuthProvidersManageScope,
   AuthSettingsWriteScope,
   DEFAULT_SERVER_SETTINGS,
+  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   SecretProviderId,
@@ -157,8 +158,18 @@ describe("teammate allowlist", () => {
     WS_METHODS.subscribeVcsBranch,
     WS_METHODS.teamRevokeMemberAccess,
     WS_METHODS.teamReportPresence,
+    WS_METHODS.teamSetProjectShare,
+    WS_METHODS.teamClearProjectShare,
+    WS_METHODS.teamStartProjectThread,
     ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput,
   ] as const;
+  const teamProjectId = ProjectId.make("project-team");
+  const teamProjectShare = {
+    organizationId: "org-a",
+    sharedAt: "2026-11-15T00:00:00.000Z",
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-max" },
+    runtimeMode: "full-access" as const,
+  };
   const group = WsRpcGroup.omit(
     ...[...WsRpcGroup.requests.keys()].filter(
       (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof tested)[number]> =>
@@ -190,6 +201,17 @@ describe("teammate allowlist", () => {
           ),
           group.toLayerHandler(WS_METHODS.teamReportPresence, (input) =>
             Effect.sync(() => void handled.push(`presence:${input.threadId ?? "machine"}`)),
+          ),
+          group.toLayerHandler(WS_METHODS.teamSetProjectShare, (input) =>
+            Effect.sync(() => (handled.push(`share:${input.projectId}`), teamProjectShare)),
+          ),
+          group.toLayerHandler(WS_METHODS.teamClearProjectShare, (input) =>
+            Effect.sync(() => void handled.push(`unshare:${input.projectId}`)),
+          ),
+          group.toLayerHandler(WS_METHODS.teamStartProjectThread, (input) =>
+            Effect.sync(
+              () => (handled.push(`start:${input.projectId}`), { threadId: sharedThread }),
+            ),
           ),
           group.toLayerHandler(ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput, (input) =>
             Stream.fromEffect(
@@ -227,6 +249,19 @@ describe("teammate allowlist", () => {
           userId: "someone-else",
         }).pipe(Effect.flip),
       ).toMatchObject({ requiredPermission: "team-member-allowlist" });
+      expect(
+        yield* client[WS_METHODS.teamSetProjectShare]({
+          projectId: teamProjectId,
+          organizationId: "org-a",
+          modelSelection: teamProjectShare.modelSelection,
+          runtimeMode: "full-access",
+        }).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: "team-member-allowlist" });
+      expect(
+        yield* client[WS_METHODS.teamClearProjectShare]({ projectId: teamProjectId }).pipe(
+          Effect.flip,
+        ),
+      ).toMatchObject({ requiredPermission: "team-member-allowlist" });
       for (const threadId of [privateThread, otherTeamThread]) {
         expect(
           yield* Stream.runDrain(
@@ -249,10 +284,12 @@ describe("teammate allowlist", () => {
       );
       yield* client[WS_METHODS.teamReportPresence]({ threadId: sharedThread, typing: false });
       yield* client[WS_METHODS.teamReportPresence]({ typing: false });
+      yield* client[WS_METHODS.teamStartProjectThread]({ projectId: teamProjectId, text: "Hi" });
       expect(handled).toEqual([
         `output:${sharedThread}`,
         `presence:${sharedThread}`,
         "presence:machine",
+        `start:${teamProjectId}`,
       ]);
     }).pipe(Effect.scoped),
   );

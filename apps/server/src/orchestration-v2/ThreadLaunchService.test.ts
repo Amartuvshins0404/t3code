@@ -186,6 +186,7 @@ function makeHarness(options: HarnessOptions = {}) {
       create: () => Effect.die("unused"),
       bootstrap: () => Effect.die("unused"),
       update: () => Effect.die("unused"),
+      setTeamShare: () => Effect.die("unused"),
       delete: () => Effect.die("unused"),
       listPage: () => Effect.die("unused"),
       getById: (id) =>
@@ -260,6 +261,7 @@ function makeHarness(options: HarnessOptions = {}) {
               scripts: project.scripts,
               pinnedAt: null,
               archivedAt: null,
+              teamShare: null,
               createdAt: project.createdAt,
               updatedAt: project.updatedAt,
               deletedAt: project.deletedAt,
