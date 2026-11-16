@@ -2,25 +2,48 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  CommandId,
+  MessageId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   type TeamAccessError,
   TeamAgentAskInput,
   type TeamAgentSetInput,
+  type TeamMemberIdentity,
   TEAM_AGENT_QUESTION_MAX_LENGTH,
 } from "@t3tools/contracts";
+import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { describe, expect, it } from "@effect/vitest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
+import * as PairingGrantStore from "../auth/PairingGrantStore.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as SessionStore from "../auth/SessionStore.ts";
+import { ClaudeProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
+import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import type { TeamSharingState } from "./sharedOrganizations.ts";
+import * as TeamAgentService from "./TeamAgent.ts";
 import { decideTeamAgentAsk, decideTeamAgentSetting, teamAgentStatuses } from "./TeamAgent.ts";
 import { decideTeamAgentToolUse, TEAM_AGENT_SECRET_READ_DENY_RULES } from "./TeamAgentToolGuard.ts";
+import * as TeamConnectivity from "./TeamConnectivity.ts";
+import { decideTeamMemberCommand } from "./TeamMemberAccess.ts";
+import * as TeamSharing from "./TeamSharing.ts";
 
 const web = ProjectId.make("project-web");
 const api = ProjectId.make("project-api");
@@ -209,6 +232,180 @@ describe("teamAgentStatuses", () => {
     expect(statuses.agents.map((agent) => agent.claudeOutdated === true)).toEqual([true, false]);
   });
 });
+
+const claudeAdapter = {
+  instanceId: modelSelection.instanceId,
+  driver: claude,
+  getCapabilities: () => Effect.succeed(ClaudeProviderCapabilitiesV2),
+  planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
+  openSession: () => Effect.die("No provider process needed for this test"),
+} as ProviderAdapter.ProviderAdapterV2["Service"];
+const ana: TeamMemberIdentity = {
+  userId: "user-ana",
+  name: "Ana",
+  organizationId: "org-a",
+  organizationSlug: "team-a",
+  role: "member",
+};
+const makeTeamAgentLayer = (secretValues = new Map<string, Uint8Array>()) =>
+  TeamAgentService.layer.pipe(
+    Layer.provideMerge(TeamSharing.layer),
+    Layer.provide(
+      Layer.unwrap(
+        Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          return Layer.mock(ThreadManagementService.ThreadManagementService)({
+            dispatch: orchestrator.dispatch,
+            getThreadRecords: orchestrator.getThreadRecords,
+            getShellSnapshot: (options) => orchestrator.getShellSnapshot(options),
+          });
+        }),
+      ),
+    ),
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ProjectStore.ProjectStoreV2)({
+          list: () => Effect.succeed([{ projectId: web, title: "Web" }] as never),
+        }),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(ServerSecretStore.ServerSecretStore)({
+          get: (name) => Effect.succeed(Option.fromNullishOr(secretValues.get(name))),
+          set: (name, value) => Effect.sync(() => void secretValues.set(name, value)),
+          remove: (name) => Effect.sync(() => void secretValues.delete(name)),
+        }),
+        Layer.mock(SessionStore.SessionStore)({
+          cookieName: "t3",
+          legacyCookieName: undefined,
+          revokeForOrganization: () => Effect.succeed(0),
+        }),
+        Layer.mock(PairingGrantStore.PairingGrantStore)({
+          revokeForOrganization: () => Effect.succeed(0),
+        }),
+        Layer.mock(TeamConnectivity.TeamConnectivity)({
+          sharedOrganizationsChanged: () => Effect.void,
+        }),
+        Layer.mock(ServerSettings.ServerSettingsService)({}),
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+          getInstance: () =>
+            Effect.succeed({
+              driverKind: claude,
+              enabled: true,
+              snapshot: { getSnapshot: Effect.succeed({ version: "2.1.300" }) },
+            } as never),
+        }),
+        SecureRandom.layerWebCrypto,
+      ),
+    ),
+    Layer.provideMerge(
+      ProviderReplayHarness.layerWithRegistry(
+        { name: "team-agent-off" },
+        ProviderAdapterRegistry.layerFromAdapters([claudeAdapter]),
+        { databaseLayer: SqlitePersistence.layerMemory, runEffectWorker: false },
+      ),
+    ),
+  );
+
+const answering = Orchestrator.OrchestratorV2.pipe(
+  Effect.flatMap((orchestrator) => orchestrator.getShellSnapshot()),
+  Effect.map((snapshot) =>
+    snapshot.threads.flatMap((thread) => (thread.activeRunId === null ? [] : [thread.id])),
+  ),
+);
+
+it.effect("switching the agent off stops its running answer and takes no follow-up", () =>
+  Effect.gen(function* () {
+    const sharing = yield* TeamSharing.TeamSharing;
+    const teamAgent = yield* TeamAgentService.TeamAgent;
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const setAgent = (enabled: boolean) =>
+      teamAgent.setAgent(
+        { organizationId: "org-a", enabled, projectIds: [web], modelSelection },
+        undefined,
+      );
+    yield* sharing.addSharedOrganization("org-a");
+    yield* setAgent(true);
+    const { threadId } = yield* teamAgent.askAgent(
+      { organizationId: "org-a", text: "Where is auth handled?" },
+      ana,
+    );
+    const runs = orchestrator
+      .getThreadRecords(threadId, ["runs"])
+      .pipe(
+        Effect.map((records) => records.runs.map((run) => [run.status, run.queueHeld === true])),
+      );
+    expect(yield* answering).toEqual([threadId]);
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("queued-follow-up"),
+      threadId,
+      messageId: MessageId.make("queued-follow-up"),
+      text: "And where are sessions stored?",
+      attachments: [],
+      dispatchMode: { type: "queue_after_active" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+
+    yield* setAgent(false);
+
+    expect(yield* answering).toEqual([]);
+    expect(yield* runs).toEqual([
+      ["interrupted", false],
+      ["queued", true],
+    ]);
+    const stopped = yield* orchestrator.getThreadRecords(threadId, []);
+    const followUp = decideTeamMemberCommand({
+      command: {
+        type: "message.dispatch",
+        commandId: CommandId.make("follow-up"),
+        threadId,
+        messageId: MessageId.make("follow-up"),
+        text: "Still there?",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      },
+      teamShare: stopped.thread.teamShare ?? undefined,
+      member: ana,
+      agent: yield* teamAgent.followUpState(threadId, "org-a"),
+    });
+    expect(Result.isFailure(followUp) && followUp.failure.requiredPermission).toBe("agent_off");
+
+    yield* setAgent(true);
+    const next = yield* teamAgent.askAgent(
+      { organizationId: "org-a", text: "Which file sets the cookie?" },
+      ana,
+    );
+    expect(yield* answering).toEqual([next.threadId]);
+    expect(yield* runs).toEqual([
+      ["interrupted", false],
+      ["queued", true],
+    ]);
+  }).pipe(Effect.provide(makeTeamAgentLayer())),
+);
+
+it.effect("removing the asking teammate, then unsharing the machine, stops their answers", () =>
+  Effect.gen(function* () {
+    const sharing = yield* TeamSharing.TeamSharing;
+    const teamAgent = yield* TeamAgentService.TeamAgent;
+    yield* sharing.addSharedOrganization("org-a");
+    yield* teamAgent.setAgent(
+      { organizationId: "org-a", enabled: true, projectIds: [web], modelSelection },
+      undefined,
+    );
+    const ben = { ...ana, userId: "user-ben", name: "Ben" };
+    const fromAna = yield* teamAgent.askAgent({ organizationId: "org-a", text: "Auth?" }, ana);
+    const fromBen = yield* teamAgent.askAgent({ organizationId: "org-a", text: "Cache?" }, ben);
+    expect((yield* answering).toSorted()).toEqual([fromAna.threadId, fromBen.threadId].toSorted());
+
+    yield* sharing.revokeMemberAccess({ organizationId: "org-a", userId: ana.userId });
+    expect(yield* answering).toEqual([fromBen.threadId]);
+
+    yield* sharing.removeSharedOrganization("org-a");
+    expect(yield* answering).toEqual([]);
+  }).pipe(Effect.provide(makeTeamAgentLayer())),
+);
 
 const secretCopies = [
   "server.key.bak",

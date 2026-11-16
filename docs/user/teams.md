@@ -115,10 +115,10 @@ The agent reads the past threads of the projects you pick, so a secret that was 
 of those threads can reach a teammate. Pick project folders, not a broad folder such as your home
 folder or `/`: the agent can read every file there that is not on its secret list.
 
-Turn the switch off and nobody can ask new questions or send follow-ups. Old conversations stay
-readable, and you can delete them like any thread. Agent conversations show only in the team
-workspace, not in Personal. Stop sharing the machine with the team and its agent setting for that
-team goes too.
+Turn the switch off and nobody can ask new questions or send follow-ups, and any answer still
+running stops. Old conversations stay readable, and you can delete them like any thread. Agent
+conversations show only in the team workspace, not in Personal. Stop sharing the machine with the
+team and its agent setting for that team goes too.
 
 ## Whose accounts a shared thread uses
 
