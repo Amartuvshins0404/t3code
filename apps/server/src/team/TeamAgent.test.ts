@@ -208,6 +208,13 @@ it.effect("keeps the No project folder away from a team agent", () => {
     deletedAt: null,
   });
   const rows = [row(scratch, "No project"), row(web, "Web")];
+  let saved: TeamSharingState = {
+    organizationIds: ["org-a", "org-b"],
+    agents: {
+      "org-a": { enabled: true, projectIds: [scratch, web], modelSelection },
+      "org-b": { enabled: true, projectIds: [scratch], modelSelection },
+    },
+  };
   return Effect.gen(function* () {
     const agent = yield* TeamAgent.TeamAgent;
     const refused = yield* agent
@@ -217,10 +224,10 @@ it.effect("keeps the No project folder away from a team agent", () => {
       )
       .pipe(Effect.flip);
     expect(refused.reason).toBe("agent_project_not_allowed");
-    const statuses = yield* agent.getAgents(undefined);
-    expect(statuses.agents.map((status) => status.projects)).toEqual([
-      [{ projectId: web, title: "Web" }],
-    ]);
+    expect(saved.agents).toEqual({
+      "org-a": { enabled: true, projectIds: [web], modelSelection },
+      "org-b": { enabled: false, projectIds: [], modelSelection },
+    });
   }).pipe(
     Effect.provide(
       TeamAgent.layer.pipe(
@@ -228,10 +235,12 @@ it.effect("keeps the No project folder away from a team agent", () => {
           Layer.mergeAll(
             NodeCrypto.layer,
             Layer.mock(TeamSharing.TeamSharing)({
-              readState: Effect.succeed({
-                organizationIds: ["org-a"],
-                agents: { "org-a": { enabled: true, projectIds: [scratch, web], modelSelection } },
-              }),
+              readState: Effect.sync(() => saved),
+              setAgentSetting: (organizationId, setting) =>
+                Effect.sync(() => {
+                  saved = { ...saved, agents: { ...saved.agents, [organizationId]: setting } };
+                  return setting;
+                }),
             }),
             Layer.mock(ProjectStore.ProjectStoreV2)({
               list: (options) =>
