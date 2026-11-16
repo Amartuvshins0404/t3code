@@ -226,8 +226,9 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
     startedByUserId: string | undefined,
   ) {
-    const { runs } = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
-    const open = runs.filter((run) => run.status === "queued" || isActiveRun(run));
+    const { runs: open } = yield* orchestrator.getThreadRecords(threadId, ["runs"], {
+      runStatuses: ["queued", "preparing", "starting", "running", "waiting"],
+    });
     if (open.length === 0) return [];
     const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
       messageIds: open.map((run) => run.userMessageId),
@@ -281,7 +282,7 @@ const make = Effect.gen(function* () {
     }) {
       const snapshot = yield* orchestrator.getShellSnapshot();
       yield* Effect.forEach(
-        snapshot.threads.filter(input.threads),
+        [...snapshot.threads, ...snapshot.archivedThreads].filter(input.threads),
         (thread) => {
           const agent = thread.teamShare?.agent;
           if (agent === undefined) {
