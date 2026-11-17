@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+git fetch --quiet origin main
+git fetch --quiet fork amaraa-mode
+
+behind=$(git rev-list --count fork/amaraa-mode..origin/main)
+if [ "$behind" -eq 0 ]; then
+  echo "Up to date"
+  exit 0
+fi
+
+branch="sync/upstream-$(date +%F)"
+git switch --quiet -c "$branch" fork/amaraa-mode
+echo "$behind upstream commits to merge on $branch"
+
+if git merge --quiet --no-ff --no-commit origin/main; then
+  echo "Clean merge. Commit it, then run the checks in docs/upstream-sync.md."
+  exit 0
+fi
+
+echo "Conflicts:"
+git diff --name-only --diff-filter=U
+exit 2
