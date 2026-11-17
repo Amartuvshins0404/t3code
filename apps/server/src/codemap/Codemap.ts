@@ -1,8 +1,10 @@
 import {
   type CheckpointRef,
   CodemapError,
+  type CodemapRange,
   type CodemapReadResult,
   type ProjectId,
+  type RunId,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
@@ -27,7 +29,13 @@ import {
   filesToRead,
   isManifest,
 } from "./analyze.ts";
-import { buildCodemapView, dirtyPaths, parseNameStatus, underPrefix } from "./view.ts";
+import {
+  authoredChanges,
+  buildCodemapView,
+  dirtyPaths,
+  parseRawNumstat,
+  underPrefix,
+} from "./view.ts";
 
 interface CachedAnalysis {
   readonly key: string;
@@ -40,6 +48,7 @@ interface ThreadWorkspace {
   readonly cwd: string;
   readonly baseline: CheckpointRef;
   readonly latest: CheckpointRef | null;
+  readonly runByPath: ReadonlyMap<string, RunId | null>;
 }
 
 const MAX_CACHED_WORKSPACES = 8;
@@ -55,6 +64,7 @@ export class Codemap extends Context.Service<
       readonly projectId: ProjectId;
       readonly focusId: string;
       readonly threadId?: ThreadId;
+      readonly range?: CodemapRange;
     }) => Effect.Effect<CodemapReadResult, CodemapError>;
   }
 >()("t3/codemap/Codemap") {}
@@ -93,39 +103,56 @@ const make = Effect.gen(function* () {
     return project.value.workspaceRoot;
   });
 
-  const threadWorkspace = Effect.fn("Codemap.threadWorkspace")(function* (threadId: ThreadId) {
-    const context = yield* threads.getCheckpointContext(threadId).pipe(Effect.option);
+  const threadWorkspace = Effect.fn("Codemap.threadWorkspace")(function* (
+    projectId: ProjectId,
+    threadId: ThreadId,
+    range: CodemapRange,
+  ) {
+    const context = yield* threads
+      .getProjectThreadRecords({ projectId, threadId }, ["checkpointScopes", "checkpoints"])
+      .pipe(Effect.option);
     if (Option.isNone(context)) return null;
     const { checkpointScopes, checkpoints } = context.value;
     const root = checkpointScopes.find((scope) => scope.kind === "root_run");
     if (!root) return null;
-    const latest = checkpoints
+    const ready = checkpoints
       .filter((checkpoint) => checkpoint.status === "ready" && checkpoint.appRunOrdinal !== null)
-      .reduce<(typeof checkpoints)[number] | null>(
-        (best, checkpoint) =>
-          best === null || (checkpoint.appRunOrdinal ?? 0) > (best.appRunOrdinal ?? 0)
-            ? checkpoint
-            : best,
-        null,
-      );
+      .toSorted((a, b) => (a.appRunOrdinal ?? 0) - (b.appRunOrdinal ?? 0));
+    const latest =
+      (range === "last_turn"
+        ? ready.findLast((checkpoint) => checkpoint.files.length > 0)
+        : undefined) ??
+      ready.at(-1) ??
+      null;
     const latestScope = checkpointScopes.find((scope) => scope.id === latest?.scopeId);
-    const baseline = yield* checkpointRefForScopeOrdinal({
-      scopeId: root.id,
-      ordinalWithinScope: 0,
-    }).pipe(Effect.provideService(Digest.Digest, digest));
+    const lastTurn = range === "last_turn" && latest !== null && latest.ordinalWithinScope > 0;
+    const baseline = yield* checkpointRefForScopeOrdinal(
+      lastTurn
+        ? { scopeId: latest.scopeId, ordinalWithinScope: latest.ordinalWithinScope - 1 }
+        : { scopeId: root.id, ordinalWithinScope: 0 },
+    ).pipe(Effect.provideService(Digest.Digest, digest));
+    const runByPath = new Map<string, RunId | null>();
+    for (const checkpoint of lastTurn ? [latest] : ready)
+      for (const file of checkpoint.files) runByPath.set(file.path, checkpoint.runId);
     return {
       cwd: latestScope?.cwd ?? root.cwd,
       baseline,
       latest: latest?.ref ?? null,
+      runByPath,
     } satisfies ThreadWorkspace;
   });
 
   const threadChanges = Effect.fn("Codemap.threadChanges")(function* (
     workspace: ThreadWorkspace | null,
     prefix: string,
+    analysis: CodemapAnalysis,
   ) {
-    const none = { touched: [], added: [] };
-    if (workspace === null || workspace.latest === null) return none;
+    if (workspace === null || workspace.latest === null) return [];
+    const authored = [...workspace.runByPath.keys()]
+      .filter((file) => file.startsWith(prefix))
+      .slice(0, MAX_CHANGED_PATHS);
+    if (authored.length === 0) return [];
+    // Pulls between turns can add thousands of paths to the baseline diff; only the thread's own files matter.
     const diff = yield* run(
       workspace.cwd,
       "threadChanges",
@@ -133,20 +160,25 @@ const make = Effect.gen(function* () {
         "-c",
         "diff.relative=false",
         "diff",
-        "--name-status",
-        "--no-renames",
+        "--raw",
+        "--numstat",
+        "--find-renames",
         "-z",
         workspace.baseline,
         workspace.latest,
+        "--",
+        ...authored.map((file) => `:(top,literal)${file}`),
       ],
-      4 * 1024 * 1024,
+      8 * 1024 * 1024,
     );
-    if (Option.isNone(diff) || diff.value.exitCode !== 0) return none;
-    const changes = parseNameStatus(diff.value.stdout, MAX_CHANGED_PATHS);
-    return {
-      touched: underPrefix(changes.touched, prefix),
-      added: underPrefix(changes.added, prefix),
-    };
+    if (Option.isNone(diff) || diff.value.exitCode !== 0) return [];
+    return authoredChanges({
+      raw: parseRawNumstat(diff.value.stdout, MAX_CHANGED_PATHS),
+      runByPath: workspace.runByPath,
+      prefix,
+      analysis,
+      limit: MAX_CHANGED_PATHS,
+    });
   });
 
   const fileStamp = (cwd: string, file: string) =>
@@ -248,9 +280,11 @@ const make = Effect.gen(function* () {
     projectId,
     focusId,
     threadId,
+    range = "thread",
   }) {
     const projectRoot = yield* loadRoot(projectId);
-    const workspace = threadId === undefined ? null : yield* threadWorkspace(threadId);
+    const workspace =
+      threadId === undefined ? null : yield* threadWorkspace(projectId, threadId, range);
     const workspaceFresh = workspace === null ? null : yield* freshnessKey(workspace.cwd);
     const useWorkspace = workspace !== null && workspaceFresh?._tag === "fresh";
     const cwd = useWorkspace ? workspace.cwd : projectRoot;
@@ -258,11 +292,19 @@ const make = Effect.gen(function* () {
     if (fresh._tag === "failed") return { _tag: "unavailable", reason: fresh.reason } as const;
     const result = yield* lockFor(cwd).withPermits(1)(ensureAnalysis(cwd, fresh.key));
     if (result === null) return { _tag: "unavailable", reason: "read_failed" } as const;
-    const changes = yield* threadChanges(useWorkspace ? workspace : null, fresh.prefix);
+    const changes = yield* threadChanges(
+      useWorkspace ? workspace : null,
+      fresh.prefix,
+      result.analysis,
+    );
     return {
       _tag: "ready",
-      view: buildCodemapView(result.analysis, focusId, changes.touched),
-      addedPaths: changes.added,
+      view: buildCodemapView(
+        result.analysis,
+        focusId,
+        changes.map((change) => change.path),
+      ),
+      changes,
       pathPrefix: fresh.prefix,
       totalFiles: result.totalFiles,
       analyzedAt: result.analyzedAt,

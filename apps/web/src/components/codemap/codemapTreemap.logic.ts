@@ -1,5 +1,4 @@
-import type { CodemapViewNode, RunId } from "@t3tools/contracts";
-import type { TurnDiffSummary as ThreadCheckpointSummary } from "~/types";
+import type { CodemapChange, CodemapViewNode } from "@t3tools/contracts";
 
 export interface Rect {
   readonly x: number;
@@ -10,11 +9,7 @@ export interface Rect {
 
 export interface TouchedFile {
   readonly path: string;
-  readonly repoPath: string;
   readonly added: boolean;
-  readonly additions: number;
-  readonly deletions: number;
-  readonly runId: RunId;
 }
 
 export type PartStatus = "new" | "changed" | null;
@@ -32,7 +27,7 @@ const PAD = 3;
 const MIN_INNER = 14;
 const LIT_SHARE = 0.05;
 
-function squarify<T>(
+export function squarify<T>(
   items: ReadonlyArray<{ readonly item: T; readonly weight: number }>,
   rect: Rect,
 ): Array<{ item: T; rect: Rect }> {
@@ -90,40 +85,17 @@ function squarify<T>(
   return out;
 }
 
-export function touchedFiles(
-  checkpoints: ReadonlyArray<ThreadCheckpointSummary>,
-  addedPaths: ReadonlyArray<string>,
-  pathPrefix: string,
-): ReadonlyArray<TouchedFile> {
-  const added = new Set(addedPaths);
-  const byPath = new Map<string, TouchedFile & { turn: number }>();
-  for (const checkpoint of checkpoints) {
-    for (const file of checkpoint.files) {
-      if (!file.path.startsWith(pathPrefix)) continue;
-      const path = file.path.slice(pathPrefix.length);
-      const previous = byPath.get(path);
-      const latest = previous === undefined || checkpoint.checkpointTurnCount >= previous.turn;
-      byPath.set(path, {
-        path,
-        repoPath: file.path,
-        added: added.has(path),
-        additions: (previous?.additions ?? 0) + file.additions,
-        deletions: (previous?.deletions ?? 0) + file.deletions,
-        runId: latest ? checkpoint.runId : (previous?.runId ?? checkpoint.runId),
-        turn: latest ? checkpoint.checkpointTurnCount : (previous?.turn ?? 0),
-      });
-    }
-  }
-  return [...byPath.values()]
-    .map(({ turn: _turn, ...file }) => file)
-    .toSorted((a, b) => a.path.localeCompare(b.path));
+export function touchedFiles(changes: ReadonlyArray<CodemapChange>): ReadonlyArray<TouchedFile> {
+  return changes
+    .filter((change) => change.status !== "deleted")
+    .map((change) => ({ path: change.path, added: change.status === "added" }));
 }
 
 function isInside(path: string, nodeId: string): boolean {
   return nodeId === "" || path === nodeId || path.startsWith(`${nodeId}/`);
 }
 
-export function filesInside(files: ReadonlyArray<TouchedFile>, nodeId: string) {
+function filesInside(files: ReadonlyArray<TouchedFile>, nodeId: string) {
   return files.filter((file) => isInside(file.path, nodeId));
 }
 

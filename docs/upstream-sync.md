@@ -25,7 +25,7 @@ Remotes: `origin` is upstream and is never pushed to. `fork` is `Amartuvshins040
 - The Projects board, the needs-you badge, and planting agent-trust in a project.
 - Recommended answers send themselves after the wait set in Settings.
 - The master agent: one constant thread with memory that hands off work and hears back.
-- The Code map tab.
+- The Code map tab: a change map of what a thread added, changed, moved or deleted, with a whole-repo view behind a toggle.
 - The CI bots: Merge Lane, Blind Checks and the ledger (see [operations/merge-lanes.md](operations/merge-lanes.md)).
 
 ## Traps

@@ -1,25 +1,7 @@
-import { CheckpointRef, type CodemapViewNode, RunId } from "@t3tools/contracts";
+import type { CodemapViewNode } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { TurnDiffSummary } from "~/types";
-import { layoutMap, touchedFiles } from "./codemapTreemap.logic";
-
-function checkpoint(turn: number, files: Array<[string, number, number]>): TurnDiffSummary {
-  return {
-    runId: RunId.make(`run-${turn}`),
-    checkpointTurnCount: turn,
-    checkpointRef: CheckpointRef.make(`refs/t3/${turn}`),
-    status: "ready",
-    files: files.map(([path, additions, deletions]) => ({
-      path,
-      kind: "modified",
-      additions,
-      deletions,
-    })),
-    assistantMessageId: null,
-    completedAt: "2026-11-16T00:00:00.000Z",
-  };
-}
+import { layoutMap } from "./codemapTreemap.logic";
 
 function folder(id: string, parentId: string | null, lines: number): CodemapViewNode {
   return {
@@ -36,48 +18,10 @@ function folder(id: string, parentId: string | null, lines: number): CodemapView
   };
 }
 
-describe("touchedFiles", () => {
-  it("keeps only checkpoint files under the project folder, marks added ones new, and points at the latest turn", () => {
-    const files = touchedFiles(
-      [
-        checkpoint(1, [
-          ["app/src/a.ts", 3, 1],
-          ["other/z.ts", 1, 0],
-        ]),
-        checkpoint(2, [
-          ["app/src/a.ts", 2, 0],
-          ["app/src/b.ts", 4, 0],
-        ]),
-      ],
-      ["src/b.ts", "src/pulled.ts"],
-      "app/",
-    );
-    expect(files).toEqual([
-      {
-        path: "src/a.ts",
-        repoPath: "app/src/a.ts",
-        added: false,
-        additions: 5,
-        deletions: 1,
-        runId: "run-2",
-      },
-      {
-        path: "src/b.ts",
-        repoPath: "app/src/b.ts",
-        added: true,
-        additions: 4,
-        deletions: 0,
-        runId: "run-2",
-      },
-    ]);
-  });
-});
-
 describe("layoutMap", () => {
   it("lights the touched box and keeps a tiny touched box big enough to see", () => {
     const nodes = [folder("big", null, 100_000), folder("tiny", null, 5)];
-    const files = touchedFiles([checkpoint(1, [["tiny/x.ts", 5, 0]])], ["tiny/x.ts"], "");
-    const boxes = layoutMap(nodes, files, { w: 400, h: 300 });
+    const boxes = layoutMap(nodes, [{ path: "tiny/x.ts", added: true }], { w: 400, h: 300 });
     const tiny = boxes.find((box) => box.node.id === "tiny");
     expect(tiny?.status).toBe("new");
     expect(boxes.find((box) => box.node.id === "big")?.status).toBeNull();
