@@ -329,7 +329,9 @@ const layerCodemapProvided = Codemap.layer.pipe(
 );
 const layerProjectPlantProvided = ProjectPlant.layer.pipe(
   Layer.provide(
-    Layer.mergeAll(layerProjectService, layerThreadLaunchProvided, layerThreadManagementProvided),
+    Layer.mergeAll(layerThreadLaunchProvided, layerThreadManagementProvided).pipe(
+      Layer.provideMerge(layerProjectService),
+    ),
   ),
 );
 export const layerMasterAgentWatch = MasterAgentWatch.layer.pipe(
@@ -339,11 +341,10 @@ export const layerMasterAgent = MasterAgent.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       MasterAgentStore.layer,
-      layerProjectService,
       layerManagedProjectFoldersProvided,
       layerThreadLaunchProvided,
       layerThreadManagementProvided,
-    ),
+    ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
 const layerProviderContinuationWorkerProvided = ProviderContinuationService.layer.pipe(
