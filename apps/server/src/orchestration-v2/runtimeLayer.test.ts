@@ -477,7 +477,7 @@ const layerProjectDeletionTest = Layer.mergeAll(
   ProjectionStore.layer,
   ThreadCommandExecutor.layer,
   MasterAgentStore.layer,
-  RuntimeLayer.layerMasterAgent,
+  RuntimeLayer.layerMasterAgent.pipe(Layer.provide(RuntimeLayer.layerProjectService)),
 ).pipe(
   // The agent thread launches with no message, so nothing it needs runs a turn or a checkout.
   Layer.provide(

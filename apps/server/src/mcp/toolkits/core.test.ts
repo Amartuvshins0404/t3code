@@ -1588,7 +1588,8 @@ it.effect("an agent conversation never reads another team's or the owner's agent
                   shells.get(id) ?? McpToolAccessTestkit.liveThreadShell(id),
                 ),
               ),
-            getTimelinePage: () => Effect.succeed({ items: [], totalItems: 0, hasMore: false }),
+            getTimelinePage: () =>
+              Effect.succeed({ items: [], totalItems: 0, hasMore: false, hasEarlier: false }),
             getRunCount: () => Effect.succeed(0),
           }),
         ),

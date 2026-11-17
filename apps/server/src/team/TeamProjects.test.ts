@@ -42,6 +42,7 @@ const share: ProjectTeamShare = {
 const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   projectId,
   title: "Team",
+  hasCustomTitle: false,
   workspaceRoot: "/repo",
   defaultModelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "claude-host" },
   defaultThreadEnvMode: null,

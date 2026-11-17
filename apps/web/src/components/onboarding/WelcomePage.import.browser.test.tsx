@@ -675,7 +675,7 @@ it("checks an agent again once its install command finishes in the setup termina
   );
   appAtomRegistry.set(state.config as Atom.Writable<unknown>, {
     cwd: "/Users/dev",
-    environment: { platform: { os: "darwin" } },
+    environment: { platform: { os: "darwin" }, capabilities: {} },
     keybindings: [],
     settings: { providerInstances: {}, projectSettingsOverrides: {} },
   });

@@ -6,11 +6,11 @@ Remotes: `origin` is upstream and is never pushed to. `fork` is `Amartuvshins040
 
 ## Steps
 
-1. `scripts/upstream-sync.sh` fetches both remotes. It prints `Up to date` and stops when upstream has nothing new. Otherwise it creates `sync/upstream-<date>` from `fork/amaraa-mode` and starts the merge. It lists the conflicts and exits with 2 when there are any.
+1. `scripts/upstream-sync.sh` needs a clean working tree. It fetches both remotes, prints `Up to date` and stops when upstream has nothing new. Otherwise it creates `sync/upstream-<date>` from `fork/amaraa-mode` and starts the merge. It lists the conflicts and exits with 2 when there are any.
 2. Settle the conflicts. Keep every fork feature below. When upstream now ships the same thing, take upstream's version and delete the fork's copy.
 3. Commit the merge as `chore(sync): merge upstream T3 Code <date>`.
-4. Run `vp i`, `vp run typecheck`, `vp lint`, `vp fmt`, `vp run i18n:check` and `vp run fork:check`.
-5. Push to `fork`, open a pull request into `amaraa-mode`, and merge it once CI is green. A sync is always on the red lane, because it changes contracts, migrations and dependencies. Merge it with `--admin` after a clean review.
+4. Run `vp i`, `vp run check:changed`, `vp run i18n:check` and `vp run fork:check`. Then run `vp run typecheck` in `apps/server` on its own: a type error there can surface as `unknown` in files far from the cause.
+5. Push to `fork` and open a pull request into `amaraa-mode`. Fix every CI job except the merge lane. A sync is always on the red lane, because it changes contracts, migrations and dependencies. When the other jobs pass and one review finds nothing that must be fixed, merge it with `--admin`.
 6. The Fork desktop release workflow builds and publishes the Mac app on the merge.
 
 ## Fork-only features

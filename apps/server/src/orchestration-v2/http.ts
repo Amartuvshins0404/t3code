@@ -203,16 +203,19 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           const { member } = yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          return yield* (
-            member === undefined
-              ? answerShellSnapshot(args.query)
-              : loadShellSnapshot({
-                  omitIdleSubagents: args.query.omitIdleSubagents === "1",
-                  omitOlderSettled: false,
-                }).pipe(
-                  Effect.map((snapshot) => teamShellSnapshot(member.organizationId, snapshot)),
-                )
-          ).pipe(
+          if (member !== undefined) {
+            return yield* loadShellSnapshot({
+              omitIdleSubagents: args.query.omitIdleSubagents === "1",
+              omitOlderSettled: false,
+            }).pipe(
+              Effect.map((snapshot) => teamShellSnapshot(member.organizationId, snapshot)),
+              traceLocalHandlerWork,
+              Effect.catch((cause) =>
+                failEnvironmentInternal("orchestration_snapshot_failed", cause),
+              ),
+            );
+          }
+          return yield* answerShellSnapshot(args.query).pipe(
             traceLocalHandlerWork,
             Effect.catch((cause) =>
               failEnvironmentInternal("orchestration_snapshot_failed", cause),
