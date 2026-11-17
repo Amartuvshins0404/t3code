@@ -94,7 +94,7 @@ describe("thread changes", () => {
     const runByPath = new Map([
       ["app/api/src/edit.ts", RunId.make("run-1")],
       ["app/api/src/gone.ts", RunId.make("run-1")],
-      ["app/api/src/old.ts", RunId.make("run-2")],
+      ["app/api/src/moved.ts", RunId.make("run-2")],
       ["app/api/src/new.ts", RunId.make("run-2")],
     ]);
     const changes = authoredChanges({

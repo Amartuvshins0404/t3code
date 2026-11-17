@@ -210,6 +210,27 @@ export function dirtyPaths(porcelain: string): ReadonlyArray<string> {
   return paths;
 }
 
+// Windows limits a command line to 32,767 characters. Leave room for the rest of git's arguments.
+const MAX_PATHSPEC_CHARS = 24_000;
+
+export function pathspecBatches(paths: ReadonlyArray<string>): ReadonlyArray<string[]> {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let length = 0;
+  for (const file of paths) {
+    const spec = `:(top,literal)${file}`;
+    if (batch.length > 0 && length + spec.length + 1 > MAX_PATHSPEC_CHARS) {
+      batches.push(batch);
+      batch = [];
+      length = 0;
+    }
+    batch.push(spec);
+    length += spec.length + 1;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
+}
+
 export function underPrefix(paths: ReadonlyArray<string>, prefix: string): string[] {
   return paths.filter((file) => file.startsWith(prefix)).map((file) => file.slice(prefix.length));
 }

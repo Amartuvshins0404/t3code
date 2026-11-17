@@ -34,6 +34,8 @@ import {
   buildCodemapView,
   dirtyPaths,
   parseRawNumstat,
+  pathspecBatches,
+  type RawChange,
   underPrefix,
 } from "./view.ts";
 
@@ -44,7 +46,7 @@ interface CachedAnalysis {
   readonly analyzedAt: string;
 }
 
-interface ThreadWorkspace {
+export interface ThreadWorkspace {
   readonly cwd: string;
   readonly baseline: CheckpointRef;
   readonly latest: CheckpointRef | null;
@@ -140,45 +142,6 @@ const make = Effect.gen(function* () {
       latest: latest?.ref ?? null,
       runByPath,
     } satisfies ThreadWorkspace;
-  });
-
-  const threadChanges = Effect.fn("Codemap.threadChanges")(function* (
-    workspace: ThreadWorkspace | null,
-    prefix: string,
-    analysis: CodemapAnalysis,
-  ) {
-    if (workspace === null || workspace.latest === null) return [];
-    const authored = [...workspace.runByPath.keys()]
-      .filter((file) => file.startsWith(prefix))
-      .slice(0, MAX_CHANGED_PATHS);
-    if (authored.length === 0) return [];
-    // Pulls between turns can add thousands of paths to the baseline diff; only the thread's own files matter.
-    const diff = yield* run(
-      workspace.cwd,
-      "threadChanges",
-      [
-        "-c",
-        "diff.relative=false",
-        "diff",
-        "--raw",
-        "--numstat",
-        "--find-renames",
-        "-z",
-        workspace.baseline,
-        workspace.latest,
-        "--",
-        ...authored.map((file) => `:(top,literal)${file}`),
-      ],
-      8 * 1024 * 1024,
-    );
-    if (Option.isNone(diff) || diff.value.exitCode !== 0) return [];
-    return authoredChanges({
-      raw: parseRawNumstat(diff.value.stdout, MAX_CHANGED_PATHS),
-      runByPath: workspace.runByPath,
-      prefix,
-      analysis,
-      limit: MAX_CHANGED_PATHS,
-    });
   });
 
   const fileStamp = (cwd: string, file: string) =>
@@ -292,7 +255,8 @@ const make = Effect.gen(function* () {
     if (fresh._tag === "failed") return { _tag: "unavailable", reason: fresh.reason } as const;
     const result = yield* lockFor(cwd).withPermits(1)(ensureAnalysis(cwd, fresh.key));
     if (result === null) return { _tag: "unavailable", reason: "read_failed" } as const;
-    const changes = yield* threadChanges(
+    const changes = yield* readThreadChanges(
+      run,
       useWorkspace ? workspace : null,
       fresh.prefix,
       result.analysis,
@@ -328,4 +292,78 @@ export const readSource = Effect.fn("Codemap.readSource")(function* (
   const real = yield* fs.realPath(target);
   if (!real.startsWith(`${realRoot}${path.sep}`)) return null;
   return yield* fs.readFile(real);
+});
+
+export type GitRun = (
+  cwd: string,
+  operation: string,
+  args: ReadonlyArray<string>,
+  maxBytes: number,
+) => Effect.Effect<Option.Option<{ readonly exitCode: number; readonly stdout: string }>>;
+
+export const readThreadChanges = Effect.fn("Codemap.readThreadChanges")(function* (
+  run: GitRun,
+  workspace: ThreadWorkspace | null,
+  prefix: string,
+  analysis: CodemapAnalysis,
+) {
+  if (workspace === null || workspace.latest === null) return [];
+  const { baseline, latest, cwd } = workspace;
+  const authored = [...workspace.runByPath.keys()]
+    .filter((file) => file.startsWith(prefix))
+    .toReversed()
+    .slice(0, MAX_CHANGED_PATHS);
+  if (authored.length === 0) return [];
+  const removed = yield* run(
+    cwd,
+    "threadRemovedPaths",
+    [
+      "-c",
+      "diff.relative=false",
+      "diff",
+      "--name-only",
+      "--no-renames",
+      "--diff-filter=D",
+      "-z",
+      baseline,
+      latest,
+    ],
+    4 * 1024 * 1024,
+  );
+  if (Option.isNone(removed) || removed.value.exitCode !== 0) return [];
+  // Checkpoints keep only a moved file's new path; deleted paths give git the old side to pair.
+  const removedPaths = removed.value.stdout
+    .split("\u0000")
+    .filter((file) => file.startsWith(prefix) && !workspace.runByPath.has(file))
+    .slice(0, MAX_CHANGED_PATHS);
+  const raw: RawChange[] = [];
+  for (const batch of pathspecBatches([...authored, ...removedPaths])) {
+    const diff = yield* run(
+      cwd,
+      "threadChanges",
+      [
+        "-c",
+        "diff.relative=false",
+        "diff",
+        "--raw",
+        "--numstat",
+        "--find-renames",
+        "-z",
+        baseline,
+        latest,
+        "--",
+        ...batch,
+      ],
+      8 * 1024 * 1024,
+    );
+    if (Option.isNone(diff) || diff.value.exitCode !== 0) return [];
+    raw.push(...parseRawNumstat(diff.value.stdout, MAX_CHANGED_PATHS));
+  }
+  return authoredChanges({
+    raw,
+    runByPath: workspace.runByPath,
+    prefix,
+    analysis,
+    limit: MAX_CHANGED_PATHS,
+  });
 });
