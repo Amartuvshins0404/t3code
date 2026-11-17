@@ -63,7 +63,8 @@ export function summarizeProjectBoard(input: {
   const byProject = new Map<string, Array<ReturnType<typeof boardThread>>>();
   for (const shell of input.threads) {
     if (shell.id === input.hiddenThreadId) continue;
-    const thread = boardThread(shell, requests.get(shell.id) ?? null);
+    const request = requests.get(shell.id) ?? null;
+    const thread = boardThread(shell, request === "user_only_input" ? "user_input" : request);
     const list = byProject.get(shell.projectId);
     if (list) list.push(thread);
     else byProject.set(shell.projectId, [thread]);

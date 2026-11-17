@@ -12,3 +12,6 @@ export const browserApiCorsAllowedHeaders = [
 
 export const desktopRendererOrigins = (ownerName: string | undefined) =>
   resolveAppSchemes(ownerName).map((scheme) => `${scheme}://app`);
+
+/** MCP refuses every browser Origin with 403, so the browser CORS layer must not answer for it. */
+export const MCP_HTTP_PATH = "/mcp";

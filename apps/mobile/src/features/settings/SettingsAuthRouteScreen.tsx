@@ -6,10 +6,10 @@ import {
 } from "@t3tools/client-runtime/cloud-auth";
 import { useNavigation } from "@react-navigation/native";
 import { useRef, useState } from "react";
-import { RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import * as Dialog from "../../components/ui/Dialog";
+import { RefreshControl } from "../../components/ui/RefreshControl";
 import { ListActionRow } from "../../components/ui/ListActionRow";
 import { ListRowLayout } from "../../components/ui/ListRowLayout";
 import { ListSection } from "../../components/ui/ListSection";
