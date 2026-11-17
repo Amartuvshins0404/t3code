@@ -5,7 +5,7 @@ import {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as Schema from "effect/Schema";
 
 import * as MasterAgent from "../../../masterAgent/MasterAgent.ts";
@@ -42,7 +42,8 @@ const AgentMemoryReadTool = Tool.make("agent_memory_read", {
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
-  .annotate(Tool.OpenWorld, false);
+  .annotate(Tool.OpenWorld, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const AgentMemoryWriteTool = Tool.make("agent_memory_write", {
   description: `Save a durable rule or fact under a short key, replacing what the key held. Empty content deletes the key. Save without being asked. All keys share ${MasterAgent.MASTER_AGENT_MEMORY_MAX_BYTES} bytes.`,
@@ -59,6 +60,7 @@ const AgentMemoryWriteTool = Tool.make("agent_memory_write", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients)
   // Saving is unprompted, so Claude Code must not hide it behind ToolSearch.
   .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
 
@@ -95,7 +97,8 @@ const ProjectBoardTool = Tool.make("t3_project_board", {
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
-  .annotate(Tool.OpenWorld, false);
+  .annotate(Tool.OpenWorld, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const watchDependencies = [...dependencies, MasterAgentWatch.MasterAgentWatch];
 
@@ -120,7 +123,8 @@ const AgentThreadsTool = Tool.make("agent_threads", {
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
-  .annotate(Tool.OpenWorld, false);
+  .annotate(Tool.OpenWorld, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const AgentThreadUnwatchTool = Tool.make("agent_thread_unwatch", {
   description:
@@ -135,7 +139,8 @@ const AgentThreadUnwatchTool = Tool.make("agent_thread_unwatch", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
-  .annotate(Tool.OpenWorld, false);
+  .annotate(Tool.OpenWorld, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 export const MasterAgentToolkit = Toolkit.make(
   AgentMemoryReadTool,

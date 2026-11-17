@@ -1,4 +1,5 @@
 import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type * as Effect from "effect/Effect";
 
 /**
  * Sent by MCP clients that cannot defer tools themselves. The T3 MCP server then
@@ -20,6 +21,8 @@ export interface McpProviderSessionConfig {
   /** Sections only the agent thread gets: its instructions and saved memory. */
   readonly threadInstructions?: ReadonlyArray<string>;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
+  /** True while a delegated task this thread started will wake it with its result. */
+  readonly hasPendingWake?: Effect.Effect<boolean>;
 }
 
 export function withAgentDeviceEnvironment(

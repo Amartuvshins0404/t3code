@@ -214,6 +214,7 @@ it.effect("keeps the No project folder away from a team agent", () => {
   const row = (projectId: ProjectId, title: string): ProjectStore.ProjectRow => ({
     projectId,
     title,
+    hasCustomTitle: false,
     workspaceRoot: `/work/${projectId}`,
     defaultModelSelection: null,
     defaultThreadEnvMode: null,

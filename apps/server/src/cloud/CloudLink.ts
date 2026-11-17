@@ -1,5 +1,4 @@
 import {
-  AuthStandardClientScopes,
   AuthTeamMemberScopes,
   EnvironmentAuthenticatedPrincipal,
   type EnvironmentCloudLinkStateResult,
@@ -103,6 +102,7 @@ import * as ConnectReachability from "./ConnectReachability.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { relayUrlConfig } from "./publicConfig.ts";
 import {
   filterRelayResponse,
@@ -520,6 +520,7 @@ const make = Effect.gen(function* () {
   const endpointRuntime = yield* ManagedEndpointRuntime.CloudManagedEndpointRuntime;
   const reachability = yield* ConnectReachability.ConnectReachability;
   const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const cliTokenManager = yield* CliTokenManager.CloudCliTokenManager;
   const httpClient = yield* HttpClient.HttpClient;
   const httpServer = yield* HttpServer.HttpServer;
@@ -1601,13 +1602,15 @@ const make = Effect.gen(function* () {
       }
 
       const issued = yield* teamMember === undefined
-        ? environmentAuth.createPairingLink({
-            scopes: AuthStandardClientScopes,
-            subject: "cloud-connect",
-            ttl: Duration.minutes(2),
-            label: `${getConnectName()} connect`,
-            proofKeyThumbprint: proof.clientProofKeyThumbprint,
-          })
+        ? serverSettings.getSettings.pipe(
+            Effect.catch(internalError("issue-credential")),
+            Effect.flatMap((settings) =>
+              environmentAuth.issueConnectCredential({
+                proofKeyThumbprint: proof.clientProofKeyThumbprint,
+                requireApproval: settings.requireConnectDeviceApproval,
+              }),
+            ),
+          )
         : environmentAuth.createPairingLink({
             scopes: AuthTeamMemberScopes,
             subject: EnvironmentAuth.TEAM_MEMBER_SUBJECT,

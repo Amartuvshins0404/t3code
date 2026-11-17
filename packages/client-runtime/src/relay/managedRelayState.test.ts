@@ -9,9 +9,11 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { afterEach, vi } from "vite-plus/test";
 
+import { getConnectName } from "../appName.ts";
 import * as ManagedRelay from "./managedRelay.ts";
 import {
   createManagedRelayQueryManager,
@@ -271,6 +273,45 @@ describe("createManagedRelayQueryManager", () => {
         expect(yield* session.readIdentityToken()).toBe(token);
         expect(readIdentityToken).toHaveBeenCalledTimes(1);
       }),
+  );
+
+  it.effect("replaces an identity token read that has not answered after 4 seconds", () =>
+    Effect.gen(function* () {
+      const token = identityToken(4_102_444_800);
+      const readIdentityToken = vi
+        .fn<() => Promise<string | null>>()
+        .mockReturnValueOnce(new Promise(() => {}))
+        .mockResolvedValue(token);
+      const session = createManagedRelaySession({ accountId: "account-1", readIdentityToken });
+
+      const readsFiber = yield* Effect.all(
+        [session.readIdentityToken(), session.readIdentityToken()],
+        {
+          concurrency: "unbounded",
+        },
+      ).pipe(Effect.forkChild);
+      yield* TestClock.adjust("3999 millis");
+      expect(readIdentityToken).toHaveBeenCalledTimes(1);
+
+      yield* TestClock.adjust("1 millis");
+      expect(yield* Fiber.join(readsFiber)).toEqual([token, token]);
+      expect(readIdentityToken).toHaveBeenCalledTimes(2);
+    }),
+  );
+
+  it.effect("fails an identity token read that never answers after three tries", () =>
+    Effect.gen(function* () {
+      const readIdentityToken = vi.fn(() => new Promise<string | null>(() => {}));
+      const session = createManagedRelaySession({ accountId: "account-1", readIdentityToken });
+
+      const readFiber = yield* session.readIdentityToken().pipe(Effect.flip, Effect.forkChild);
+      yield* TestClock.adjust("12 seconds");
+
+      expect((yield* Fiber.join(readFiber)).message).toBe(
+        `Timed out obtaining the ${getConnectName()} session token.`,
+      );
+      expect(readIdentityToken).toHaveBeenCalledTimes(3);
+    }),
   );
 
   it.effect("updates the token provider without replacing a same-account session", () =>

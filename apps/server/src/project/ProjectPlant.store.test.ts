@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
+import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
@@ -124,6 +125,9 @@ const storeHarness = (workspaceRoot: string) => {
         WorktreeSetupTracker.layer,
         Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
         Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
+        Layer.mock(CheckpointStore.CheckpointStore)({
+          isGitRepository: () => Effect.succeed(true),
+        }),
         layerProjects,
         Layer.mock(GitWorkflow.GitWorkflowService)({
           repositoryRoot: () => Effect.succeed(workspaceRoot),
@@ -155,6 +159,7 @@ const storeHarness = (workspaceRoot: string) => {
           folderForThread: () => Effect.succeedNone,
         }),
         layerThreadManagement,
+        layerOrchestrator,
         layerReceipts,
         IdAllocator.layer,
       ),
