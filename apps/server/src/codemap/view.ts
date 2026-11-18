@@ -104,7 +104,12 @@ export function authoredChanges(input: {
       const area = areaOf(input.analysis, path);
       return {
         path,
-        from: change.from === null ? null : local(change.from),
+        from:
+          change.from === null
+            ? null
+            : change.from.startsWith(prefix)
+              ? local(change.from)
+              : change.from,
         status: change.status,
         additions: change.additions,
         deletions: change.deletions,

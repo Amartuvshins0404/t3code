@@ -41,7 +41,7 @@ it.layer(NodeServices.layer)("readSource", (it) => {
 
 it.layer(NodeServices.layer)("readThreadChanges", (it) => {
   it.effect(
-    "shows a file the thread moved as moved with only its edited lines, and leaves out a pulled change",
+    "shows a file the thread moved as moved with only its edited lines, even inside a large pull",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -52,7 +52,17 @@ it.layer(NodeServices.layer)("readThreadChanges", (it) => {
         const git = (...args: string[]) =>
           NodeChildProcess.execFileSync(
             "git",
-            ["-c", "user.email=t@t", "-c", "user.name=t", ...args],
+            [
+              "-c",
+              "user.email=t@t",
+              "-c",
+              "user.name=t",
+              "-c",
+              "gc.auto=0",
+              "-c",
+              "maintenance.auto=false",
+              ...args,
+            ],
             {
               cwd,
               encoding: "utf8",
@@ -64,10 +74,20 @@ it.layer(NodeServices.layer)("readThreadChanges", (it) => {
           Array.from({ length: 50 }, (_, index) => `line ${index}`).join("\n") + "\n",
         );
         yield* fs.writeFileString(path.join(cwd, "app/pulled.ts"), "a\n");
+        yield* fs.makeDirectory(path.join(cwd, "gone"));
+        yield* fs.makeDirectory(path.join(cwd, "arrived"));
+        for (let index = 0; index < 1100; index += 1)
+          yield* fs.writeFileString(path.join(cwd, "gone", `${index}.ts`), `gone ${index}\n`);
         git("init", "-q");
         git("add", "-A");
         git("commit", "-qm", "base");
         git("mv", "app/old.ts", "app/new.ts");
+        git("rm", "-rq", "gone");
+        for (let index = 0; index < 1100; index += 1)
+          yield* fs.writeFileString(
+            path.join(cwd, "arrived", `${index}.ts`),
+            `arrived ${index * 7919}\n`,
+          );
         yield* fs.writeFileString(
           path.join(cwd, "app/new.ts"),
           Array.from({ length: 50 }, (_, index) => `line ${index}`).join("\n") + "\nadded\n",
@@ -114,7 +134,17 @@ it.layer(NodeServices.layer)("readThreadChanges on a large move", (it) => {
       const git = (...args: string[]) =>
         NodeChildProcess.execFileSync(
           "git",
-          ["-c", "user.email=t@t", "-c", "user.name=t", ...args],
+          [
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "-c",
+            "gc.auto=0",
+            "-c",
+            "maintenance.auto=false",
+            ...args,
+          ],
           {
             cwd,
             encoding: "utf8",

@@ -314,7 +314,18 @@ export const readThreadChanges = Effect.fn("Codemap.readThreadChanges")(function
   const listing = yield* run(
     cwd,
     "threadChangeList",
-    ["-c", "diff.relative=false", "diff", "--raw", "--find-renames", "-z", baseline, latest],
+    [
+      "-c",
+      "diff.relative=false",
+      "-c",
+      "diff.renameLimit=5000",
+      "diff",
+      "--raw",
+      "--find-renames",
+      "-z",
+      baseline,
+      latest,
+    ],
     32 * 1024 * 1024,
   );
   if (Option.isNone(listing) || listing.value.exitCode !== 0) return [];

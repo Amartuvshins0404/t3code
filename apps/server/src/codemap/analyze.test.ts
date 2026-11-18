@@ -123,3 +123,26 @@ describe("thread changes", () => {
     ]);
   });
 });
+
+describe("thread changes in a project folder", () => {
+  it("keeps the full repo path of a file moved in from outside the project", () => {
+    const changes = authoredChanges({
+      raw: [
+        {
+          path: "proj/shared.ts",
+          from: "lib/shared.ts",
+          status: "renamed",
+          additions: 0,
+          deletions: 0,
+        },
+      ],
+      runByPath: new Map([["proj/shared.ts", RunId.make("run-1")]]),
+      prefix: "proj/",
+      analysis: analyze({ "shared.ts": "a" }),
+      limit: 10,
+    });
+    expect(changes.map((change) => [change.path, change.from])).toEqual([
+      ["shared.ts", "lib/shared.ts"],
+    ]);
+  });
+});
