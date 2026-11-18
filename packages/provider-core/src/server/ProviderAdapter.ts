@@ -70,6 +70,16 @@ export const ProviderAdapterV2TurnMessage = Schema.Struct({
 });
 export type ProviderAdapterV2TurnMessage = typeof ProviderAdapterV2TurnMessage.Type;
 
+/** Typed by a person in a client, not sent by an agent, a schedule, or the server. */
+export function isPersonPrompt(message: ProviderAdapterV2TurnMessage): boolean {
+  return (
+    message.createdBy === "user" &&
+    (message.creationSource === "web" || message.creationSource === "mobile") &&
+    message.senderThreadId === undefined &&
+    message.scheduledTaskId === undefined
+  );
+}
+
 export const ProviderAdapterV2SessionStatus = Schema.Literals([
   "starting",
   "ready",

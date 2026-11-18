@@ -100,6 +100,10 @@ const FORK_FEATURES: ReadonlyArray<{
     ],
   },
   {
+    name: "A person's steer moves Claude's running command to the background",
+    tests: ["apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts"],
+  },
+  {
     name: "New models reach the owner without upstream or a release",
     tests: [
       "apps/server/src/provider/ModelManifest.test.ts",
