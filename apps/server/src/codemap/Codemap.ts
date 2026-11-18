@@ -34,6 +34,7 @@ import {
   buildCodemapView,
   dirtyPaths,
   parseRawNumstat,
+  parseRaw,
   pathspecBatches,
   type RawChange,
   underPrefix,
@@ -308,36 +309,26 @@ export const readThreadChanges = Effect.fn("Codemap.readThreadChanges")(function
   analysis: CodemapAnalysis,
 ) {
   if (workspace === null || workspace.latest === null) return [];
-  const { baseline, latest, cwd } = workspace;
-  const authored = [...workspace.runByPath.keys()]
-    .filter((file) => file.startsWith(prefix))
-    .toReversed()
-    .slice(0, MAX_CHANGED_PATHS);
-  if (authored.length === 0) return [];
-  const removed = yield* run(
+  const { baseline, latest, cwd, runByPath } = workspace;
+  // One tree-level pass finds the thread's files and pairs moves; line counts are read for those files only.
+  const listing = yield* run(
     cwd,
-    "threadRemovedPaths",
-    [
-      "-c",
-      "diff.relative=false",
-      "diff",
-      "--name-only",
-      "--no-renames",
-      "--diff-filter=D",
-      "-z",
-      baseline,
-      latest,
-    ],
-    4 * 1024 * 1024,
+    "threadChangeList",
+    ["-c", "diff.relative=false", "diff", "--raw", "--find-renames", "-z", baseline, latest],
+    32 * 1024 * 1024,
   );
-  if (Option.isNone(removed) || removed.value.exitCode !== 0) return [];
-  // Checkpoints keep only a moved file's new path; deleted paths give git the old side to pair.
-  const removedPaths = removed.value.stdout
-    .split("\u0000")
-    .filter((file) => file.startsWith(prefix) && !workspace.runByPath.has(file))
+  if (Option.isNone(listing) || listing.value.exitCode !== 0) return [];
+  const owned = parseRaw(listing.value.stdout)
+    .filter(
+      (entry) =>
+        entry.path.startsWith(prefix) &&
+        (runByPath.has(entry.path) || (entry.from !== null && runByPath.has(entry.from))),
+    )
     .slice(0, MAX_CHANGED_PATHS);
-  const raw: RawChange[] = [];
-  for (const batch of pathspecBatches([...authored, ...removedPaths])) {
+  const raw = new Map<string, RawChange>();
+  for (const batch of pathspecBatches(
+    owned.map((entry) => (entry.from === null ? [entry.path] : [entry.from, entry.path])),
+  )) {
     const diff = yield* run(
       cwd,
       "threadChanges",
@@ -357,11 +348,12 @@ export const readThreadChanges = Effect.fn("Codemap.readThreadChanges")(function
       8 * 1024 * 1024,
     );
     if (Option.isNone(diff) || diff.value.exitCode !== 0) return [];
-    raw.push(...parseRawNumstat(diff.value.stdout, MAX_CHANGED_PATHS));
+    for (const change of parseRawNumstat(diff.value.stdout, MAX_CHANGED_PATHS))
+      raw.set(change.path, change);
   }
   return authoredChanges({
-    raw,
-    runByPath: workspace.runByPath,
+    raw: [...raw.values()],
+    runByPath,
     prefix,
     analysis,
     limit: MAX_CHANGED_PATHS,

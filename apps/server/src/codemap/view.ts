@@ -213,22 +213,43 @@ export function dirtyPaths(porcelain: string): ReadonlyArray<string> {
 // Windows limits a command line to 32,767 characters. Leave room for the rest of git's arguments.
 const MAX_PATHSPEC_CHARS = 24_000;
 
-export function pathspecBatches(paths: ReadonlyArray<string>): ReadonlyArray<string[]> {
+export function pathspecBatches(
+  groups: ReadonlyArray<ReadonlyArray<string>>,
+): ReadonlyArray<string[]> {
   const batches: string[][] = [];
   let batch: string[] = [];
   let length = 0;
-  for (const file of paths) {
-    const spec = `:(top,literal)${file}`;
-    if (batch.length > 0 && length + spec.length + 1 > MAX_PATHSPEC_CHARS) {
+  for (const group of groups) {
+    const specs = group.filter((file) => file.length > 0).map((file) => `:(top,literal)${file}`);
+    const size = specs.reduce((sum, spec) => sum + spec.length + 1, 0);
+    if (specs.length === 0) continue;
+    if (batch.length > 0 && length + size > MAX_PATHSPEC_CHARS) {
       batches.push(batch);
       batch = [];
       length = 0;
     }
-    batch.push(spec);
-    length += spec.length + 1;
+    batch.push(...specs);
+    length += size;
   }
   if (batch.length > 0) batches.push(batch);
   return batches;
+}
+
+export function parseRaw(
+  output: string,
+): ReadonlyArray<{ path: string; from: string | null; status: CodemapChangeStatus }> {
+  const fields = output.split("\u0000");
+  const entries: Array<{ path: string; from: string | null; status: CodemapChangeStatus }> = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index] ?? "";
+    if (!field.startsWith(":")) continue;
+    const letter = field.slice(field.lastIndexOf(" ") + 1, field.lastIndexOf(" ") + 2);
+    const from = letter === "R" || letter === "C" ? (fields[++index] ?? null) : null;
+    const path = fields[++index] ?? "";
+    if (path.length === 0) continue;
+    entries.push({ path, from, status: STATUS_BY_LETTER[letter] ?? "modified" });
+  }
+  return entries;
 }
 
 export function underPrefix(paths: ReadonlyArray<string>, prefix: string): string[] {
