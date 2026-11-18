@@ -17,9 +17,12 @@ export const codexAppServerArgs = (launchArgs?: string) => [
   ...codexLaunchArgv(launchArgs),
 ];
 
-export const codexLaunchArgModelProvider = (launchArgs?: string): string | undefined => {
+export const codexLaunchArgConfigValue = (
+  launchArgs: string | undefined,
+  key: string,
+): string | undefined => {
   const args = codexLaunchArgv(launchArgs);
-  let provider: string | undefined;
+  let value: string | undefined;
   for (let index = 0; index < args.length; index++) {
     const arg = args[index] ?? "";
     const inline = ["--config=", "-c="].find((prefix) => arg.startsWith(prefix));
@@ -29,11 +32,18 @@ export const codexLaunchArgModelProvider = (launchArgs?: string): string | undef
         : arg === "-c" || arg === "--config"
           ? args[++index]
           : undefined;
-    const match = override?.match(/^model_provider\s*=\s*["']?([^"']+)["']?\s*$/);
-    if (match?.[1] !== undefined) provider = match[1];
+    const separator = override?.indexOf("=") ?? -1;
+    if (override === undefined || separator < 0 || override.slice(0, separator).trim() !== key) {
+      continue;
+    }
+    const match = override.slice(separator + 1).match(/^\s*["']?([^"']+)["']?\s*$/);
+    if (match?.[1] !== undefined) value = match[1];
   }
-  return provider;
+  return value;
 };
+
+export const codexLaunchArgModelProvider = (launchArgs?: string): string | undefined =>
+  codexLaunchArgConfigValue(launchArgs, "model_provider");
 
 interface LaunchArgFilter {
   readonly switches: ReadonlySet<string>;

@@ -32,7 +32,12 @@ import {
   makeCodexSkillsProbe,
   withCodexAppServerClient,
 } from "../CodexProvider.ts";
-import { resolveCodexLaunchArgs } from "../codexLaunchArgs.ts";
+import { codexLaunchArgModelProvider, resolveCodexLaunchArgs } from "../codexLaunchArgs.ts";
+import {
+  codexCustomProviderEndpoint,
+  fetchCodexProviderModelSlugs,
+  withCodexCustomProviderModels,
+} from "../codexProviderModels.ts";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
 import { applyCodexModelCatalog } from "../codexModelCatalog.ts";
@@ -268,13 +273,31 @@ export const CodexDriver: ProviderDriver<
 
     // Kick the TTL-gated manifest refresh in the background and classify with the in-memory
     // manifest, so a slow or hung fetch never delays the provider check.
+    const resolvedLaunchArgs = resolveCodexLaunchArgs(effectiveConfig.launchArgs, processEnv);
+    const modelProvider = codexLaunchArgModelProvider(resolvedLaunchArgs);
+    const usesCustomProvider = modelProvider !== undefined && modelProvider !== "openai";
+    const customProviderEndpoint = codexCustomProviderEndpoint(resolvedLaunchArgs, processEnv);
     const checkProvider = modelCatalog.refreshInBackground.pipe(
       Effect.andThen(
-        Effect.zipWith(
-          checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
-          currentCatalog,
-          (draft, catalog) => stampIdentity(applyCodexModelCatalog(draft, catalog)),
-          { concurrent: true },
+        Effect.all(
+          [
+            checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
+            currentCatalog,
+            fetchCodexProviderModelSlugs(customProviderEndpoint).pipe(
+              Effect.provideService(HttpClient.HttpClient, httpClient),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        ),
+      ),
+      Effect.map(([draft, catalog, providerSlugs]) =>
+        stampIdentity(
+          applyCodexModelCatalog(
+            usesCustomProvider
+              ? withCodexCustomProviderModels(draft, catalog, providerSlugs)
+              : draft,
+            catalog,
+          ),
         ),
       ),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
