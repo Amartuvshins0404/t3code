@@ -13890,6 +13890,33 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           yield* Fiber.joinAll(moves).pipe(Effect.timeoutOption(Math.max(0, remaining)));
         });
 
+        // Claude reads a steer only after a foreground Bash call returns; moving the
+        // command to the background lets a person's message in now while it keeps running.
+        const backgroundForegroundCommands = Effect.fnUntraced(function* (
+          live: ClaudeLiveQueryContext,
+          turn: ActiveClaudeTurnContext,
+          deadline: number,
+        ) {
+          const moves: Array<Fiber.Fiber<void>> = [];
+          for (const toolCall of turn.toolCalls.values()) {
+            if (toolCall.classification.itemType !== "command_execution") continue;
+            moves.push(
+              yield* live.query.backgroundTasks(toolCall.nativeItemId).pipe(
+                Effect.asVoid,
+                Effect.catch((cause) =>
+                  Effect.logWarning("orchestration-v2.claude-steer-background-command-failed", {
+                    toolUseId: toolCall.nativeItemId,
+                    cause,
+                  }),
+                ),
+                Effect.forkIn(sessionScope),
+              ),
+            );
+          }
+          const remaining = deadline - (yield* Clock.currentTimeMillis);
+          yield* Fiber.joinAll(moves).pipe(Effect.timeoutOption(Math.max(0, remaining)));
+        });
+
         const steerTurn = Effect.fn("ClaudeAdapterV2.steerTurn")(
           function* (turnInput: ProviderAdapter.ProviderAdapterV2SteerInput) {
             modelCatalog = yield* loadModelCatalog;
@@ -13968,6 +13995,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               Effect.provideService(Path.Path, path),
             );
             yield* backgroundForegroundSubagents(existing, backgroundDeadline);
+            if (ProviderAdapter.isPersonPrompt(turnInput.message)) {
+              yield* backgroundForegroundCommands(existing, currentTurn, backgroundDeadline);
+            }
             if (liveSteerSelection !== undefined) {
               yield* applySelectionLive(existing, liveSteerSelection);
             }

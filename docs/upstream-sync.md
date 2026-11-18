@@ -26,6 +26,7 @@ Remotes: `origin` is upstream and is never pushed to. `fork` is `Amartuvshins040
 - Recommended answers send themselves after the wait set in Settings.
 - The master agent: one constant thread with memory that hands off work and hears back.
 - The Code map tab: a change map of what a thread added, changed, moved or deleted, with a whole-repo view behind a toggle.
+- A person's steer reaches Claude within seconds: `steerTurn` in `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts` moves running foreground commands to the background first (`isPersonPrompt` in `packages/provider-core/src/server/ProviderAdapter.ts`). Upstream moves only subagents. Drop the fork's copy if upstream starts moving commands too.
 - The CI bots: Merge Lane, Blind Checks and the ledger (see [operations/merge-lanes.md](operations/merge-lanes.md)).
 
 ## Traps

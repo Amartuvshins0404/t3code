@@ -100,6 +100,10 @@ const FORK_FEATURES: ReadonlyArray<{
     ],
   },
   {
+    name: "A person's steer moves Claude's running command to the background",
+    tests: ["apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts"],
+  },
+  {
     name: "Cloning a repo already on disk opens it",
     tests: ["apps/server/src/sourceControl/SourceControlRepositoryService.test.ts"],
   },

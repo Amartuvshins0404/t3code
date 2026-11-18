@@ -1123,7 +1123,7 @@ function UserMessageIntentMarker({
       </TooltipTrigger>
       <TooltipPopup side="top">
         {unread
-          ? "Waiting for the agent to read this. It reads steers between steps, after a running command finishes."
+          ? "Waiting for the agent to read this at its next step. Stop ends the turn now."
           : intent === "promoted_queued_to_steer"
             ? "Originally queued, then promoted to steer the active turn"
             : "Steered the active turn"}
