@@ -33,6 +33,7 @@ import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as ElectronPowerMonitor from "../electron/ElectronPowerMonitor.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as IpcChannels from "../ipc/channels.ts";
@@ -62,7 +63,8 @@ import {
 const CHANNEL_CHANGE_RETRY_DELAY = Duration.seconds(1);
 const CHANNEL_CHANGE_RETRIES = 30;
 const AUTO_UPDATE_STARTUP_DELAY = "15 seconds";
-const AUTO_UPDATE_POLL_INTERVAL = "4 hours";
+// The fork ships several releases a day to one owner, so it polls far more often than upstream.
+const AUTO_UPDATE_POLL_INTERVAL = "30 minutes";
 const UPDATE_CHECK_WAIT = Duration.seconds(90);
 
 type UpdateAction = "check" | "download" | "install" | "install-recovery" | "channel";
@@ -379,6 +381,7 @@ export const make = Effect.gen(function* () {
   const sshEnvironment = yield* DesktopSshEnvironment.DesktopSshEnvironment;
   const desktopState = yield* DesktopState.DesktopState;
   const electronUpdater = yield* ElectronUpdater.ElectronUpdater;
+  const powerMonitor = yield* ElectronPowerMonitor.ElectronPowerMonitor;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -1334,6 +1337,11 @@ export const make = Effect.gen(function* () {
       });
       yield* electronUpdater.on("update-downloaded", (info: unknown) => {
         runEffect(handleUpdateDownloaded(info));
+      });
+
+      // Timers stop while the Mac sleeps, so a long sleep would otherwise delay the next check.
+      yield* powerMonitor.onSimpleEvent("resume", () => {
+        runEffect(checkForUpdates("resume"));
       });
 
       yield* startUpdatePollers;

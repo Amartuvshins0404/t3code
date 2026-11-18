@@ -104,6 +104,13 @@ const FORK_FEATURES: ReadonlyArray<{
     tests: ["apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts"],
   },
   {
+    name: "New models reach the owner without upstream or a release",
+    tests: [
+      "apps/server/src/provider/ModelManifest.test.ts",
+      "apps/server/src/provider/codexProviderModels.test.ts",
+    ],
+  },
+  {
     name: "Cloning a repo already on disk opens it",
     tests: ["apps/server/src/sourceControl/SourceControlRepositoryService.test.ts"],
   },

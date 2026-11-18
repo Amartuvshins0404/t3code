@@ -263,7 +263,7 @@ describe("DesktopUpdates", () => {
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
-  it.effect("checks shortly after startup and then every four hours", () => {
+  it.effect("checks shortly after startup, every half hour, and on waking from sleep", () => {
     const harness = makeHarness();
 
     return Effect.scoped(
@@ -274,11 +274,15 @@ describe("DesktopUpdates", () => {
         yield* TestClock.adjust("15 seconds");
         assert.equal(harness.checkCount(), 1);
 
-        yield* TestClock.adjust("3 hours");
+        yield* TestClock.adjust("29 minutes");
         assert.equal(harness.checkCount(), 1);
 
-        yield* TestClock.adjust("1 hour");
+        yield* TestClock.adjust("1 minute");
         assert.equal(harness.checkCount(), 2);
+
+        harness.wakeFromSleep();
+        yield* TestClock.adjust("1 second");
+        assert.equal(harness.checkCount(), 3);
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });

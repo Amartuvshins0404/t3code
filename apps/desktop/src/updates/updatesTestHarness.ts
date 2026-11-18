@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as ElectronPowerMonitor from "../electron/ElectronPowerMonitor.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -55,6 +56,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   let fullChangelog = false;
   const feedUrls: ElectronUpdater.ElectronUpdaterFeedUrl[] = [];
   const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
+  const wakeListeners = new Set<() => void>();
   const sentStates: DesktopUpdateState[] = [];
   const installSteps: string[] = [];
 
@@ -297,6 +299,14 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     Layer.provideMerge(layerWindow),
     Layer.provideMerge(layerBackend),
     Layer.provideMerge(layerSshEnvironment),
+    Layer.provideMerge(
+      Layer.mock(ElectronPowerMonitor.ElectronPowerMonitor, {
+        onSimpleEvent: (eventName, listener) =>
+          Effect.sync(() => {
+            if (eventName === "resume") wakeListeners.add(listener);
+          }),
+      }),
+    ),
     Layer.provideMerge(DesktopState.layer),
     Layer.provideMerge(layerSettings),
     Layer.provideMerge(
@@ -337,6 +347,9 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       for (const listener of listeners.get(eventName) ?? []) {
         listener(payload);
       }
+    },
+    wakeFromSleep: () => {
+      for (const listener of wakeListeners) listener();
     },
   };
 }
