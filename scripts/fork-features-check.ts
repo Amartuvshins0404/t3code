@@ -96,6 +96,7 @@ const FORK_FEATURES: ReadonlyArray<{
       "apps/server/src/codemap/Codemap.test.ts",
       "apps/server/src/codemap/analyze.test.ts",
       "apps/web/src/components/codemap/codemapTreemap.logic.test.ts",
+      "apps/web/src/components/codemap/codemapChanges.logic.test.ts",
     ],
   },
   {

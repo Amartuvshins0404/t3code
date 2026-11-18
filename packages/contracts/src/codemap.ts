@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { ProjectId, RunId, ThreadId } from "./baseSchemas.ts";
 
 export const CodemapNodeKind = Schema.Literals(["root", "package", "folder", "file"]);
 export type CodemapNodeKind = typeof CodemapNodeKind.Type;
@@ -26,6 +26,24 @@ export const CodemapView = Schema.Struct({
 });
 export type CodemapView = typeof CodemapView.Type;
 
+export const CodemapChangeStatus = Schema.Literals(["added", "modified", "deleted", "renamed"]);
+export type CodemapChangeStatus = typeof CodemapChangeStatus.Type;
+
+export const CodemapChange = Schema.Struct({
+  path: Schema.String,
+  from: Schema.NullOr(Schema.String),
+  status: CodemapChangeStatus,
+  additions: Schema.Number,
+  deletions: Schema.Number,
+  areaId: Schema.String,
+  areaName: Schema.String,
+  runId: Schema.NullOr(RunId),
+});
+export type CodemapChange = typeof CodemapChange.Type;
+
+export const CodemapRange = Schema.Literals(["thread", "last_turn"]);
+export type CodemapRange = typeof CodemapRange.Type;
+
 export const CodemapUnavailableReason = Schema.Literals(["not_a_repository", "read_failed"]);
 export type CodemapUnavailableReason = typeof CodemapUnavailableReason.Type;
 
@@ -33,7 +51,7 @@ export const CodemapReadResult = Schema.Union([
   Schema.TaggedStruct("unavailable", { reason: CodemapUnavailableReason }),
   Schema.TaggedStruct("ready", {
     view: CodemapView,
-    addedPaths: Schema.Array(Schema.String),
+    changes: Schema.Array(CodemapChange),
     pathPrefix: Schema.String,
     totalFiles: Schema.Number,
     analyzedAt: Schema.String,
@@ -45,6 +63,7 @@ export const CodemapReadInput = Schema.Struct({
   projectId: ProjectId,
   focusId: Schema.String,
   threadId: Schema.optionalKey(ThreadId),
+  range: Schema.optionalKey(CodemapRange),
 });
 export type CodemapReadInput = typeof CodemapReadInput.Type;
 
