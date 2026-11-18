@@ -6221,6 +6221,93 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.effect.each([
+    {
+      title: "moves a running foreground command to the background before a person's steer",
+      message: { createdBy: "user", creationSource: "web" },
+      moved: ["toolu-fg-build"],
+    },
+    {
+      title: "leaves a foreground command running for an agent's steer",
+      message: {
+        createdBy: "agent",
+        creationSource: "mcp",
+        senderThreadId: ThreadId.make("sender-thread"),
+      },
+      moved: [],
+    },
+  ] as const)("$title", ({ message, moved }) =>
+    Effect.gen(function* () {
+      const backgrounded: Array<string> = [];
+      const harness = yield* makeWakeHarnessWithOptions({
+        backgroundTasks: (toolUseId) =>
+          Effect.sync(() => {
+            backgrounded.push(toolUseId);
+            return true;
+          }),
+      });
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const input = makeClaudeTestTurnInput({
+        threadId: harness.threadId,
+        providerThread: harness.providerThread,
+        now: yield* DateTime.now,
+        attemptId: RunAttemptId.make("attempt-steer-backgrounds-command"),
+        text: "Run the slow build in the foreground.",
+        attachments: [],
+      });
+      yield* harness.runtime.startTurn(input);
+      yield* harness.offerAndWait(
+        claudeSdkFrame({
+          type: "assistant",
+          uuid: "00000000-0000-4000-8000-000000015801",
+          session_id: WAKE_NATIVE_SESSION,
+          parent_tool_use_id: null,
+          message: {
+            id: "msg_steer_backgrounds_command",
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu-fg-build",
+                name: "Bash",
+                input: { command: "./build.sh" },
+              },
+            ],
+          },
+        }),
+      );
+      yield* harness.runtime.steerTurn({
+        threadId: harness.threadId,
+        runId: input.runId,
+        providerThread: harness.providerThread,
+        providerTurnId: idAllocator.derive.providerTurn({
+          driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+          nativeTurnId: `turn:${input.attemptId}`,
+        }),
+        message: {
+          ...message,
+          messageId: MessageId.make("steer-backgrounds-command"),
+          text: "What is 2+2?",
+          attachments: [],
+        },
+      });
+      assert.deepEqual(backgrounded, [...moved]);
+      assert.equal(harness.offeredMessages.at(-1)?.priority, "now");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
   // Claude can answer a steer while its offer is still being logged.
   it.effect("settles a turn whose result echoes only a steer before the offer returns", () =>
     Effect.gen(function* () {
