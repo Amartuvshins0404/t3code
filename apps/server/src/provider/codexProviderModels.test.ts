@@ -34,23 +34,33 @@ const draft = (models: ReadonlyArray<ServerProviderModel>) => ({
   skills: [],
 });
 
+const entry = (
+  slug: string,
+  name: string,
+  overrides: Partial<ModelCatalog.ProviderCatalogModel> = {},
+): ModelCatalog.ProviderCatalogModel => ({
+  slug,
+  name,
+  status: "current",
+  capabilities: null,
+  adapter: undefined,
+  profileAdapter: undefined,
+  ...overrides,
+});
+
 const catalog: ModelCatalog.ProviderCatalog = {
   defaultChatModel: undefined,
   models: [
-    {
-      slug: "gpt-6.2-astra",
-      name: "GPT-6.2 Astra",
-      badge: "new",
-      status: "current",
-      capabilities: null,
-      adapter: undefined,
-      profileAdapter: undefined,
-    },
+    entry("gpt-6.2-sol", "GPT-6.2 Sol"),
+    entry("gpt-6.2-astra", "GPT-6.2 Astra", { badge: "new" }),
+    entry("gpt-6.3-luna", "GPT-6.3 Luna"),
+    entry("gpt-7-nova", "GPT-7 Nova"),
+    entry("gpt-6-astra", "GPT-6 Astra", { status: "legacy" }),
   ],
 };
 
 describe("withCodexCustomProviderModels", () => {
-  it("offers newer models of lines the CLI lists, with that line's settings", () => {
+  it("offers newer models the proxy serves and the catalog lists, with that line's settings", () => {
     const cli = [
       model("gpt-6.1-sol", { isDefault: true, aliases: ["sol"] }),
       model("gpt-6-astra"),
@@ -64,6 +74,7 @@ describe("withCodexCustomProviderModels", () => {
       "gpt-6-chat-thinking",
       "gpt-image-2",
       "gpt-7-nova",
+      "gpt-6.4-sol",
     ]);
 
     assert.deepStrictEqual(
@@ -73,7 +84,7 @@ describe("withCodexCustomProviderModels", () => {
     const [sol, , astra] = result.models;
     assert.deepStrictEqual(sol, {
       slug: "gpt-6.2-sol",
-      name: "GPT-6.2-Sol",
+      name: "GPT-6.2 Sol",
       isCustom: false,
       capabilities: capabilities("gpt-6.1-sol"),
     });
@@ -84,6 +95,16 @@ describe("withCodexCustomProviderModels", () => {
       isCustom: false,
       capabilities: capabilities("gpt-6-astra"),
     });
+  });
+
+  it("adds nothing the proxy does not serve, so a down proxy changes nothing", () => {
+    const cli = [model("gpt-6.1-sol"), model("gpt-6-astra"), model("gpt-6-luna")];
+    for (const served of [[], ["gpt-6-astra"]]) {
+      assert.deepStrictEqual(
+        withCodexCustomProviderModels(draft(cli), catalog, served).models,
+        cli,
+      );
+    }
   });
 
   it("leaves the list alone once the CLI lists the model itself", () => {

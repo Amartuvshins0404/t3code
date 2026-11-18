@@ -1,7 +1,6 @@
 import type { ServerProviderModel } from "@t3tools/contracts";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
 import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshotProbe";
-import { formatCodexModelName } from "@t3tools/shared/model";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
@@ -62,9 +61,9 @@ const isNewerVersion = (left: string, right: string) => {
 
 /**
  * With its own model provider, Codex lists only the models built into the installed CLI, so a
- * newer model the provider already serves stays hidden until the CLI updates. Offer the newer
- * models the catalog and the provider name, borrowing settings from the closest listed model of
- * the same line (Astra, Sol, ...). A line the CLI has never listed stays hidden.
+ * newer model the provider already serves stays hidden until the CLI updates. Offer a newer
+ * model only when the provider serves it and the catalog lists it as current, borrowing settings
+ * from the closest listed model of the same line (Astra, Sol, ...).
  */
 export function withCodexCustomProviderModels(
   draft: ServerProviderDraft,
@@ -72,15 +71,13 @@ export function withCodexCustomProviderModels(
   providerSlugs: ReadonlyArray<string>,
 ): ServerProviderDraft {
   const listed = new Set(draft.models.map((model) => model.slug));
-  const catalogBySlug = new Map((catalog?.models ?? []).map((entry) => [entry.slug, entry]));
-  const candidates = [
-    ...(catalog?.models ?? [])
-      .filter((entry) => entry.status === "current")
-      .map((entry) => entry.slug),
-    ...providerSlugs,
-  ];
+  const served = new Set(providerSlugs);
+  const candidates = (catalog?.models ?? []).filter(
+    (entry) => entry.status === "current" && served.has(entry.slug),
+  );
   const added = new Map<string, Array<ServerProviderModel>>();
-  for (const slug of new Set(candidates)) {
+  for (const entry of candidates) {
+    const slug = entry.slug;
     const match = CHAT_MODEL_SLUG.exec(slug);
     if (listed.has(slug) || !match) continue;
     const [, version = "", line] = match;
@@ -97,7 +94,6 @@ export function withCodexCustomProviderModels(
     ) {
       continue;
     }
-    const entry = catalogBySlug.get(slug);
     const {
       isDefault: _default,
       aliases: _aliases,
@@ -109,9 +105,9 @@ export function withCodexCustomProviderModels(
     const model: ServerProviderModel = {
       ...rest,
       slug,
-      name: entry?.name ?? formatCodexModelName(slug),
-      ...(entry?.shortName ? { shortName: entry.shortName } : {}),
-      ...(entry?.badge ? { badge: entry.badge } : {}),
+      name: entry.name,
+      ...(entry.shortName ? { shortName: entry.shortName } : {}),
+      ...(entry.badge ? { badge: entry.badge } : {}),
     };
     added.set(template.slug, [...(added.get(template.slug) ?? []), model]);
   }

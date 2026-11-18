@@ -450,9 +450,15 @@ describe("ModelManifest service", () => {
         ]);
 
         fork = null;
+        upstream = { ...REMOTE_CLAUDE_MANIFEST, updatedAt: "2100-01-01T00:00:00Z" };
+        assert.deepStrictEqual(claudeModels(yield* service.forceRefresh), [
+          "fork-model:current",
+          "remote-only-model:current",
+        ]);
+
         upstream = {
           ...REMOTE_CLAUDE_MANIFEST,
-          updatedAt: "2100-01-01T00:00:00Z",
+          updatedAt: "2100-02-01T00:00:00Z",
           providers: {
             claudeAgent: {
               ...REMOTE_CLAUDE_MANIFEST.providers!.claudeAgent!,

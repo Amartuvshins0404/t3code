@@ -118,7 +118,7 @@ prManifests.sort(
   (left, right) => dateMs(left.manifest ?? undefined) - dateMs(right.manifest ?? undefined),
 );
 for (const { pr, manifest } of prManifests) {
-  if (manifest === null || dateMs(manifest) <= dateMs(main)) continue;
+  if (manifest === null) continue;
   for (const [driver, catalog] of Object.entries(manifest.providers ?? {})) {
     const upstream = main.providers?.[driver]?.models ?? [];
     const added = catalog.models.filter(

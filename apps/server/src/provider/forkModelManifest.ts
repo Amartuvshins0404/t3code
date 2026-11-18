@@ -9,8 +9,8 @@ const updatedAtMs = (manifest: ModelManifestData) => {
 };
 
 /**
- * Adds the fork's models to upstream's list. Upstream entries stay unless the fork file is newer;
- * fork-only models come first, and a model upstream also lists is never shown twice.
+ * Adds the fork's models to upstream's list. Upstream entries stay unless the fork file is newer,
+ * and upstream's profiles always win; fork-only models come first and are never shown twice.
  */
 export function mergeForkModelManifest(
   base: ModelManifestData,
@@ -29,9 +29,7 @@ export function mergeForkModelManifest(
     const defaults = forkWins ? (overlay.defaults ?? upstream.defaults) : upstream.defaults;
     providers[driver] = {
       ...(defaults === undefined ? {} : { defaults }),
-      profiles: forkWins
-        ? { ...upstream.profiles, ...overlay.profiles }
-        : { ...overlay.profiles, ...upstream.profiles },
+      profiles: { ...overlay.profiles, ...upstream.profiles },
       models: [
         ...overlay.models.filter((model) => !upstreamSlugs.has(model.slug)),
         ...upstream.models.map((model) => (forkWins && overlayBySlug.get(model.slug)) || model),
