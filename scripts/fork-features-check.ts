@@ -100,6 +100,13 @@ const FORK_FEATURES: ReadonlyArray<{
     ],
   },
   {
+    name: "New models reach the owner without upstream or a release",
+    tests: [
+      "apps/server/src/provider/ModelManifest.test.ts",
+      "apps/server/src/provider/codexProviderModels.test.ts",
+    ],
+  },
+  {
     name: "Cloning a repo already on disk opens it",
     tests: ["apps/server/src/sourceControl/SourceControlRepositoryService.test.ts"],
   },

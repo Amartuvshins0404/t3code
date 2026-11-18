@@ -18,6 +18,8 @@ import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { ServerConfig } from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { hasValidClaudeManifestAdapters } from "./ClaudeModelManifest.ts";
+import { FORK_MODEL_MANIFEST_URL, mergeForkModelManifest } from "./forkModelManifest.ts";
+import bundledForkManifestJson from "./model-manifest.fork.json" with { type: "json" };
 import bundledManifestJson from "./model-manifest.json" with { type: "json" };
 import { ProviderCompatibilityPolicy } from "./providerCompatibility.ts";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
@@ -104,8 +106,23 @@ export type ModelManifestData = typeof ModelManifestSchema.Type;
 
 const decodeManifest = Schema.decodeUnknownEffect(ModelManifestSchema);
 
-export const BUNDLED_MODEL_MANIFEST: ModelManifestData =
+const BUNDLED_UPSTREAM_MANIFEST: ModelManifestData =
   Schema.decodeUnknownSync(ModelManifestSchema)(bundledManifestJson);
+const BUNDLED_FORK_MANIFEST: ModelManifestData =
+  Schema.decodeUnknownSync(ModelManifestSchema)(bundledForkManifestJson);
+const isModelManifest = Schema.is(ModelManifestSchema);
+
+export const BUNDLED_FORK_MODEL_MANIFEST = BUNDLED_FORK_MANIFEST;
+
+export const withForkModels = (upstream: ModelManifestData, fork: ModelManifestData) => {
+  const merged = mergeForkModelManifest(upstream, fork);
+  return isModelManifest(merged) ? merged : upstream;
+};
+
+export const BUNDLED_MODEL_MANIFEST: ModelManifestData = withForkModels(
+  BUNDLED_UPSTREAM_MANIFEST,
+  BUNDLED_FORK_MANIFEST,
+);
 
 function manifestUpdatedAtMs(manifest: ModelManifestData): number {
   if (manifest.updatedAt === undefined) return 0;
@@ -203,7 +220,13 @@ export const make = Effect.gen(function* () {
   const serviceScope = yield* Effect.scope;
 
   const cachePath = path.join(config.stateDir, "model-manifest.json");
-  let manifest = BUNDLED_MODEL_MANIFEST;
+  let manifest = BUNDLED_UPSTREAM_MANIFEST;
+  let forkManifest = BUNDLED_FORK_MANIFEST;
+  let merged = BUNDLED_MODEL_MANIFEST;
+  const remerge = () => {
+    merged = withForkModels(manifest, forkManifest);
+    return merged;
+  };
   let fetchedAtMs: number | null = null;
   let lastAttemptMs: number | null = null;
   const refreshSemaphore = yield* Semaphore.make(1);
@@ -216,13 +239,23 @@ export const make = Effect.gen(function* () {
         Effect.catchCause(() => Effect.succeed(null)),
       );
       if (fromDisk === null) return;
-      if (manifestUpdatedAtMs(BUNDLED_MODEL_MANIFEST) > manifestUpdatedAtMs(fromDisk.manifest)) {
+      if (manifestUpdatedAtMs(BUNDLED_UPSTREAM_MANIFEST) > manifestUpdatedAtMs(fromDisk.manifest)) {
         return;
       }
       manifest = fromDisk.manifest;
       fetchedAtMs = fromDisk.fetchedAtMs;
+      remerge();
     }),
   );
+
+  const fetchManifest = (url: string) =>
+    httpClient.get(url).pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap((response) => response.json),
+      Effect.flatMap((json) => decodeManifest(json)),
+      Effect.timeout(FETCH_TIMEOUT_MS),
+      Effect.catchCause(() => Effect.succeed(null)),
+    );
 
   const refresh = Effect.fn("ModelManifest.refresh")(function* (
     force = false,
@@ -233,25 +266,28 @@ export const make = Effect.gen(function* () {
     // Expire future timestamps after clock rollback; disk caches cross restarts, ruling out monotonic time.
     const isWithin = (sinceMs: number | null, windowMs: number) =>
       sinceMs !== null && now >= sinceMs && now - sinceMs < windowMs;
-    if (!force && isWithin(fetchedAtMs, ttlMs)) return manifest;
-    if (!force && isWithin(lastAttemptMs, MANIFEST_RETRY_MS)) return manifest;
+    if (!force && isWithin(fetchedAtMs, ttlMs)) return merged;
+    if (!force && isWithin(lastAttemptMs, MANIFEST_RETRY_MS)) return merged;
 
     const settings = yield* settingsService.getSettings.pipe(
       Effect.catchCause(() => Effect.succeed(null)),
     );
-    if (settings !== null && !settings.enableProviderUpdateChecks) return manifest;
+    if (settings !== null && !settings.enableProviderUpdateChecks) return merged;
 
     lastAttemptMs = now;
-    const fetched = yield* httpClient.get(MODEL_MANIFEST_URL).pipe(
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap((response) => response.json),
-      Effect.flatMap((json) => decodeManifest(json)),
-      Effect.timeout(FETCH_TIMEOUT_MS),
-      Effect.catchCause(() => Effect.succeed(null)),
+    const [fetched, fetchedFork] = yield* Effect.all(
+      [fetchManifest(MODEL_MANIFEST_URL), fetchManifest(FORK_MODEL_MANIFEST_URL)],
+      { concurrency: 2 },
     );
+    if (
+      fetchedFork !== null &&
+      manifestUpdatedAtMs(fetchedFork) >= manifestUpdatedAtMs(forkManifest)
+    ) {
+      forkManifest = fetchedFork;
+    }
     // Reject stale CDN edits just like stale disk caches to preserve bundled version gates.
     if (fetched === null || manifestUpdatedAtMs(fetched) < manifestUpdatedAtMs(manifest)) {
-      return manifest;
+      return remerge();
     }
 
     manifest = fetched;
@@ -262,13 +298,13 @@ export const make = Effect.gen(function* () {
       Effect.provideService(Path.Path, path),
       Effect.ignoreCause,
     );
-    return manifest;
+    return remerge();
   });
 
   const guardedRefresh = refreshSemaphore.withPermits(1)(refresh());
 
   return ModelManifest.of({
-    current: ensureDiskCacheLoaded.pipe(Effect.map(() => manifest)),
+    current: ensureDiskCacheLoaded.pipe(Effect.map(() => merged)),
     refresh: guardedRefresh,
     forceRefresh: refreshSemaphore.withPermits(1)(refresh(true)),
     refreshOnDemand: refreshSemaphore.withPermits(1)(refresh(false, MANIFEST_ON_DEMAND_TTL_MS)),

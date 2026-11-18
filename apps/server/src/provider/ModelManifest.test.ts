@@ -11,6 +11,7 @@ import { HttpClient, HttpClientResponse } from "effect/http";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { FORK_MODEL_MANIFEST_URL } from "./forkModelManifest.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 
 describe("resolveProviderCatalog", () => {
@@ -248,10 +249,22 @@ const INVALID_REMOTE_MANIFESTS: ReadonlyArray<ModelManifest.ModelManifestData> =
   }),
 ];
 
+const withBundledForkModels = (manifest: ModelManifest.ModelManifestData) =>
+  ModelManifest.withForkModels(manifest, ModelManifest.BUNDLED_FORK_MODEL_MANIFEST);
+const REMOTE_WITH_FORK = withBundledForkModels(REMOTE_MANIFEST);
+const REMOTE_CLAUDE_WITH_FORK = withBundledForkModels(REMOTE_CLAUDE_MANIFEST);
+
 const layerHttpClient = (handler: () => Response) =>
   Layer.succeed(
     HttpClient.HttpClient,
-    HttpClient.make((request) => Effect.succeed(HttpClientResponse.fromWeb(request, handler()))),
+    HttpClient.make((request) =>
+      Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          request.url === FORK_MODEL_MANIFEST_URL ? new Response(null, { status: 404 }) : handler(),
+        ),
+      ),
+    ),
   );
 
 const layerService = (input: {
@@ -270,10 +283,10 @@ describe("ModelManifest service", () => {
     Effect.gen(function* () {
       const service = yield* ModelManifest.make;
       const refreshed = yield* service.refresh;
-      assert.deepStrictEqual(refreshed, REMOTE_MANIFEST);
+      assert.deepStrictEqual(refreshed, REMOTE_WITH_FORK);
 
       const rebooted = yield* ModelManifest.make;
-      assert.deepStrictEqual(yield* rebooted.current, REMOTE_MANIFEST);
+      assert.deepStrictEqual(yield* rebooted.current, REMOTE_WITH_FORK);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -295,11 +308,11 @@ describe("ModelManifest service", () => {
         assert.deepStrictEqual(yield* service.current, ModelManifest.BUNDLED_MODEL_MANIFEST);
 
         remote = { ...REMOTE_MANIFEST, updatedAt: REMOTE_UPDATED_AT };
-        assert.deepStrictEqual(yield* service.forceRefresh, REMOTE_MANIFEST);
+        assert.deepStrictEqual(yield* service.forceRefresh, REMOTE_WITH_FORK);
         remote = { ...REMOTE_MANIFEST, updatedAt: ModelManifest.BUNDLED_MODEL_MANIFEST.updatedAt! };
-        assert.deepStrictEqual(yield* service.forceRefresh, REMOTE_MANIFEST);
+        assert.deepStrictEqual(yield* service.forceRefresh, REMOTE_WITH_FORK);
         const rebooted = yield* ModelManifest.make;
-        assert.deepStrictEqual(yield* rebooted.current, REMOTE_MANIFEST);
+        assert.deepStrictEqual(yield* rebooted.current, REMOTE_WITH_FORK);
       }).pipe(
         Effect.scoped,
         Effect.provide(
@@ -318,16 +331,16 @@ describe("ModelManifest service", () => {
 
     return Effect.gen(function* () {
       const service = yield* ModelManifest.make;
-      assert.deepStrictEqual(yield* service.refresh, REMOTE_CLAUDE_MANIFEST);
+      assert.deepStrictEqual(yield* service.refresh, REMOTE_CLAUDE_WITH_FORK);
 
       for (const _invalid of INVALID_REMOTE_MANIFESTS) {
         yield* TestClock.adjust("1 hour");
         responseIndex += 1;
-        assert.deepStrictEqual(yield* service.refresh, REMOTE_CLAUDE_MANIFEST);
+        assert.deepStrictEqual(yield* service.refresh, REMOTE_CLAUDE_WITH_FORK);
       }
 
       const rebooted = yield* ModelManifest.make;
-      assert.deepStrictEqual(yield* rebooted.current, REMOTE_CLAUDE_MANIFEST);
+      assert.deepStrictEqual(yield* rebooted.current, REMOTE_CLAUDE_WITH_FORK);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -391,7 +404,7 @@ describe("ModelManifest service", () => {
         yield* ModelManifest.encodeManifestCache({ fetchedAtMs: 0, manifest: REMOTE_MANIFEST }),
       );
       const later = yield* ModelManifest.make;
-      assert.deepStrictEqual(yield* later.current, REMOTE_MANIFEST);
+      assert.deepStrictEqual(yield* later.current, REMOTE_WITH_FORK);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -401,6 +414,83 @@ describe("ModelManifest service", () => {
         }),
       ),
     ),
+  );
+
+  it.effect(
+    "adds the fork's models without doubles and keeps them when the fork file is offline",
+    () => {
+      const forkClaude = (updatedAt: string): ModelManifest.ModelManifestData => ({
+        version: 1,
+        updatedAt,
+        currentModels: {},
+        providers: {
+          claudeAgent: {
+            profiles: REMOTE_CLAUDE_MANIFEST.providers!.claudeAgent!.profiles,
+            models: [
+              { slug: "fork-model", name: "Fork Model", status: "current", profile: "synthetic" },
+              {
+                slug: "remote-only-model",
+                name: "Remote Only Model",
+                status: "legacy",
+                profile: "synthetic",
+              },
+            ],
+          },
+        },
+      });
+      let upstream: unknown = REMOTE_CLAUDE_MANIFEST;
+      let fork: unknown = forkClaude("2099-06-01T00:00:00Z");
+      const claudeModels = (manifest: ModelManifest.ModelManifestData) =>
+        manifest.providers?.claudeAgent?.models.map((model) => `${model.slug}:${model.status}`);
+      return Effect.gen(function* () {
+        const service = yield* ModelManifest.make;
+        assert.deepStrictEqual(claudeModels(yield* service.refresh), [
+          "fork-model:current",
+          "remote-only-model:legacy",
+        ]);
+
+        fork = null;
+        upstream = {
+          ...REMOTE_CLAUDE_MANIFEST,
+          updatedAt: "2100-01-01T00:00:00Z",
+          providers: {
+            claudeAgent: {
+              ...REMOTE_CLAUDE_MANIFEST.providers!.claudeAgent!,
+              models: [
+                ...REMOTE_CLAUDE_MANIFEST.providers!.claudeAgent!.models,
+                { slug: "fork-model", name: "Fork Model", status: "current", profile: "synthetic" },
+              ],
+            },
+          },
+        };
+        assert.deepStrictEqual(claudeModels(yield* service.forceRefresh), [
+          "remote-only-model:current",
+          "fork-model:current",
+        ]);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          ServerConfig.layerTest(process.cwd(), { prefix: "model-manifest-fork-test" }).pipe(
+            Layer.provideMerge(NodeServices.layer),
+            Layer.provideMerge(ServerSettings.layerTest({})),
+            Layer.provideMerge(
+              Layer.succeed(
+                HttpClient.HttpClient,
+                HttpClient.make((request) => {
+                  const body = request.url === FORK_MODEL_MANIFEST_URL ? fork : upstream;
+                  return Effect.succeed(
+                    HttpClientResponse.fromWeb(
+                      request,
+                      body === null ? new Response(null, { status: 503 }) : Response.json(body),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
   );
 
   it.effect("does not fetch when provider update checks are disabled", () =>

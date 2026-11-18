@@ -27,6 +27,8 @@ Remotes: `origin` is upstream and is never pushed to. `fork` is `Amartuvshins040
 - The master agent: one constant thread with memory that hands off work and hears back.
 - The Code map tab: a change map of what a thread added, changed, moved or deleted, with a whole-repo view behind a toggle.
 - The CI bots: Merge Lane, Blind Checks and the ledger (see [operations/merge-lanes.md](operations/merge-lanes.md)).
+- New models without waiting for upstream: the app reads the fork's own `apps/server/src/provider/model-manifest.fork.json` from `amaraa-mode` every hour beside upstream's list, and a Codex instance with its own model provider (the CLI Proxy) also offers newer models the proxy serves. `vp run models:sync` fills the fork file from open upstream PRs that add models; commit what it changes, no release needed.
+- The desktop app checks for updates every 30 minutes and when the Mac wakes (upstream checks every 4 hours).
 
 ## Traps
 
@@ -36,3 +38,4 @@ Remotes: `origin` is upstream and is never pushed to. `fork` is `Amartuvshins040
 - **Teammates are allowed listed methods only.** `apps/server/src/team/TeamMemberAccess.ts` denies new upstream RPC methods and HTTP routes to teammates until they are added there.
 - **The team proxy key uses file descriptor 5 for Claude.** Upstream uses descriptor 4 for its launch gate.
 - **Fork desktop tests need a file system for `DesktopEnvironment`.** It reads the owner name from the server settings file.
+- **Upstream's model list edits stay in `model-manifest.json`.** Take upstream's version of that file whole; fork models live only in `model-manifest.fork.json`. Keep `AUTO_UPDATE_POLL_INTERVAL` at 30 minutes and the `resume` check in `apps/desktop/src/updates/DesktopUpdates.ts`.
